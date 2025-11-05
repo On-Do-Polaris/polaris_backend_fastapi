@@ -1,81 +1,88 @@
-"""
-Workflow Visualization Script
-워크플로우 시각화 스크립트
-"""
+'''
+파일명: visualize_workflow.py
+최종 수정일: 2025-11-05
+버전: v00
+파일 개요: 워크플로우 시각화 스크립트 (Mermaid 다이어그램 및 PNG 생성)
+'''
 from config.settings import Config
 from workflow import create_workflow_graph, visualize_workflow, print_workflow_structure
 
 
 def main():
-    """
-    워크플로우 그래프 생성 및 시각화
-    """
-    print("=" * 70)
-    print("SKAX 물리적 리스크 분석 워크플로우 시각화")
-    print("=" * 70)
-    print()
+	"""
+	워크플로우 그래프 생성 및 시각화
+	Mermaid 다이어그램(.mmd)과 PNG 이미지 생성
 
-    # 설정 로드
-    config = Config()
+	Returns:
+		None
+	"""
+	print("=" * 70)
+	print("SKAX Physical Risk Analysis Workflow Visualization")
+	print("=" * 70)
+	print()
 
-    # 워크플로우 그래프 생성
-    print("[1] 워크플로우 그래프 생성 중...")
-    graph = create_workflow_graph(config)
-    print("[OK] 워크플로우 그래프 생성 완료")
-    print()
+	# 설정 로드
+	config = Config()
 
-    # 텍스트 구조 출력
-    print("[2] 워크플로우 구조 출력:")
-    print_workflow_structure()
-    print()
+	# 워크플로우 그래프 생성
+	print("[1] Workflow graph creating...")
+	graph = create_workflow_graph(config)
+	print("[OK] Workflow graph creation completed")
+	print()
 
-    # 시각화
-    print("[3] 워크플로우 시각화 생성 중...")
+	# 텍스트 구조 출력
+	print("[2] Workflow structure:")
+	print_workflow_structure()
+	print()
 
-    # 3-1. Mermaid 다이어그램 생성
-    print("  [3-1] Mermaid 다이어그램 생성 중...")
-    try:
-        mermaid_diagram = graph.get_graph().draw_mermaid()
+	# 시각화
+	print("[3] Workflow visualization generating...")
 
-        # workflow_diagram.mmd 파일로 저장
-        with open("workflow_diagram.mmd", 'w', encoding='utf-8') as f:
-            f.write(mermaid_diagram)
+	# 3-1. Mermaid 다이어그램 생성
+	print("  [3-1] Mermaid diagram generating...")
+	try:
+		mermaid_diagram = graph.get_graph().draw_mermaid()
 
-        print("  [OK] Mermaid 다이어그램이 'workflow_diagram.mmd'에 저장되었습니다.")
+		# workflow_diagram.mmd 파일로 저장
+		with open("workflow_diagram.mmd", 'w', encoding='utf-8') as f:
+			f.write(mermaid_diagram)
 
-    except Exception as e:
-        print(f"  [ERROR] Mermaid 다이어그램 생성 실패: {e}")
+		print("  [OK] Mermaid diagram saved to 'workflow_diagram.mmd'")
 
-    # 3-2. PNG 이미지 생성
-    print("  [3-2] PNG 이미지 생성 중...")
-    try:
-        png_data = graph.get_graph().draw_mermaid_png()
+	except Exception as e:
+		print(f"  [ERROR] Mermaid diagram generation failed: {e}")
 
-        # workflow_diagram.png 파일로 저장
-        with open("workflow_diagram.png", 'wb') as f:
-            f.write(png_data)
+	# 3-2. PNG 이미지 생성
+	print("  [3-2] PNG image generating...")
+	try:
+		png_data = graph.get_graph().draw_mermaid_png()
 
-        print("  [OK] PNG 이미지가 'workflow_diagram.png'에 저장되었습니다.")
+		# workflow_diagram.png 파일로 저장
+		with open("workflow_diagram.png", 'wb') as f:
+			f.write(png_data)
 
-    except ImportError as e:
-        print("  [WARN] PNG 생성을 위한 라이브러리가 없습니다.")
-        print("  [INFO] 설치: pip install 'pygraphviz' 또는 'pillow'")
-    except Exception as e:
-        print(f"  [WARN] PNG 이미지 생성 실패: {e}")
-        print("  [INFO] Mermaid 다이어그램 파일(.mmd)을 https://mermaid.live 에서 변환하세요.")
+		print("  [OK] PNG image saved to 'workflow_diagram.png'")
 
-    print()
-    print("=" * 70)
-    print("생성된 파일:")
-    print("  - workflow_diagram.mmd (Mermaid 다이어그램)")
-    print("  - workflow_diagram.png (PNG 이미지, 생성 가능한 경우)")
-    print()
-    print("Mermaid 다이어그램 보기: https://mermaid.live")
-    print("=" * 70)
+	except ImportError as e:
+		print("  [WARN] Required library for PNG generation not found")
+		print("  [INFO] Install: pip install 'pillow'")
+	except Exception as e:
+		print(f"  [WARN] PNG image generation failed: {e}")
+		print("  [INFO] Convert Mermaid diagram(.mmd) at https://mermaid.live")
 
-    print()
-    print("[완료] 워크플로우 시각화 프로세스 완료")
+	print()
+	print("=" * 70)
+	print("Generated files:")
+	print("  - workflow_diagram.mmd (Mermaid diagram)")
+	print("  - workflow_diagram.png (PNG image, if available)")
+	print()
+	print("View Mermaid diagram: https://mermaid.live")
+	print("  (SVG/PNG conversion available)")
+	print("=" * 70)
+
+	print()
+	print("[COMPLETED] Workflow visualization process completed")
 
 
 if __name__ == "__main__":
-    main()
+	main()

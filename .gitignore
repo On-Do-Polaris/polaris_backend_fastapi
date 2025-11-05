@@ -78,6 +78,7 @@ results/
 *.png
 *.jpg
 *.jpeg
+*.svg
 # Keep workflow diagram
 !workflow_diagram.png
 !workflow_diagram.mmd

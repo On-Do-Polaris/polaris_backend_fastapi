@@ -135,7 +135,8 @@ python visualize_workflow.py
 
 **시각화 보기:**
 - PNG 이미지: `workflow_diagram.png` 파일을 직접 열기
-- 온라인 편집: https://mermaid.live 에서 `workflow_diagram.mmd` 내용 붙여넣기
+- 온라인 편집/변환: https://mermaid.live 에서 `workflow_diagram.mmd` 내용 붙여넣기
+  - Mermaid Live에서 PNG, SVG, PDF 등 다양한 형식으로 export 가능
 
 ## 분석 흐름 (LangGraph 기반)
 

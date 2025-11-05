@@ -1,0 +1,124 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Cache
+.cache/
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.coverage
+htmlcov/
+*.cover
+.hypothesis/
+
+# Reports and Outputs
+reports/
+output/
+results/
+*.pdf
+*.html
+*.png
+*.jpg
+*.jpeg
+# Keep workflow diagram
+!workflow_diagram.png
+!workflow_diagram.mmd
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Claude Code specific
+.claude/
+
+# Project specific
+workflow_graph.mmd
+workflow_graph.png
+workflow_graph_*.mmd
+workflow_graph_*.png
+
+# Data files (if any)
+data/
+*.csv
+*.xlsx
+*.json
+!config/*.json
+
+# API keys and secrets
+secrets/
+credentials/
+*.key
+*.pem
+
+# Testing
+.tox/
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/

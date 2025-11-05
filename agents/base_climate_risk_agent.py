@@ -1,0 +1,114 @@
+"""
+Base Climate Risk Agent
+기후 리스크 에이전트 베이스 클래스
+"""
+from abc import ABC, abstractmethod
+from typing import Dict, Any
+
+
+class BaseClimateRiskAgent(ABC):
+    """
+    기후 리스크 에이전트 추상 베이스 클래스
+    모든 기후 리스크 에이전트는 이 클래스를 상속받아 구현
+
+    Risk Score = Hazard * Exposure * Vulnerability
+    """
+
+    def __init__(self, config):
+        self.config = config
+        self.risk_name = self.__class__.__name__.replace('RiskAgent', '')
+
+    def calculate_risk(self, data: Dict, ssp_weights: Dict[str, float]) -> Dict[str, Any]:
+        """
+        전체 리스크 스코어 계산
+
+        Args:
+            data: 수집된 기후 데이터
+            ssp_weights: SSP 시나리오별 가중치
+
+        Returns:
+            리스크 분석 결과
+        """
+        print(f"  [{self.risk_name}] 리스크 계산 중...")
+
+        # Hazard, Exposure, Vulnerability 각각 계산
+        hazard_score = self.calculate_hazard(data, ssp_weights)
+        exposure_score = self.calculate_exposure(data)
+        vulnerability_score = self.calculate_vulnerability(data)
+
+        # Risk Score = H * E * V
+        risk_score = hazard_score * exposure_score * vulnerability_score
+
+        result = {
+            'risk_type': self.risk_name,
+            'hazard': hazard_score,
+            'exposure': exposure_score,
+            'vulnerability': vulnerability_score,
+            'risk_score': risk_score,
+            'details': self._get_detailed_analysis(data, ssp_weights)
+        }
+
+        return result
+
+    @abstractmethod
+    def calculate_hazard(self, data: Dict, ssp_weights: Dict[str, float]) -> float:
+        """
+        Hazard (위해성) 지수 계산
+        - 기후 현상의 강도와 빈도
+        - SSP 시나리오별 가중치 적용
+
+        Args:
+            data: 수집된 기후 데이터
+            ssp_weights: SSP 시나리오별 가중치
+
+        Returns:
+            Hazard 스코어 (0-1)
+        """
+        pass
+
+    @abstractmethod
+    def calculate_exposure(self, data: Dict) -> float:
+        """
+        Exposure (노출도) 지수 계산
+        - 자산, 인구, 인프라의 위치와 규모
+        - 리스크 영향 범위 내 노출 정도
+
+        Args:
+            data: 수집된 기후 데이터
+
+        Returns:
+            Exposure 스코어 (0-1)
+        """
+        pass
+
+    @abstractmethod
+    def calculate_vulnerability(self, data: Dict) -> float:
+        """
+        Vulnerability (취약성) 지수 계산
+        - 적응 능력
+        - 민감도
+        - 대응 역량
+
+        Args:
+            data: 수집된 기후 데이터
+
+        Returns:
+            Vulnerability 스코어 (0-1)
+        """
+        pass
+
+    def _get_detailed_analysis(self, data: Dict, ssp_weights: Dict[str, float]) -> Dict:
+        """
+        상세 분석 정보 생성 (선택적 구현)
+        """
+        return {}
+
+    def _normalize_score(self, score: float, min_val: float = 0.0, max_val: float = 1.0) -> float:
+        """
+        스코어 정규화 (0-1 범위)
+        """
+        if score < min_val:
+            return min_val
+        if score > max_val:
+            return max_val
+        return score

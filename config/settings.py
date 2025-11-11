@@ -1,8 +1,11 @@
 '''
 파일명: settings.py
-최종 수정일: 2025-11-05
-버전: v00
-파일 개요: SKAX 물리적 리스크 분석 설정 클래스 정의
+최종 수정일: 2025-11-11
+버전: v03
+파일 개요: SKAX 물리적 리스크 분석 설정 클래스 정의 (Super Agent 구조)
+변경 이력:
+	- 2025-11-05: v00 - 초기 설정
+	- 2025-11-11: v03 - Super Agent 구조에 맞게 업데이트
 '''
 import os
 from typing import Dict, Any
@@ -67,63 +70,72 @@ class Config:
 			'probability_calculation_method': 'bayesian'  # 'bayesian', 'expert', 'equal'
 		}
 
-		# ===== 기후 리스크 설정 =====
+		# ===== 기후 리스크 설정 (9개 리스크) =====
 		self.CLIMATE_RISKS = {
 			'high_temperature': {
 				'enabled': True,
+				'name': '극심한 고온',
 				'threshold_extreme': 35.0,  # Celsius
-				'threshold_heatwave': 33.0,
-				'weight': 1.0
+				'threshold_heatwave': 33.0
 			},
 			'cold_wave': {
 				'enabled': True,
+				'name': '극심한 한파',
 				'threshold_extreme': -15.0,  # Celsius
-				'threshold_coldwave': -10.0,
-				'snowstorm_weight': 0.2,
-				'weight': 1.0
-			},
-			'sea_level_rise': {
-				'enabled': False,  # FROZEN
-				'weight': 0.8
-			},
-			'drought': {
-				'enabled': True,
-				'threshold_precipitation_deficit': 0.3,  # 30% below normal
-				'threshold_dry_spell_days': 30,
-				'weight': 1.2
+				'threshold_coldwave': -10.0
 			},
 			'wildfire': {
 				'enabled': True,
-				'fire_weather_index_threshold': 30,
-				'weight': 1.1
+				'name': '산불',
+				'fire_weather_index_threshold': 30
+			},
+			'drought': {
+				'enabled': True,
+				'name': '가뭄',
+				'threshold_precipitation_deficit': 0.3,  # 30% below normal
+				'threshold_dry_spell_days': 30
+			},
+			'water_scarcity': {
+				'enabled': True,
+				'name': '물 부족'
+			},
+			'coastal_flood': {
+				'enabled': True,
+				'name': '해안 홍수',
+				'extreme_rainfall_threshold': 100  # mm/day
+			},
+			'inland_flood': {
+				'enabled': True,
+				'name': '내륙 홍수',
+				'extreme_rainfall_threshold': 150  # mm/day
+			},
+			'urban_flood': {
+				'enabled': True,
+				'name': '도심 홍수',
+				'hourly_rainfall_threshold': 50  # mm/hr
 			},
 			'typhoon': {
 				'enabled': True,
-				'wind_speed_threshold': 17.2,  # m/s (Beaufort scale 8)
-				'weight': 1.3
-			},
-			'water_scarcity': {
-				'enabled': False,  # FROZEN
-				'weight': 0.8
-			},
-			'flood': {
-				'enabled': True,
-				'extreme_rainfall_threshold': 100,  # mm/day
-				'weight': 1.2
+				'name': '열대성 태풍',
+				'wind_speed_threshold': 17.2  # m/s (Beaufort scale 8)
 			}
 		}
 
-		# ===== 리스크 통합 설정 =====
-		self.RISK_INTEGRATION = {
-			'normalization_method': 'min-max',  # 'min-max', 'z-score', 'percentile'
-			'aggregation_method': 'weighted_average',  # 'weighted_average', 'maximum', 'geometric_mean'
-			'compound_risk_weight': 0.15,
-			'correlation_threshold': 0.5
+		# ===== AAL 계산 설정 =====
+		self.AAL_CONFIG = {
+			'default_insurance_coverage_rate': 0.0,  # 기본 보험보전율 0%
+			'max_damage_rate': 1.0  # 최대 손상률 100%
 		}
 
-		# 리스크 등급 분류 기준
+		# ===== 물리적 리스크 점수 설정 =====
+		self.PHYSICAL_RISK_SCORE_CONFIG = {
+			'normalization_base': 1_000_000_000,  # 10억원 (100점 기준)
+			'max_score': 100.0  # 최대 점수
+		}
+
+		# 리스크 등급 분류 기준 (100점 스케일)
 		self.RISK_RATING_THRESHOLDS = {
-			'CRITICAL': 80,
+			'VERY_HIGH': 80,
 			'HIGH': 60,
 			'MEDIUM': 40,
 			'LOW': 20,
@@ -137,6 +149,29 @@ class Config:
 			'include_visualizations': True,
 			'language': 'ko',  # 'ko', 'en'
 			'template_dir': './templates'
+		}
+
+		# ===== LLM 설정 (대응 전략 생성용) =====
+		self.LLM_CONFIG = {
+			'provider': 'openai',  # 'openai', 'anthropic', 'local'
+			'model': 'gpt-4',
+			'api_key': os.getenv('OPENAI_API_KEY', ''),
+			'temperature': 0.7,
+			'max_tokens': 2000
+		}
+
+		# ===== RAG 설정 (유사 보고서 검색용) =====
+		self.RAG_CONFIG = {
+			'vector_db': 'chromadb',  # 'chromadb', 'faiss'
+			'embedding_model': 'sentence-transformers/all-MiniLM-L6-v2',
+			'top_k': 5,  # 검색할 유사 문서 수
+			'similarity_threshold': 0.7
+		}
+
+		# ===== 검증 설정 =====
+		self.VALIDATION_CONFIG = {
+			'max_retry_count': 3,  # 최대 재시도 횟수
+			'enable_auto_retry': True
 		}
 
 		# ===== 분석 파라미터 =====

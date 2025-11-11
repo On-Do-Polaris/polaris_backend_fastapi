@@ -1,8 +1,11 @@
 '''
 파일명: main.py
-최종 수정일: 2025-11-05
-버전: v00
-파일 개요: SKAX 물리적 리스크 분석 메인 오케스트레이터 (LangGraph 기반)
+최종 수정일: 2025-11-11
+버전: v03
+파일 개요: SKAX 물리적 리스크 분석 메인 오케스트레이터 (Super Agent 계층 구조)
+변경 이력:
+	- 2025-11-05: v00 - 초기 LangGraph 구조
+	- 2025-11-11: v03 - Super Agent 계층 구조로 전면 개편
 '''
 from config.settings import Config
 from workflow import create_workflow_graph, print_workflow_structure
@@ -11,7 +14,7 @@ from workflow import create_workflow_graph, print_workflow_structure
 class SKAXPhysicalRiskAnalyzer:
 	"""
 	SKAX 물리적 리스크 분석 메인 오케스트레이터
-	LangGraph 기반 워크플로우 실행 및 관리
+	Super Agent 계층 구조: 18개 Sub Agent (AAL 9개 + Physical Risk Score 9개)
 	"""
 
 	def __init__(self, config: Config):
@@ -21,41 +24,65 @@ class SKAXPhysicalRiskAnalyzer:
 		Args:
 			config: 설정 객체
 		"""
-		self.config = config  # 설정 객체 저장
+		self.config = config
 
 		# LangGraph 워크플로우 생성
-		print("[INFO] LangGraph workflow creating...")
+		print("[INFO] LangGraph workflow creating (Super Agent structure)...")
 		self.workflow_graph = create_workflow_graph(config)
-		print("[INFO] Workflow creation completed")
+		print("[INFO] Workflow creation completed (9 Nodes, 18 Sub Agents)")
 
-	def analyze(self, target_location: dict, analysis_params: dict) -> dict:
+	def analyze(
+		self,
+		target_location: dict,
+		building_info: dict,
+		asset_info: dict,
+		analysis_params: dict
+	) -> dict:
 		"""
 		전체 물리적 리스크 분석 실행
 
 		Args:
-			target_location: 분석 대상 위치 정보 (위도, 경도, 이름 포함)
-			analysis_params: 분석 파라미터 (시간 범위, 분석 기간 등)
+			target_location: 분석 대상 위치 정보
+				- latitude: 위도
+				- longitude: 경도
+				- name: 위치명
+			building_info: 건물 정보
+				- building_age: 건물 연식 (년)
+				- has_seismic_design: 내진 설계 여부 (bool)
+				- fire_access: 소방차 진입 가능 여부 (bool)
+			asset_info: 자산 정보
+				- total_asset_value: 총 자산 가치 (원)
+				- insurance_coverage_rate: 보험보전율 (0.0 ~ 1.0)
+			analysis_params: 분석 파라미터
+				- time_horizon: 분석 시점 (예: '2050')
+				- analysis_period: 분석 기간 (예: '2025-2050')
 
 		Returns:
-			분석 결과 딕셔너리 (통합 리스크, 개별 리스크, 리포트 포함)
-
-		Raises:
-			Exception: 워크플로우 실행 중 오류 발생 시
+			분석 결과 딕셔너리
+				- vulnerability_analysis: 취약성 분석 결과
+				- aal_analysis: AAL 분석 결과 (9개 리스크)
+				- physical_risk_scores: 물리적 리스크 점수 (9개 리스크, 100점 스케일)
+				- report_template: 보고서 내용 구조 템플릿
+				- response_strategy: 대응 전략
+				- generated_report: 최종 보고서
+				- validation_result: 검증 결과
+				- workflow_status: 워크플로우 상태
 		"""
 		print("\n" + "=" * 70)
-		print("SKAX Physical Risk Analysis Start (LangGraph)")
+		print("SKAX Physical Risk Analysis Start (Super Agent Structure)")
 		print("=" * 70)
 
 		# 초기 상태 설정
 		initial_state = {
 			'target_location': target_location,
+			'building_info': building_info,
+			'asset_info': asset_info,
 			'analysis_params': analysis_params,
-			'climate_risk_scores': {},
-			'completed_risk_analyses': [],
 			'errors': [],
 			'logs': [],
 			'current_step': 'data_collection',
-			'workflow_status': 'in_progress'
+			'workflow_status': 'in_progress',
+			'retry_count': 0
 		}
 
 		# 워크플로우 실행
@@ -122,22 +149,29 @@ class SKAXPhysicalRiskAnalyzer:
 			for error in errors:
 				print(f"  - {error}")
 
-		# 통합 리스크 스코어
-		integrated_risk = result.get('integrated_risk', {})
-		if integrated_risk:
-			integrated_score = integrated_risk.get('integrated_score', 0)
-			risk_rating = integrated_risk.get('risk_rating', 'UNKNOWN')
-			print(f"\n[SCORE] Integrated Risk Score: {integrated_score:.2f} ({risk_rating})")
+		# 물리적 리스크 점수
+		physical_risk_scores = result.get('physical_risk_scores', {})
+		if physical_risk_scores:
+			print(f"\n[SCORE] Physical Risk Scores (100-point scale):")
+			sorted_risks = sorted(
+				physical_risk_scores.items(),
+				key=lambda x: x[1].get('physical_risk_score_100', 0),
+				reverse=True
+			)
+			for risk_type, risk_data in sorted_risks[:5]:
+				score = risk_data.get('physical_risk_score_100', 0)
+				level = risk_data.get('risk_level', 'Unknown')
+				financial_loss = risk_data.get('financial_loss', 0)
+				print(f"  {risk_type}: {score:.2f}/100 ({level}) - Loss: {financial_loss:,.0f}원")
 
-			# 상위 리스크
-			top_risks = integrated_risk.get('top_risks', [])
-			if top_risks:
-				print(f"\n[TOP] Top 3 Risks:")
-				for risk in top_risks[:3]:
-					print(f"  {risk['rank']}. {risk['risk_type']}: {risk['score']:.2f}")
+		# 검증 결과
+		validation_result = result.get('validation_result', {})
+		if validation_result:
+			is_valid = validation_result.get('is_valid', False)
+			print(f"\n[VALIDATION] Valid: {is_valid}")
 
 		# 리포트
-		report = result.get('report')
+		report = result.get('generated_report')
 		if report:
 			print(f"\n[REPORT] Report generated successfully")
 
@@ -185,6 +219,19 @@ def main():
 		'name': 'Seoul, South Korea'
 	}
 
+	# 건물 정보 설정
+	building_info = {
+		'building_age': 25,
+		'has_seismic_design': True,
+		'fire_access': True
+	}
+
+	# 자산 정보 설정
+	asset_info = {
+		'total_asset_value': 50000000000,  # 500억원
+		'insurance_coverage_rate': 0.7      # 보험보전율 70%
+	}
+
 	# 분석 파라미터 설정
 	analysis_params = {
 		'time_horizon': '2050',
@@ -192,7 +239,7 @@ def main():
 	}
 
 	# 분석 실행
-	results = analyzer.analyze(target_location, analysis_params)
+	results = analyzer.analyze(target_location, building_info, asset_info, analysis_params)
 
 	# 워크플로우 시각화
 	print("\n[INFO] Workflow graph generating...")

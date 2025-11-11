@@ -1,42 +1,68 @@
 '''
 파일명: state.py
-최종 수정일: 2025-11-05
-버전: v00
-파일 개요: LangGraph 워크플로우 상태 정의 (TypedDict 기반)
+최종 수정일: 2025-11-11
+버전: v01
+파일 개요: LangGraph 워크플로우 상태 정의 (계층적 Super Agent 구조용)
+변경 이력:
+	- 2025-11-11: v01 - Super Agent 계층적 구조로 전면 개편
 '''
 from typing import TypedDict, Dict, Any, List, Optional
 from typing_extensions import Annotated
 import operator
 
 
-class AnalysisState(TypedDict, total=False):
+class SuperAgentState(TypedDict, total=False):
 	"""
-	전체 분석 워크플로우의 상태 관리
-	LangGraph의 StateGraph에서 사용되는 상태 딕셔너리
+	Super Agent 최상위 계층 상태 관리
+	전체 워크플로우의 상태를 추적하고 관리
 	"""
 	# 입력 정보
-	target_location: Dict[str, Any]  # 분석 대상 위치 (위도, 경도, 이름)
-	analysis_params: Dict[str, Any]  # 분석 파라미터 (시간 범위, 분석 기간)
+	target_location: Dict[str, Any]  # 분석 대상 위치 (위도, 경도, 주소)
+	building_info: Dict[str, Any]  # 건물 정보 (연식, 구조, 용도)
+	asset_info: Dict[str, Any]  # 사업장 노출 자산 정보
+	analysis_params: Dict[str, Any]  # 분석 파라미터 (시간 범위, 시나리오)
 
 	# Step 1: 데이터 수집
 	collected_data: Optional[Dict[str, Any]]  # 수집된 기후 데이터
 	data_collection_status: str  # 데이터 수집 상태
 
-	# Step 2: SSP 시나리오 확률
-	ssp_probabilities: Optional[Dict[str, float]]  # SSP 시나리오별 가중치
-	ssp_calculation_status: str  # SSP 계산 상태
+	# Step 2: 취약성 분석
+	vulnerability_analysis: Optional[Dict[str, Any]]  # 취약성 분석 결과 (건물 연식, 내진 설계, 소방차 진입)
+	vulnerability_status: str  # 취약성 분석 상태
 
-	# Step 3: 8대 기후 리스크 (병렬 처리)
-	climate_risk_scores: Annotated[Dict[str, Any], operator.add]  # 기후 리스크 점수 (병합)
-	completed_risk_analyses: Annotated[List[str], operator.add]  # 완료된 리스크 분석 목록 (병합)
+	# Step 3: 리스크 분석 (9개 리스크로 분기)
+	selected_risks: List[str]  # 선정된 리스크 목록
+	risk_analysis_status: Dict[str, str]  # 각 리스크별 분석 상태
 
-	# Step 4: 리스크 통합
-	integrated_risk: Optional[Dict[str, Any]]  # 통합 리스크 결과
-	integration_status: str  # 통합 상태
+	# Step 4: 물리적 리스크별 종합 점수 산출 (Sub Agent 9개)
+	physical_risk_scores: Annotated[Dict[str, Any], operator.add]  # 리스크별 종합 점수 (병합)
+	physical_score_status: str  # 물리적 리스크 점수 산출 상태
 
-	# Step 5: 리포트 생성
-	report: Optional[Dict[str, Any]]  # 최종 리포트
+	# Step 5: 연평균 재무 손실률 분석 (Sub Agent 9개)
+	aal_analysis: Annotated[Dict[str, Any], operator.add]  # 리스크별 AAL 분석 결과 (병합)
+	aal_status: str  # AAL 분석 상태
+
+	# Step 6: 기존 보고서 참고 및 템플릿 형성
+	report_template: Optional[Dict[str, Any]]  # 생성된 리포트 템플릿
+	template_status: str  # 템플릿 생성 상태
+
+	# Step 7: 대응 전략 생성 (LLM + RAG)
+	response_strategy: Optional[Dict[str, Any]]  # LLM 기반 대응 전략
+	strategy_status: str  # 전략 생성 상태
+	llm_reasoning: Optional[str]  # LLM 추론 과정
+
+	# Step 8: 리포트 생성
+	generated_report: Optional[Dict[str, Any]]  # 생성된 리포트
 	report_status: str  # 리포트 생성 상태
+
+	# Step 9: 검증 (정확성/일관성 확인)
+	validation_result: Optional[Dict[str, Any]]  # 검증 결과
+	validation_status: str  # 검증 상태 (passed, failed)
+	validation_feedback: Optional[List[str]]  # 검증 피드백 (미달 시 개선 사항)
+
+	# Step 10: 최종 리포트
+	final_report: Optional[Dict[str, Any]]  # 최종 승인된 리포트
+	final_status: str  # 최종 상태
 
 	# 에러 및 로그
 	errors: Annotated[List[str], operator.add]  # 에러 목록 (병합)
@@ -45,23 +71,68 @@ class AnalysisState(TypedDict, total=False):
 	# 워크플로우 제어
 	current_step: str  # 현재 실행 단계
 	workflow_status: str  # 워크플로우 상태 (in_progress, completed, failed)
+	retry_count: int  # 재시도 횟수 (검증 실패 시)
 
 
-class ClimateRiskState(TypedDict, total=False):
+class PhysicalRiskScoreState(TypedDict, total=False):
 	"""
-	개별 기후 리스크 분석 상태
-	각 기후 리스크 에이전트가 사용하는 상태 구조
+	물리적 리스크별 종합 점수 산출 Sub Agent 상태
+	각 리스크별로 H x E x V 기반 종합 점수 계산
 	"""
-	risk_type: str  # 리스크 타입 (예: high_temperature, flood)
-	collected_data: Dict[str, Any]  # 수집된 데이터
-	ssp_weights: Dict[str, float]  # SSP 시나리오별 가중치
+	risk_type: str  # 리스크 타입 (high_temperature, cold_wave, wildfire, drought, water_scarcity, coastal_flood, inland_flood, urban_flood, typhoon)
+	collected_data: Dict[str, Any]  # 수집된 기후 데이터
+	vulnerability_analysis: Dict[str, Any]  # 취약성 분석 결과
+	asset_info: Dict[str, Any]  # 사업장 노출 자산 정보
 
 	# 계산 결과
 	hazard_score: float  # 위해성 점수 (Hazard)
 	exposure_score: float  # 노출도 점수 (Exposure)
 	vulnerability_score: float  # 취약성 점수 (Vulnerability)
-	risk_score: float  # 최종 리스크 점수 (H x E x V)
+	physical_risk_score: float  # 물리적 리스크 종합 점수 (H x E x V)
 
 	# 상세 정보
-	details: Dict[str, Any]  # 상세 분석 결과
+	calculation_details: Dict[str, Any]  # 계산 상세 내역
 	status: str  # 분석 상태
+
+
+class AALAnalysisState(TypedDict, total=False):
+	"""
+	연평균 재무 손실률 분석 Sub Agent 상태
+	P(H) x 손상률 기반 AAL 계산
+	"""
+	risk_type: str  # 리스크 타입
+	collected_data: Dict[str, Any]  # 수집된 기후 데이터
+	physical_risk_score: float  # 물리적 리스크 점수 (선행 계산 결과)
+	asset_info: Dict[str, Any]  # 사업장 노출 자산 정보
+
+	# 계산 결과
+	hazard_probability: float  # P(H): 위험 발생 확률
+	damage_rate: float  # 손상률
+	aal: float  # AAL (연평균 재무 손실률)
+	financial_loss: float  # 연평균 재무 손실액 (AAL x 노출 자산)
+
+	# 상세 정보
+	calculation_details: Dict[str, Any]  # 계산 상세 내역
+	status: str  # 분석 상태
+
+
+class ValidationState(TypedDict, total=False):
+	"""
+	검증 Agent 상태
+	생성된 리포트의 정확성과 일관성 확인
+	"""
+	report_to_validate: Dict[str, Any]  # 검증 대상 리포트
+	validation_criteria: Dict[str, Any]  # 검증 기준
+
+	# 검증 결과
+	accuracy_check: bool  # 정확성 확인
+	consistency_check: bool  # 일관성 확인
+	completeness_check: bool  # 완전성 확인
+
+	# 피드백
+	issues_found: List[str]  # 발견된 문제점
+	improvement_suggestions: List[str]  # 개선 제안
+	validation_passed: bool  # 검증 통과 여부
+
+	# 상태
+	status: str  # 검증 상태

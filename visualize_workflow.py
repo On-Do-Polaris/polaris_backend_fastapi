@@ -1,11 +1,13 @@
 '''
 파일명: visualize_workflow.py
-최종 수정일: 2025-11-05
-버전: v00
+최종 수정일: 2025-11-11
+버전: v01
 파일 개요: 워크플로우 시각화 스크립트 (Mermaid 다이어그램 및 PNG 생성)
+변경 이력:
+	- 2025-11-11: v01 - Super Agent 구조에 맞게 수정
 '''
 from config.settings import Config
-from workflow import create_workflow_graph, visualize_workflow, print_workflow_structure
+from workflow.graph import create_workflow_graph, print_workflow_structure
 
 
 def main():
@@ -17,7 +19,7 @@ def main():
 		None
 	"""
 	print("=" * 70)
-	print("SKAX Physical Risk Analysis Workflow Visualization")
+	print("SKAX Physical Risk Analysis Workflow (Super Agent)")
 	print("=" * 70)
 	print()
 

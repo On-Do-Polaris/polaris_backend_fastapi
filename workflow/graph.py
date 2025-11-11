@@ -1,129 +1,222 @@
 '''
 파일명: graph.py
-최종 수정일: 2025-11-05
-버전: v00
-파일 개요: LangGraph 워크플로우 그래프 정의 및 생성
+최종 수정일: 2025-11-11
+버전: v02
+파일 개요: LangGraph 워크플로우 그래프 정의 (Super Agent 계층적 구조)
+변경 이력:
+	- 2025-11-11: v01 - Super Agent 계층적 구조로 전면 개편, 검증 재시도 루프 추가
+	- 2025-11-11: v02 - 워크플로우 순서 변경 (AAL 분석 → 물리적 리스크 점수), 100점 스케일 적용
 '''
-from typing import Literal
 from langgraph.graph import StateGraph, END
-from workflow.state import AnalysisState
-from workflow import nodes
+from workflow.state import SuperAgentState
+from workflow.nodes import (
+	data_collection_node,
+	vulnerability_analysis_node,
+	physical_risk_score_node,
+	aal_analysis_node,
+	report_template_node,
+	strategy_generation_node,
+	report_generation_node,
+	validation_node,
+	finalization_node
+)
+
+
+def should_retry_validation(state: SuperAgentState) -> str:
+	"""
+	검증 재시도 판단 함수
+	검증 실패 시 재시도 여부 결정
+
+	Args:
+		state: 현재 워크플로우 상태
+
+	Returns:
+		다음 노드 이름 ('strategy_generation' 또는 'finalization')
+	"""
+	validation_status = state.get('validation_status')
+	retry_count = state.get('retry_count', 0)
+
+	if validation_status == 'failed' and retry_count < 3:
+		print(f"[조건부 분기] 검증 실패 -> 대응 전략 재생성 (재시도 {retry_count + 1}/3)")
+		return 'strategy_generation'  # 대응 전략 재생성 노드로 복귀
+	else:
+		print("[조건부 분기] 검증 통과 또는 재시도 횟수 초과 -> 최종화")
+		return 'finalization'  # 최종화 노드로 이동
 
 
 def create_workflow_graph(config):
 	"""
-	SKAX 물리적 리스크 분석 워크플로우 그래프 생성
+	Super Agent 워크플로우 그래프 생성
+	10개 노드를 연결하고 검증 재시도 루프 포함
 
 	Args:
 		config: 설정 객체
 
 	Returns:
 		컴파일된 LangGraph 워크플로우
-
-	워크플로우 구조:
-		START → 데이터 수집 → SSP 확률 계산 → 8대 기후 리스크 분석 (병렬) → 리스크 통합 → 리포트 생성 → END
 	"""
-	# StateGraph 생성
-	workflow = StateGraph(AnalysisState)
+	# StateGraph 초기화
+	workflow = StateGraph(SuperAgentState)
 
-	# ===== 노드 추가 =====
+	# ========== 노드 추가 ==========
+	workflow.add_node('data_collection', lambda state: data_collection_node(state, config))
+	workflow.add_node('vulnerability_analysis', lambda state: vulnerability_analysis_node(state, config))
+	workflow.add_node('physical_risk_score', lambda state: physical_risk_score_node(state, config))
+	workflow.add_node('aal_analysis', lambda state: aal_analysis_node(state, config))
+	workflow.add_node('report_template', lambda state: report_template_node(state, config))
+	workflow.add_node('strategy_generation', lambda state: strategy_generation_node(state, config))
+	workflow.add_node('report_generation', lambda state: report_generation_node(state, config))
+	workflow.add_node('validation', lambda state: validation_node(state, config))
+	workflow.add_node('finalization', lambda state: finalization_node(state, config))
 
-	# Step 1: 데이터 수집
-	workflow.add_node(
-		"collect_data",
-		lambda state: nodes.collect_data_node(state, config)
+	# ========== 엣지 추가 (워크플로우 흐름) ==========
+
+	# 시작점: 데이터 수집
+	workflow.set_entry_point('data_collection')
+
+	# 1. 데이터 수집 -> 취약성 분석
+	workflow.add_edge('data_collection', 'vulnerability_analysis')
+
+	# 2. 취약성 분석 -> AAL 분석 (순서 변경: AAL이 먼저)
+	workflow.add_edge('vulnerability_analysis', 'aal_analysis')
+
+	# 3. AAL 분석 -> 물리적 리스크 점수 산출 (AAL 결과 기반으로 100점 스케일 계산)
+	workflow.add_edge('aal_analysis', 'physical_risk_score')
+
+	# 4. 물리적 리스크 점수 산출 -> 리포트 템플릿 생성
+	workflow.add_edge('physical_risk_score', 'report_template')
+
+	# 5. 리포트 템플릿 생성 -> 대응 전략 생성
+	workflow.add_edge('report_template', 'strategy_generation')
+
+	# 6. 대응 전략 생성 -> 리포트 생성
+	workflow.add_edge('strategy_generation', 'report_generation')
+
+	# 7. 리포트 생성 -> 검증
+	workflow.add_edge('report_generation', 'validation')
+
+	# 8. 검증 -> 조건부 분기 (검증 통과/실패)
+	workflow.add_conditional_edges(
+		'validation',
+		should_retry_validation,
+		{
+			'strategy_generation': 'strategy_generation',  # 검증 실패 시 재생성
+			'finalization': 'finalization'  # 검증 통과 시 최종화
+		}
 	)
 
-	# Step 2: SSP 확률 계산
-	workflow.add_node(
-		"calculate_ssp",
-		lambda state: nodes.calculate_ssp_probabilities_node(state, config)
-	)
-
-	# Step 3: 8대 기후 리스크 분석 (병렬 노드)
-	workflow.add_node(
-		"analyze_high_temperature",
-		lambda state: nodes.analyze_high_temperature_node(state, config)
-	)
-	workflow.add_node(
-		"analyze_cold_wave",
-		lambda state: nodes.analyze_cold_wave_node(state, config)
-	)
-	workflow.add_node(
-		"analyze_sea_level_rise",
-		lambda state: nodes.analyze_sea_level_rise_node(state, config)
-	)
-	workflow.add_node(
-		"analyze_drought",
-		lambda state: nodes.analyze_drought_node(state, config)
-	)
-	workflow.add_node(
-		"analyze_wildfire",
-		lambda state: nodes.analyze_wildfire_node(state, config)
-	)
-	workflow.add_node(
-		"analyze_typhoon",
-		lambda state: nodes.analyze_typhoon_node(state, config)
-	)
-	workflow.add_node(
-		"analyze_water_scarcity",
-		lambda state: nodes.analyze_water_scarcity_node(state, config)
-	)
-	workflow.add_node(
-		"analyze_flood",
-		lambda state: nodes.analyze_flood_node(state, config)
-	)
-
-	# Step 4: 리스크 통합
-	workflow.add_node(
-		"integrate_risks",
-		lambda state: nodes.integrate_risks_node(state, config)
-	)
-
-	# Step 5: 리포트 생성
-	workflow.add_node(
-		"generate_report",
-		lambda state: nodes.generate_report_node(state, config)
-	)
-
-	# ===== 엣지 추가 =====
-
-	# 시작점 → 데이터 수집
-	workflow.set_entry_point("collect_data")
-
-	# 데이터 수집 → SSP 확률 계산
-	workflow.add_edge("collect_data", "calculate_ssp")
-
-	# SSP 확률 계산 → 8대 기후 리스크 분석 (병렬)
-	workflow.add_edge("calculate_ssp", "analyze_high_temperature")
-	workflow.add_edge("calculate_ssp", "analyze_cold_wave")
-	workflow.add_edge("calculate_ssp", "analyze_sea_level_rise")
-	workflow.add_edge("calculate_ssp", "analyze_drought")
-	workflow.add_edge("calculate_ssp", "analyze_wildfire")
-	workflow.add_edge("calculate_ssp", "analyze_typhoon")
-	workflow.add_edge("calculate_ssp", "analyze_water_scarcity")
-	workflow.add_edge("calculate_ssp", "analyze_flood")
-
-	# 8대 기후 리스크 분석 → 리스크 통합
-	workflow.add_edge("analyze_high_temperature", "integrate_risks")
-	workflow.add_edge("analyze_cold_wave", "integrate_risks")
-	workflow.add_edge("analyze_sea_level_rise", "integrate_risks")
-	workflow.add_edge("analyze_drought", "integrate_risks")
-	workflow.add_edge("analyze_wildfire", "integrate_risks")
-	workflow.add_edge("analyze_typhoon", "integrate_risks")
-	workflow.add_edge("analyze_water_scarcity", "integrate_risks")
-	workflow.add_edge("analyze_flood", "integrate_risks")
-
-	# 리스크 통합 → 리포트 생성
-	workflow.add_edge("integrate_risks", "generate_report")
-
-	# 리포트 생성 → 종료
-	workflow.add_edge("generate_report", END)
+	# 9. 최종화 -> 종료
+	workflow.add_edge('finalization', END)
 
 	# 그래프 컴파일
 	compiled_graph = workflow.compile()
 
+	print("=== Super Agent 워크플로우 그래프 컴파일 완료 ===")
+	print_workflow_structure()
+
 	return compiled_graph
+
+
+def print_workflow_structure():
+	"""
+	워크플로우 구조를 텍스트로 출력
+	"""
+	structure = """
+	==============================================================
+	     SKAX Physical Risk Analysis Workflow (Super Agent)
+	==============================================================
+
+	START
+	  |
+	  v
+	+-------------------------------------------------------+
+	|  Node 1: 데이터 수집 (data_collection)                |
+	|  - 대상 위치 기후 데이터 수집                           |
+	+-------------------------------------------------------+
+	  |
+	  v
+	+-------------------------------------------------------+
+	|  Node 2: 취약성 분석 (vulnerability_analysis)          |
+	|  - 건물 연식, 내진 설계, 소방차 진입 가능성             |
+	|  - 9개 리스크 선정                                      |
+	+-------------------------------------------------------+
+	  |
+	  v
+	+-------------------------------------------------------+
+	|  Node 3: 연평균 재무 손실률 분석 (aal_analysis)        |
+	|  - 9개 AAL Sub Agent 병렬 실행                         |
+	|  - 공식: AAL(%) = P(H) × 손상률 × (1-보험보전율)       |
+	|  - 재무 손실액 = AAL(%) × 사업장 자산 / 100            |
+	|    1. high_temperature   2. cold_wave                |
+	|    3. wildfire           4. drought                  |
+	|    5. water_scarcity     6. coastal_flood            |
+	|    7. inland_flood       8. urban_flood              |
+	|    9. typhoon                                        |
+	+-------------------------------------------------------+
+	  |
+	  v
+	+-------------------------------------------------------+
+	|  Node 4: 물리적 리스크 종합 점수 산출                   |
+	|  (physical_risk_score)                                |
+	|  - AAL 재무 손실액 기반 100점 스케일 변환              |
+	|  - 점수 = (재무손실액 / 최대손실액) × 100              |
+	+-------------------------------------------------------+
+	  |
+	  v
+	+-------------------------------------------------------+
+	|  Node 5: 리포트 템플릿 형성 (report_template)          |
+	|  - RAG 엔진 활용                                       |
+	|  - 유사 기존 보고서 검색 및 참조                        |
+	+-------------------------------------------------------+
+	  |
+	  v
+	+-------------------------------------------------------+
+	|  Node 6: 대응 전략 생성 (strategy_generation)          |
+	|  - LLM + RAG 활용                                     |
+	|  - 맞춤형 대응 전략 및 권고 사항 생성                   |
+	+-------------------------------------------------------+
+	  |
+	  v
+	+-------------------------------------------------------+
+	|  Node 7: 리포트 생성 (report_generation)               |
+	|  - 템플릿과 분석 결과 통합                             |
+	|  - 최종 리포트 작성                                    |
+	+-------------------------------------------------------+
+	  |
+	  v
+	+-------------------------------------------------------+
+	|  Node 8: 검증 (validation)                            |
+	|  - 정확성 검증 (데이터 일치 여부)                       |
+	|  - 일관성 검증 (논리적 모순 확인)                       |
+	|  - 완전성 검증 (필수 섹션 포함 확인)                    |
+	+-------------------------------------------------------+
+	  |
+	  +-----------------------+
+	  |                       |
+	  v (검증 실패)          v (검증 통과)
+	[재시도 루프]            |
+	최대 3회                 |
+	  |                       |
+	  v                       v
+	Node 6으로 복귀         +---------------------------------------+
+	(대응 전략 재생성)      |  Node 9: 최종 리포트 산출 (finalization) |
+	                        |  - 검증 통과한 리포트 확정              |
+	                        +---------------------------------------+
+	                          |
+	                          v
+	                        END
+
+	==============================================================
+	주요 특징:
+	- Super Agent 계층적 구조
+	- 18개 Sub Agent (물리적 리스크 9개 + AAL 9개)
+	- LLM/RAG 통합 (대응 전략 생성)
+	- 검증 재시도 루프 (최대 3회)
+	- 취약성 분석 기반 리스크 선정
+	==============================================================
+	"""
+
+	print(structure)
 
 
 def visualize_workflow(graph, output_path: str = "workflow_graph.png"):
@@ -168,66 +261,3 @@ def visualize_workflow(graph, output_path: str = "workflow_graph.png"):
 		print("[INFO] You can visualize it at https://mermaid.live")
 
 		return mermaid_diagram
-
-
-def print_workflow_structure():
-	"""
-	워크플로우 구조를 텍스트로 출력
-	"""
-	structure = """
-	==============================================================
-	     SKAX Physical Risk Analysis Workflow Structure
-	==============================================================
-
-	START
-	  |
-	  v
-	+---------------------------------------+
-	|  Step 1: Data Collection              |
-	|  (collect_data)                       |
-	+---------------------------------------+
-	  |
-	  v
-	+---------------------------------------+
-	|  Step 2: SSP Scenario Probability     |
-	|  (calculate_ssp)                      |
-	+---------------------------------------+
-	  |
-	  v
-	+-----------------------------------------------------------+
-	|  Step 3: 8 Climate Risks Analysis (Parallel)            |
-	+-----------------------------------------------------------+
-	|  3.1  analyze_high_temperature  (High Temperature)      |
-	|  3.2  analyze_cold_wave         (Cold Wave + Snow)      |
-	|  3.3  analyze_sea_level_rise    (Sea Level) [FROZEN]    |
-	|  3.4  analyze_drought           (Drought)               |
-	|  3.5  analyze_wildfire          (Wildfire)              |
-	|  3.6  analyze_typhoon           (Typhoon)               |
-	|  3.7  analyze_water_scarcity    (Water) [FROZEN]        |
-	|  3.8  analyze_flood             (Flood)                 |
-	+-----------------------------------------------------------+
-	  |  (After all risk analyses completed)
-	  v
-	+---------------------------------------+
-	|  Step 4: Risk Integration             |
-	|  (integrate_risks)                    |
-	+---------------------------------------+
-	  |
-	  v
-	+---------------------------------------+
-	|  Step 5: Report Generation            |
-	|  (generate_report)                    |
-	+---------------------------------------+
-	  |
-	  v
-	END
-
-	==============================================================
-	Key Features:
-	- Step 3: 8 risk analyses run in parallel using LangGraph
-	- Each risk: H(Hazard) x E(Exposure) x V(Vulnerability)
-	- SSP scenario weights applied to all risk calculations
-	==============================================================
-	"""
-
-	print(structure)

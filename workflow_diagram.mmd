@@ -5,39 +5,27 @@ config:
 ---
 graph TD;
 	__start__([<p>__start__</p>]):::first
-	collect_data(collect_data)
-	calculate_ssp(calculate_ssp)
-	analyze_high_temperature(analyze_high_temperature)
-	analyze_cold_wave(analyze_cold_wave)
-	analyze_sea_level_rise(analyze_sea_level_rise)
-	analyze_drought(analyze_drought)
-	analyze_wildfire(analyze_wildfire)
-	analyze_typhoon(analyze_typhoon)
-	analyze_water_scarcity(analyze_water_scarcity)
-	analyze_flood(analyze_flood)
-	integrate_risks(integrate_risks)
-	generate_report(generate_report)
+	data_collection(data_collection)
+	vulnerability_analysis(vulnerability_analysis)
+	physical_risk_score(physical_risk_score)
+	aal_analysis(aal_analysis)
+	report_template(report_template)
+	strategy_generation(strategy_generation)
+	report_generation(report_generation)
+	validation(validation)
+	finalization(finalization)
 	__end__([<p>__end__</p>]):::last
-	__start__ --> collect_data;
-	analyze_cold_wave --> integrate_risks;
-	analyze_drought --> integrate_risks;
-	analyze_flood --> integrate_risks;
-	analyze_high_temperature --> integrate_risks;
-	analyze_sea_level_rise --> integrate_risks;
-	analyze_typhoon --> integrate_risks;
-	analyze_water_scarcity --> integrate_risks;
-	analyze_wildfire --> integrate_risks;
-	calculate_ssp --> analyze_cold_wave;
-	calculate_ssp --> analyze_drought;
-	calculate_ssp --> analyze_flood;
-	calculate_ssp --> analyze_high_temperature;
-	calculate_ssp --> analyze_sea_level_rise;
-	calculate_ssp --> analyze_typhoon;
-	calculate_ssp --> analyze_water_scarcity;
-	calculate_ssp --> analyze_wildfire;
-	collect_data --> calculate_ssp;
-	integrate_risks --> generate_report;
-	generate_report --> __end__;
+	__start__ --> data_collection;
+	aal_analysis --> physical_risk_score;
+	data_collection --> vulnerability_analysis;
+	physical_risk_score --> report_template;
+	report_generation --> validation;
+	report_template --> strategy_generation;
+	strategy_generation --> report_generation;
+	validation -.-> finalization;
+	validation -.-> strategy_generation;
+	vulnerability_analysis --> aal_analysis;
+	finalization --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
 	classDef last fill:#bfb6fc

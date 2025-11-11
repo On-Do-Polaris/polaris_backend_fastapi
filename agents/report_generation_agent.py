@@ -1,492 +1,406 @@
 '''
 파일명: report_generation_agent.py
-최종 수정일: 2025-11-05
-버전: v00
-파일 개요: 물리적 리스크 분석 리포트 생성 에이전트 (요약, 시각화, PDF/HTML 출력)
+최종 수정일: 2025-11-11
+버전: v01
+파일 개요: 최종 리포트 생성 에이전트 (템플릿 + 분석 결과 통합)
+변경 이력:
+	- 2025-11-11: v01 - Super Agent 구조에 맞게 재작성
 '''
 from typing import Dict, Any
 from datetime import datetime
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 
 class ReportGenerationAgent:
 	"""
-	물리적 리스크 분석 리포트 생성
-	- 분석 결과 요약
-	- 시각화 데이터 생성
-	- PDF/HTML 리포트 출력
+	최종 리포트 생성 에이전트
+	템플릿과 분석 결과를 통합하여 최종 리포트 작성
 	"""
 
-	def __init__(self, config):
+	def __init__(self):
 		"""
-		리포트 생성 에이전트 초기화
+		ReportGenerationAgent 초기화
+		"""
+		self.logger = logger
+		self.logger.info("ReportGenerationAgent 초기화")
+
+	def generate_report(
+		self,
+		target_location: Dict[str, Any],
+		building_info: Dict[str, Any],
+		vulnerability_analysis: Dict[str, Any],
+		aal_analysis: Dict[str, Any],
+		physical_risk_scores: Dict[str, Any],
+		report_template: Dict[str, Any],
+		response_strategy: Dict[str, Any]
+	) -> Dict[str, Any]:
+		"""
+		최종 리포트 생성
+		모든 분석 결과와 전략을 통합하여 완성된 리포트 작성
 
 		Args:
-			config: 설정 객체
-		"""
-		self.config = config
-		self._initialize_report_templates()
-
-	def _initialize_report_templates(self):
-		"""
-		리포트 템플릿 초기화
-		"""
-		# TODO: 리포트 템플릿 로드
-		self.templates = {
-			'executive_summary': None,
-			'detailed_analysis': None,
-			'risk_matrix': None,
-			'recommendations': None
-		}
-		pass
-
-	def generate(self, location: Dict, analysis_results: Dict) -> Dict[str, Any]:
-		"""
-		종합 리포트 생성
-
-		Args:
-			location: 분석 대상 위치
-			analysis_results: 분석 결과 데이터
+			target_location: 분석 대상 위치 정보
+			building_info: 건물 정보
+			vulnerability_analysis: 취약성 분석 결과
+			aal_analysis: AAL 분석 결과
+			physical_risk_scores: 물리적 리스크 점수
+			report_template: 리포트 템플릿
+			response_strategy: 대응 전략
 
 		Returns:
-			생성된 리포트 딕셔너리
+			최종 리포트 딕셔너리
+				- report_content: 리포트 내용 (HTML/Markdown)
+				- executive_summary: 요약
+				- sections: 섹션별 내용
+				- metadata: 메타데이터
+				- status: 생성 상태
 		"""
-		print("  [INFO] Report generating...")
+		self.logger.info("최종 리포트 생성 시작")
 
-		report = {
-			'metadata': self._generate_metadata(location),
-			'executive_summary': self._generate_executive_summary(analysis_results),
-			'ssp_scenario_analysis': self._generate_ssp_analysis(analysis_results),
-			'climate_risk_analysis': self._generate_climate_risk_analysis(analysis_results),
-			'integrated_risk_assessment': self._generate_integrated_assessment(analysis_results),
-			'risk_matrix': self._generate_risk_matrix(analysis_results),
-			'recommendations': self._generate_recommendations(analysis_results),
-			'visualizations': self._generate_visualizations(analysis_results),
-			'appendix': self._generate_appendix(analysis_results)
-		}
+		try:
+			# 1. 요약 생성
+			executive_summary = self._generate_executive_summary(
+				target_location,
+				vulnerability_analysis,
+				aal_analysis,
+				physical_risk_scores,
+				response_strategy
+			)
 
-		# 리포트 파일 생성
-		self._export_report(report, format='json')
+			# 2. 섹션별 내용 생성
+			sections = self._generate_sections(
+				target_location,
+				building_info,
+				vulnerability_analysis,
+				aal_analysis,
+				physical_risk_scores,
+				response_strategy,
+				report_template
+			)
 
-		return report
+			# 3. 전체 리포트 조합
+			report_content = self._assemble_report(
+				executive_summary,
+				sections,
+				report_template
+			)
 
-	def _generate_metadata(self, location: Dict) -> Dict:
+			# 4. 메타데이터 생성
+			metadata = self._generate_metadata(
+				target_location,
+				building_info
+			)
+
+			result = {
+				'report_content': report_content,
+				'executive_summary': executive_summary,
+				'sections': sections,
+				'metadata': metadata,
+				'generation_timestamp': datetime.now().isoformat(),
+				'status': 'completed'
+			}
+
+			self.logger.info(f"최종 리포트 생성 완료: {len(sections)}개 섹션")
+			return result
+
+		except Exception as e:
+			self.logger.error(f"최종 리포트 생성 중 오류: {str(e)}", exc_info=True)
+			return {
+				'status': 'failed',
+				'error': str(e)
+			}
+
+	def _generate_executive_summary(
+		self,
+		target_location: Dict[str, Any],
+		vulnerability_analysis: Dict[str, Any],
+		aal_analysis: Dict[str, Any],
+		physical_risk_scores: Dict[str, Any],
+		response_strategy: Dict[str, Any]
+	) -> str:
 		"""
-		리포트 메타데이터 생성
+		요약 생성
 
 		Args:
-			location: 분석 대상 위치
+			target_location: 위치 정보
+			vulnerability_analysis: 취약성 분석
+			aal_analysis: AAL 분석
+			physical_risk_scores: 물리적 리스크 점수
+			response_strategy: 대응 전략
+
+		Returns:
+			요약 텍스트
+		"""
+		# 상위 3개 리스크 추출
+		top_risks = sorted(
+			physical_risk_scores.items(),
+			key=lambda x: x[1].get('physical_risk_score_100', 0),
+			reverse=True
+		)[:3]
+
+		# 총 재무 손실 계산
+		total_financial_loss = sum(
+			aal.get('financial_loss', 0) for aal in aal_analysis.values()
+		)
+
+		summary = f"""
+## 요약
+
+본 보고서는 {target_location.get('name', '대상 위치')}에 대한 물리적 기후 리스크 분석 결과를 제시합니다.
+
+### 주요 발견사항
+- 취약성 종합 점수: {vulnerability_analysis.get('overall_vulnerability_score', 0):.2f}
+- 연평균 총 재무 손실 예상: {total_financial_loss:,.0f}원
+- 주요 리스크 (상위 3개):
+  1. {top_risks[0][0]}: {top_risks[0][1].get('physical_risk_score_100', 0):.1f}/100
+  2. {top_risks[1][0]}: {top_risks[1][1].get('physical_risk_score_100', 0):.1f}/100
+  3. {top_risks[2][0]}: {top_risks[2][1].get('physical_risk_score_100', 0):.1f}/100
+
+### 권고사항
+{response_strategy.get('overall_strategy', '종합 대응 전략을 수립하시기 바랍니다.')}
+"""
+
+		return summary.strip()
+
+	def _generate_sections(
+		self,
+		target_location: Dict[str, Any],
+		building_info: Dict[str, Any],
+		vulnerability_analysis: Dict[str, Any],
+		aal_analysis: Dict[str, Any],
+		physical_risk_scores: Dict[str, Any],
+		response_strategy: Dict[str, Any],
+		report_template: Dict[str, Any]
+	) -> Dict[str, str]:
+		"""
+		섹션별 내용 생성
+
+		Args:
+			...: 각종 분석 결과
+
+		Returns:
+			섹션별 내용 딕셔너리
+		"""
+		sections = {}
+
+		# Section 1: 대상 정보
+		sections['target_info'] = self._section_target_info(target_location, building_info)
+
+		# Section 2: 취약성 분석
+		sections['vulnerability_analysis'] = self._section_vulnerability(vulnerability_analysis)
+
+		# Section 3: AAL 분석
+		sections['aal_analysis'] = self._section_aal(aal_analysis)
+
+		# Section 4: 물리적 리스크 점수
+		sections['physical_risk_scores'] = self._section_risk_scores(physical_risk_scores)
+
+		# Section 5: 대응 전략
+		sections['response_strategy'] = self._section_strategy(response_strategy)
+
+		# Section 6: 권고사항
+		sections['recommendations'] = self._section_recommendations(response_strategy)
+
+		# Section 7: 결론
+		sections['conclusion'] = self._section_conclusion(physical_risk_scores, response_strategy)
+
+		return sections
+
+	def _section_target_info(
+		self,
+		target_location: Dict[str, Any],
+		building_info: Dict[str, Any]
+	) -> str:
+		"""대상 정보 섹션"""
+		return f"""
+## 1. 분석 대상 정보
+
+### 위치
+- 이름: {target_location.get('name', 'N/A')}
+- 위도: {target_location.get('latitude', 'N/A')}
+- 경도: {target_location.get('longitude', 'N/A')}
+
+### 건물 정보
+- 건물 연식: {building_info.get('building_age', 'N/A')}년
+- 층수: {building_info.get('floors', 'N/A')}층
+- 내진 설계: {building_info.get('seismic_design', 'N/A')}
+"""
+
+	def _section_vulnerability(self, vulnerability_analysis: Dict[str, Any]) -> str:
+		"""취약성 분석 섹션"""
+		return f"""
+## 2. 취약성 분석
+
+### 종합 취약성 점수
+- **{vulnerability_analysis.get('overall_vulnerability_score', 0):.2f}** (0.0 ~ 1.0 스케일)
+
+### 세부 항목
+- 건물 연식 점수: {vulnerability_analysis.get('building_age_score', 0):.2f}
+- 내진 취약성 점수: {vulnerability_analysis.get('seismic_vulnerability_score', 0):.2f}
+- 소방차 진입 점수: {vulnerability_analysis.get('fire_access_score', 0):.2f}
+"""
+
+	def _section_aal(self, aal_analysis: Dict[str, Any]) -> str:
+		"""AAL 분석 섹션"""
+		content = "## 3. 연평균 재무 손실률 (AAL) 분석\n\n"
+
+		for risk_type, aal_data in aal_analysis.items():
+			if aal_data.get('status') == 'completed':
+				content += f"""
+### {risk_type}
+- AAL: {aal_data.get('aal_percentage', 0):.2f}%
+- 연평균 재무 손실: {aal_data.get('financial_loss', 0):,.0f}원
+- 위험 수준: {aal_data.get('calculation_details', {}).get('risk_level', 'N/A')}
+"""
+
+		return content
+
+	def _section_risk_scores(self, physical_risk_scores: Dict[str, Any]) -> str:
+		"""물리적 리스크 점수 섹션"""
+		content = "## 4. 물리적 리스크 종합 점수 (100점 스케일)\n\n"
+
+		# 점수순 정렬
+		sorted_risks = sorted(
+			physical_risk_scores.items(),
+			key=lambda x: x[1].get('physical_risk_score_100', 0),
+			reverse=True
+		)
+
+		for risk_type, score_data in sorted_risks:
+			content += f"""
+### {risk_type}
+- 점수: **{score_data.get('physical_risk_score_100', 0):.1f}/100**
+- 위험 수준: {score_data.get('risk_level', 'N/A')}
+- AAL: {score_data.get('aal_percentage', 0):.2f}%
+- 재무 손실: {score_data.get('financial_loss', 0):,.0f}원
+"""
+
+		return content
+
+	def _section_strategy(self, response_strategy: Dict[str, Any]) -> str:
+		"""대응 전략 섹션"""
+		content = "## 5. 대응 전략\n\n"
+		content += f"### 종합 전략\n{response_strategy.get('overall_strategy', 'N/A')}\n\n"
+
+		risk_strategies = response_strategy.get('risk_specific_strategies', {})
+		if risk_strategies:
+			content += "### 리스크별 전략\n"
+			for risk_type, strategy in risk_strategies.items():
+				content += f"\n#### {risk_type}\n{strategy}\n"
+
+		return content
+
+	def _section_recommendations(self, response_strategy: Dict[str, Any]) -> str:
+		"""권고사항 섹션"""
+		content = "## 6. 권고사항\n\n"
+
+		recommendations = response_strategy.get('recommendations', [])
+		for i, rec in enumerate(recommendations, 1):
+			content += f"{i}. {rec}\n"
+
+		priority_actions = response_strategy.get('priority_actions', [])
+		if priority_actions:
+			content += "\n### 우선순위 조치사항\n"
+			for action in priority_actions:
+				content += f"\n**우선순위 {action['priority']}**\n"
+				content += f"- 조치: {action['action']}\n"
+				content += f"- 기한: {action['timeline']}\n"
+
+		return content
+
+	def _section_conclusion(
+		self,
+		physical_risk_scores: Dict[str, Any],
+		response_strategy: Dict[str, Any]
+	) -> str:
+		"""결론 섹션"""
+		top_risk = max(
+			physical_risk_scores.items(),
+			key=lambda x: x[1].get('physical_risk_score_100', 0)
+		)
+
+		return f"""
+## 7. 결론
+
+본 분석 결과, 가장 우선적으로 대응이 필요한 리스크는 **{top_risk[0]}** (점수: {top_risk[1].get('physical_risk_score_100', 0):.1f}/100)로 확인되었습니다.
+
+{response_strategy.get('overall_strategy', '')}
+
+지속적인 모니터링과 정기적인 리스크 재평가를 통해 효과적인 리스크 관리가 이루어질 수 있도록 해야 합니다.
+"""
+
+	def _assemble_report(
+		self,
+		executive_summary: str,
+		sections: Dict[str, str],
+		report_template: Dict[str, Any]
+	) -> str:
+		"""
+		전체 리포트 조합
+
+		Args:
+			executive_summary: 요약
+			sections: 섹션별 내용
+			report_template: 템플릿
+
+		Returns:
+			전체 리포트 텍스트
+		"""
+		report = f"""
+# 물리적 기후 리스크 분석 보고서
+
+생성일: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+---
+
+{executive_summary}
+
+---
+
+{sections.get('target_info', '')}
+
+{sections.get('vulnerability_analysis', '')}
+
+{sections.get('aal_analysis', '')}
+
+{sections.get('physical_risk_scores', '')}
+
+{sections.get('response_strategy', '')}
+
+{sections.get('recommendations', '')}
+
+{sections.get('conclusion', '')}
+
+---
+
+*본 보고서는 SKAX Physical Risk Analysis System을 통해 자동 생성되었습니다.*
+"""
+
+		return report.strip()
+
+	def _generate_metadata(
+		self,
+		target_location: Dict[str, Any],
+		building_info: Dict[str, Any]
+	) -> Dict[str, Any]:
+		"""
+		메타데이터 생성
+
+		Args:
+			target_location: 위치 정보
+			building_info: 건물 정보
 
 		Returns:
 			메타데이터 딕셔너리
 		"""
 		return {
-			'report_title': 'SKAX Physical Risk Analysis Report',
-			'location': location,
-			'analysis_date': datetime.now().isoformat(),
-			'version': '1.0.0',
-			'analyst': 'SKAX Physical Risk Analyzer'
-		}
-
-	def _generate_executive_summary(self, analysis_results: Dict) -> Dict:
-		"""
-		경영진 요약 생성
-
-		Args:
-			analysis_results: 분석 결과
-
-		Returns:
-			요약 딕셔너리
-		"""
-		# TODO: 실제 요약 생성 로직 구현
-		integrated_risk = analysis_results.get('integrated_risk', {})
-
-		summary = {
-			'overall_risk_score': integrated_risk.get('integrated_score', 0),
-			'risk_rating': integrated_risk.get('risk_rating', 'UNKNOWN'),
-			'top_risks': integrated_risk.get('top_risks', []),
-			'key_findings': self._extract_key_findings(analysis_results),
-			'critical_actions': self._identify_critical_actions(analysis_results)
-		}
-
-		return summary
-
-	def _generate_ssp_analysis(self, analysis_results: Dict) -> Dict:
-		"""
-		SSP 시나리오 분석 섹션 생성
-
-		Args:
-			analysis_results: 분석 결과
-
-		Returns:
-			SSP 분석 딕셔너리
-		"""
-		# TODO: 실제 SSP 분석 섹션 구현
-		ssp_probabilities = analysis_results.get('ssp_probabilities', {})
-
-		ssp_analysis = {
-			'scenario_probabilities': ssp_probabilities,
-			'most_likely_scenario': self._identify_most_likely_scenario(ssp_probabilities),
-			'scenario_implications': self._describe_scenario_implications(ssp_probabilities)
-		}
-
-		return ssp_analysis
-
-	def _generate_climate_risk_analysis(self, analysis_results: Dict) -> Dict:
-		"""
-		8대 기후 리스크 상세 분석 섹션 생성
-
-		Args:
-			analysis_results: 분석 결과
-
-		Returns:
-			기후 리스크 분석 딕셔너리
-		"""
-		# TODO: 실제 기후 리스크 분석 섹션 구현
-		climate_risk_scores = analysis_results.get('climate_risk_scores', {})
-
-		risk_analysis = {}
-		for risk_type, risk_data in climate_risk_scores.items():
-			risk_analysis[risk_type] = {
-				'risk_score': risk_data.get('risk_score', 0),
-				'hazard': risk_data.get('hazard', 0),
-				'exposure': risk_data.get('exposure', 0),
-				'vulnerability': risk_data.get('vulnerability', 0),
-				'severity_level': self._classify_severity(risk_data.get('risk_score', 0)),
-				'details': risk_data.get('details', {})
-			}
-
-		return risk_analysis
-
-	def _generate_integrated_assessment(self, analysis_results: Dict) -> Dict:
-		"""
-		통합 리스크 평가 섹션 생성
-
-		Args:
-			analysis_results: 분석 결과
-
-		Returns:
-			통합 평가 딕셔너리
-		"""
-		# TODO: 실제 통합 평가 섹션 구현
-		integrated_risk = analysis_results.get('integrated_risk', {})
-
-		assessment = {
-			'integrated_score': integrated_risk.get('integrated_score', 0),
-			'risk_rating': integrated_risk.get('risk_rating', 'UNKNOWN'),
-			'compound_risks': integrated_risk.get('compound_risks', {}),
-			'correlation_analysis': integrated_risk.get('correlation_factors', {}),
-			'risk_trend': self._analyze_risk_trend(analysis_results)
-		}
-
-		return assessment
-
-	def _generate_risk_matrix(self, analysis_results: Dict) -> Dict:
-		"""
-		리스크 매트릭스 생성 (Hazard vs Vulnerability)
-
-		Args:
-			analysis_results: 분석 결과
-
-		Returns:
-			리스크 매트릭스 딕셔너리
-		"""
-		# TODO: 실제 리스크 매트릭스 생성 로직 구현
-		climate_risk_scores = analysis_results.get('climate_risk_scores', {})
-
-		matrix = {
-			'risks': []
-		}
-
-		for risk_type, risk_data in climate_risk_scores.items():
-			matrix['risks'].append({
-				'risk_type': risk_type,
-				'hazard': risk_data.get('hazard', 0),
-				'exposure': risk_data.get('exposure', 0),
-				'vulnerability': risk_data.get('vulnerability', 0),
-				'position': self._calculate_matrix_position(risk_data)
-			})
-
-		return matrix
-
-	def _generate_recommendations(self, analysis_results: Dict) -> Dict:
-		"""
-		권고사항 생성
-
-		Args:
-			analysis_results: 분석 결과
-
-		Returns:
-			권고사항 딕셔너리
-		"""
-		# TODO: 실제 권고사항 생성 로직 구현
-		integrated_risk = analysis_results.get('integrated_risk', {})
-
-		recommendations = {
-			'immediate_actions': [],
-			'short_term_strategies': [],
-			'long_term_strategies': [],
-			'monitoring_priorities': []
-		}
-
-		# 통합 리스크에서 권고사항 추출
-		auto_recommendations = integrated_risk.get('recommendations', [])
-		for rec in auto_recommendations:
-			recommendations['immediate_actions'].append(rec)
-
-		# 상위 리스크 기반 권고사항
-		top_risks = integrated_risk.get('top_risks', [])
-		for risk in top_risks:
-			recommendations['monitoring_priorities'].append(
-				f"{risk['risk_type']} risk continuous monitoring required (score: {risk['score']:.1f})"
-			)
-
-		return recommendations
-
-	def _generate_visualizations(self, analysis_results: Dict) -> Dict:
-		"""
-		시각화 데이터 생성
-
-		Args:
-			analysis_results: 분석 결과
-
-		Returns:
-			시각화 데이터 딕셔너리
-		"""
-		# TODO: 실제 시각화 데이터 생성 로직 구현
-		visualizations = {
-			'risk_radar_chart': self._create_risk_radar_data(analysis_results),
-			'ssp_probability_chart': self._create_ssp_chart_data(analysis_results),
-			'risk_timeline': self._create_risk_timeline_data(analysis_results),
-			'risk_heatmap': self._create_risk_heatmap_data(analysis_results)
-		}
-
-		return visualizations
-
-	def _generate_appendix(self, analysis_results: Dict) -> Dict:
-		"""
-		부록 생성 (상세 데이터, 방법론 등)
-
-		Args:
-			analysis_results: 분석 결과
-
-		Returns:
-			부록 딕셔너리
-		"""
-		# TODO: 실제 부록 생성 로직 구현
-		appendix = {
-			'methodology': self._describe_methodology(),
-			'data_sources': self._list_data_sources(),
-			'assumptions': self._list_assumptions(),
-			'glossary': self._create_glossary()
-		}
-
-		return appendix
-
-	def _export_report(self, report: Dict, format: str = 'json'):
-		"""
-		리포트 파일 출력
-
-		Args:
-			report: 리포트 데이터
-			format: 출력 포맷 (json, pdf, html)
-		"""
-		# TODO: 실제 파일 출력 로직 구현
-		# JSON, PDF, HTML 등 다양한 포맷 지원
-		pass
-
-	# Helper methods
-	def _extract_key_findings(self, analysis_results: Dict) -> list:
-		"""
-		주요 발견사항 추출
-
-		Args:
-			analysis_results: 분석 결과
-
-		Returns:
-			발견사항 목록
-		"""
-		# TODO: 구현
-		return []
-
-	def _identify_critical_actions(self, analysis_results: Dict) -> list:
-		"""
-		긴급 조치사항 식별
-
-		Args:
-			analysis_results: 분석 결과
-
-		Returns:
-			긴급 조치사항 목록
-		"""
-		# TODO: 구현
-		return []
-
-	def _identify_most_likely_scenario(self, ssp_probabilities: Dict) -> str:
-		"""
-		가장 가능성 높은 시나리오 식별
-
-		Args:
-			ssp_probabilities: SSP 시나리오 확률
-
-		Returns:
-			가장 가능성 높은 시나리오 이름
-		"""
-		if not ssp_probabilities:
-			return "UNKNOWN"
-		return max(ssp_probabilities.items(), key=lambda x: x[1])[0]
-
-	def _describe_scenario_implications(self, ssp_probabilities: Dict) -> Dict:
-		"""
-		시나리오별 영향 설명
-
-		Args:
-			ssp_probabilities: SSP 시나리오 확률
-
-		Returns:
-			영향 설명 딕셔너리
-		"""
-		# TODO: 구현
-		return {}
-
-	def _classify_severity(self, risk_score: float) -> str:
-		"""
-		리스크 심각도 분류
-
-		Args:
-			risk_score: 리스크 스코어
-
-		Returns:
-			심각도 등급
-		"""
-		if risk_score >= 0.8:
-			return "CRITICAL"
-		elif risk_score >= 0.6:
-			return "HIGH"
-		elif risk_score >= 0.4:
-			return "MEDIUM"
-		elif risk_score >= 0.2:
-			return "LOW"
-		else:
-			return "VERY_LOW"
-
-	def _analyze_risk_trend(self, analysis_results: Dict) -> str:
-		"""
-		리스크 추세 분석
-
-		Args:
-			analysis_results: 분석 결과
-
-		Returns:
-			추세 (STABLE, INCREASING, DECREASING)
-		"""
-		# TODO: 구현
-		return "STABLE"
-
-	def _calculate_matrix_position(self, risk_data: Dict) -> Dict:
-		"""
-		리스크 매트릭스 상 위치 계산
-
-		Args:
-			risk_data: 리스크 데이터
-
-		Returns:
-			위치 좌표 (x, y)
-		"""
-		return {
-			'x': risk_data.get('hazard', 0),
-			'y': risk_data.get('vulnerability', 0)
-		}
-
-	def _create_risk_radar_data(self, analysis_results: Dict) -> Dict:
-		"""
-		리스크 레이더 차트 데이터 생성
-
-		Args:
-			analysis_results: 분석 결과
-
-		Returns:
-			레이더 차트 데이터
-		"""
-		# TODO: 구현
-		return {}
-
-	def _create_ssp_chart_data(self, analysis_results: Dict) -> Dict:
-		"""
-		SSP 확률 차트 데이터 생성
-
-		Args:
-			analysis_results: 분석 결과
-
-		Returns:
-			차트 데이터
-		"""
-		# TODO: 구현
-		return {}
-
-	def _create_risk_timeline_data(self, analysis_results: Dict) -> Dict:
-		"""
-		리스크 타임라인 데이터 생성
-
-		Args:
-			analysis_results: 분석 결과
-
-		Returns:
-			타임라인 데이터
-		"""
-		# TODO: 구현
-		return {}
-
-	def _create_risk_heatmap_data(self, analysis_results: Dict) -> Dict:
-		"""
-		리스크 히트맵 데이터 생성
-
-		Args:
-			analysis_results: 분석 결과
-
-		Returns:
-			히트맵 데이터
-		"""
-		# TODO: 구현
-		return {}
-
-	def _describe_methodology(self) -> str:
-		"""
-		방법론 설명
-
-		Returns:
-			방법론 설명 문자열
-		"""
-		return "SKAX physical risk analysis based on TCFD recommendations..."
-
-	def _list_data_sources(self) -> list:
-		"""
-		데이터 소스 목록
-
-		Returns:
-			데이터 소스 목록
-		"""
-		return []
-
-	def _list_assumptions(self) -> list:
-		"""
-		가정사항 목록
-
-		Returns:
-			가정사항 목록
-		"""
-		return []
-
-	def _create_glossary(self) -> Dict:
-		"""
-		용어집 생성
-
-		Returns:
-			용어집 딕셔너리
-		"""
-		return {
-			'SSP': 'Shared Socioeconomic Pathways',
-			'TCFD': 'Task Force on Climate-related Financial Disclosures',
-			'Hazard': 'Hazard - Intensity and frequency of climate phenomena',
-			'Exposure': 'Exposure - Location and scale of assets, population, infrastructure',
-			'Vulnerability': 'Vulnerability - Adaptation capacity and sensitivity'
+			'report_title': f'{target_location.get("name", "대상 위치")} 물리적 리스크 분석 보고서',
+			'generation_date': datetime.now().isoformat(),
+			'location': target_location.get('name', 'N/A'),
+			'building_age': building_info.get('building_age', 'N/A'),
+			'report_version': 'v01',
+			'system': 'SKAX Physical Risk Analysis'
 		}

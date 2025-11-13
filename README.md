@@ -32,7 +32,6 @@ backend_team/
 │   ├── requirements.txt
 │   ├── README.md
 │   └── development_standard.md
-├── run_agent.py                   # 실행 진입점
 └── README.md                      # 이 파일
 ```
 
@@ -72,11 +71,6 @@ ENVIRONMENT=production
 ### 4. 실행
 
 #### 메인 분석 실행
-```bash
-python run_agent.py
-```
-
-또는 모듈로 직접 실행:
 ```bash
 python -m ai_agent.main
 ```

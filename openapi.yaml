@@ -1,0 +1,1393 @@
+openapi: 3.0.3
+info:
+  title: SK 사업장 기후 물리적 리스크 AI 평가 시스템 API
+  version: 1.0.0
+  description: >
+    사업장 기후 물리적/전환 리스크 분석, 시뮬레이션, 리포트 생성을 위한 백엔드 API 명세
+
+servers:
+  - url: https://api.skax.co.kr
+    description: Production
+  - url: https://staging-api.skax.co.kr
+    description: Staging
+
+tags:
+  - name: Auth
+  - name: Users
+  - name: Sites
+  - name: Dashboard
+  - name: Analysis
+  - name: Simulation
+  - name: Reports
+  - name: Meta
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: INVALID_REQUEST
+        message:
+          type: string
+          example: 잘못된 요청입니다.
+
+    # Auth / User
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+
+    LoginResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        user:
+          $ref: '#/components/schemas/User'
+
+    RegisterRequest:
+      type: object
+      required: [email, name, password]
+      properties:
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+          description: 담당자 이름
+        password:
+          type: string
+          format: password
+        verificationCode:
+          type: string
+          description: 이메일 인증번호 (필요 시)
+
+    PasswordResetRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+
+    PasswordResetConfirmRequest:
+      type: object
+      required: [token, newPassword]
+      properties:
+        token:
+          type: string
+          description: 이메일로 발송된 재설정 토큰
+        newPassword:
+          type: string
+          format: password
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        language:
+          type: string
+          example: ko
+        createdAt:
+          type: string
+          format: date-time
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        language:
+          type: string
+          example: ko
+
+    # Site (사업장)
+    Site:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          example: 대덕 데이터센터
+        address:
+          type: string
+        city:
+          type: string
+          example: 대전광역시
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        industry:
+          type: string
+          example: DC(Data Center)
+        mainHazard:
+          type: string
+          example: 폭염
+        riskScore:
+          type: integer
+          example: 70
+        riskLevel:
+          type: string
+          enum: [낮음, 보통, 높음, 심각]
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateSiteRequest:
+      type: object
+      required: [name, address, industry]
+      properties:
+        name:
+          type: string
+        address:
+          type: string
+        industry:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+
+    UpdateSiteRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        address:
+          type: string
+        industry:
+          type: string
+
+    # Dashboard
+    DashboardSummary:
+      type: object
+      properties:
+        totalSites:
+          type: integer
+        safeSites:
+          type: integer
+        riskySites:
+          type: integer
+        highestRiskHazard:
+          type: string
+          example: 폭염
+
+    # ==========================================
+    # Analysis Schemas
+    # 프론트엔드 요구사항 기반 + AI Agent 상세 정보 추가
+    # ==========================================
+    #
+    # AI Agent 구조:
+    # - Super Agent (24개 하위 에이전트)
+    # - 데이터 처리: 2개 (데이터 수집, 취약성 분석)
+    # - 리스크 분석: 18개 (물리적 리스크 9개 + AAL 9개, 병렬 실행)
+    # - 보고서 생성: 4개 (템플릿, 전략, 생성, 검증)
+    #
+    # 계산 방식:
+    # - 물리적 리스크 점수: H×E×V (Hazard × Exposure × Vulnerability)
+    # - AAL (Average Annual Loss): P×D×A (Probability × Damage Rate × Asset Value)
+    # ==========================================
+
+    # Analysis - Overview
+    PhysicalRiskBarItem:
+      type: object
+      properties:
+        hazardType:
+          type: string
+          example: 홍수 빈도
+        score:
+          type: integer
+          description: 물리적 리스크 종합 점수 (0-100)
+        # AI Agent H×E×V 상세 정보 (선택적)
+        hazardScore:
+          type: number
+          format: float
+          description: Hazard 점수 (0.0-1.0)
+          example: 0.65
+        exposureScore:
+          type: number
+          format: float
+          description: Exposure 점수 (0.0-1.0)
+          example: 0.85
+        vulnerabilityScore:
+          type: number
+          format: float
+          description: Vulnerability 점수 (0.0-1.0)
+          example: 0.45
+        riskCalculationMethod:
+          type: string
+          description: 리스크 계산 방식
+          example: H×E×V
+          enum: [H×E×V, AAL]
+
+    AnalysisOverviewResponse:
+      type: object
+      properties:
+        mainHazard:
+          type: string
+        mainHazardScore:
+          type: integer
+        expectedDamageRate:
+          type: number
+        physicalRiskScores:
+          type: array
+          items:
+            $ref: '#/components/schemas/PhysicalRiskBarItem'
+
+    # Analysis - Past Events
+    PastEventSummary:
+      type: object
+      properties:
+        totalEvents:
+          type: integer
+        severeEvents:
+          type: integer
+        avgWarningDays:
+          type: number
+        avgSevereDays:
+          type: number
+
+    PastEventItem:
+      type: object
+      properties:
+        year:
+          type: integer
+        hazardType:
+          type: string
+          example: 폭염
+        warningDays:
+          type: integer
+        severeDays:
+          type: integer
+        severityLevel:
+          type: string
+          enum: [경미, 주의, 심각]
+
+    PastEventsResponse:
+      type: object
+      properties:
+        summary:
+          $ref: '#/components/schemas/PastEventSummary'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/PastEventItem'
+
+    # Analysis - SSP & Financial
+    SSPProjectionPoint:
+      type: object
+      properties:
+        decade:
+          type: string
+          example: "2040s"
+        score:
+          type: number
+
+    SSPScenarioProjection:
+      type: object
+      properties:
+        scenario:
+          type: string
+          example: SSP5
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/SSPProjectionPoint'
+
+    SSPProjectionResponse:
+      type: object
+      properties:
+        hazardType:
+          type: string
+          example: 폭염
+        timeScale:
+          type: string
+          example: 장기
+        projections:
+          type: array
+          items:
+            $ref: '#/components/schemas/SSPScenarioProjection'
+        adaptationActions:
+          type: array
+          items:
+            type: string
+
+    FinancialImpactPoint:
+      type: object
+      properties:
+        decade:
+          type: string
+        averageLossKRW:
+          type: number
+          format: double
+
+    FinancialImpactScenario:
+      type: object
+      properties:
+        scenario:
+          type: string
+          example: SSP5
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/FinancialImpactPoint'
+
+    FinancialImpactResponse:
+      type: object
+      properties:
+        hazardType:
+          type: string
+        projections:
+          type: array
+          items:
+            $ref: '#/components/schemas/FinancialImpactScenario'
+        description:
+          type: string
+        # AI Agent AAL 분석 상세 정보 (선택적)
+        aalAnalysis:
+          type: object
+          description: Average Annual Loss 분석 결과
+          properties:
+            probability:
+              type: number
+              format: float
+              description: 재난 발생 확률 (0.0-1.0)
+              example: 0.08
+            damageRate:
+              type: number
+              format: float
+              description: 손상률 (0.0-1.0)
+              example: 0.15
+            expectedLoss:
+              type: number
+              format: double
+              description: 연평균 예상 손실액 (KRW)
+              example: 125000000
+            assetValue:
+              type: number
+              format: double
+              description: 사업장 총 자산 가치 (KRW)
+              example: 10000000000
+            calculationMethod:
+              type: string
+              description: AAL 계산 방식
+              example: P×D×A
+              enum: [P×D×A]
+
+    # Analysis - Vulnerability
+    VulnerabilityItem:
+      type: object
+      properties:
+        hazardType:
+          type: string
+          example: Extreme Heat
+        score:
+          type: integer
+        level:
+          type: string
+          enum: [낮음, 보통, 높음]
+        # AI Agent 취약성 분석 상세 정보 (선택적)
+        buildingAge:
+          type: integer
+          description: 건물 연식 (년)
+          example: 15
+        seismicDesign:
+          type: boolean
+          description: 내진 설계 여부
+          example: true
+        firetruckAccessibility:
+          type: string
+          description: 소방차 진입 가능성
+          example: 양호
+          enum: [불가, 제한적, 양호, 우수]
+        vulnerabilityFactors:
+          type: array
+          description: 취약성 요인 목록
+          items:
+            type: object
+            properties:
+              factor:
+                type: string
+                example: 건물 노후화
+              impactScore:
+                type: number
+                format: float
+                description: 영향도 (0.0-1.0)
+                example: 0.35
+
+    VulnerabilityResponse:
+      type: object
+      properties:
+        totalScore:
+          type: integer
+        siteInfo:
+          type: object
+          properties:
+            type:
+              type: string
+            builtYear:
+              type: integer
+            structure:
+              type: string
+            lat:
+              type: number
+            lon:
+              type: number
+        details:
+          type: array
+          items:
+            $ref: '#/components/schemas/VulnerabilityItem'
+
+    # AI Agent 분석 작업 추적 스키마 (선택적 - 비동기 실행 지원)
+    AnalysisJob:
+      type: object
+      description: AI Agent 분석 작업 상태 추적
+      properties:
+        jobId:
+          type: string
+          description: 분석 작업 고유 ID
+          example: job_20251113_001
+        siteId:
+          type: string
+          description: 대상 사업장 ID
+        status:
+          type: string
+          description: 작업 상태
+          enum: [queued, data_collection, vulnerability_analysis, risk_analysis, report_generation, validation, completed, failed]
+          example: risk_analysis
+        currentNode:
+          type: string
+          description: 현재 실행 중인 워크플로우 노드
+          example: physical_risk_score
+          enum: [data_collection, vulnerability_analysis, physical_risk_score, aal_analysis, risk_integration, report_template, strategy_generation, report_generation, validation, finalization]
+        progress:
+          type: integer
+          description: 진행률 (0-100)
+          example: 45
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+        estimatedCompletionTime:
+          type: string
+          format: date-time
+        error:
+          type: object
+          description: 오류 정보 (실패 시)
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            node:
+              type: string
+              description: 오류 발생 노드
+        agentExecutionDetails:
+          type: object
+          description: AI Agent 실행 상세 정보
+          properties:
+            totalAgents:
+              type: integer
+              description: 전체 에이전트 수
+              example: 24
+            completedAgents:
+              type: integer
+              description: 완료된 에이전트 수
+              example: 12
+            subAgentStatus:
+              type: array
+              description: Sub Agent별 실행 상태
+              items:
+                type: object
+                properties:
+                  agentName:
+                    type: string
+                    example: HighTemperatureScoreAgent
+                  status:
+                    type: string
+                    enum: [pending, running, completed, failed]
+                  executionTime:
+                    type: number
+                    description: 실행 시간 (초)
+
+    # Analysis - Total (특정 Hazard 통합)
+    AnalysisTotalResponse:
+      type: object
+      properties:
+        overview:
+          type: object
+          description: 물리적 리스크 개요 정보
+          properties:
+            mainHazard:
+              type: string
+              example: 태풍
+            mainHazardScore:
+              type: integer
+              example: 70
+            expectedDamageRate:
+              type: number
+              example: 0.17
+            physicalRiskScores:
+              type: array
+              items:
+                $ref: '#/components/schemas/PhysicalRiskBarItem'
+        pastEvents:
+          type: object
+          description: 선택된 Hazard 관련 과거 재난 분석
+          properties:
+            summary:
+              $ref: '#/components/schemas/PastEventSummary'
+            events:
+              type: array
+              items:
+                $ref: '#/components/schemas/PastEventItem'
+        sspProjection:
+          type: object
+          description: SSP 시나리오 기반 특정 Hazard의 미래 리스크 전망
+          properties:
+            hazardType:
+              type: string
+            timeScale:
+              type: string
+              example: 장기
+            projections:
+              type: array
+              items:
+                $ref: '#/components/schemas/SSPScenarioProjection'
+            adaptationActions:
+              type: array
+              items:
+                type: string
+        financialImpact:
+          type: object
+          description: 특정 Hazard에 대한 SSP 시나리오 기반 재무 영향
+          properties:
+            hazardType:
+              type: string
+            projections:
+              type: array
+              items:
+                $ref: '#/components/schemas/FinancialImpactScenario'
+            description:
+              type: string
+        vulnerability:
+          type: object
+          description: Hazard 취약성 분석
+          properties:
+            totalScore:
+              type: integer
+            siteInfo:
+              type: object
+              properties:
+                type:
+                  type: string
+                builtYear:
+                  type: integer
+                structure:
+                  type: string
+                lat:
+                  type: number
+                lon:
+                  type: number
+            details:
+              type: array
+              items:
+                $ref: '#/components/schemas/VulnerabilityItem'
+
+    # Simulation
+    RelocationCandidate:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        locationSummary:
+          type: string
+        riskScore:
+          type: integer
+        aal:
+          type: number
+        riskLevel:
+          type: string
+
+    RelocationSimulationResult:
+      type: object
+      properties:
+        baseSite:
+          $ref: '#/components/schemas/Site'
+        candidateSite:
+          $ref: '#/components/schemas/RelocationCandidate'
+        totalRiskScore:
+          type: integer
+        totalAAL:
+          type: number
+        cvarLoss:
+          type: number
+        climateFactorComparison:
+          type: object
+          additionalProperties:
+            type: integer
+        pros:
+          type: array
+          items:
+            type: string
+        cons:
+          type: array
+          items:
+            type: string
+
+    ClimateSimulationPoint:
+      type: object
+      properties:
+        year:
+          type: integer
+        metric:
+          type: number
+
+    ClimateSimulationSeries:
+      type: object
+      properties:
+        siteId:
+          type: string
+        metricName:
+          type: string
+          example: avg_temperature
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClimateSimulationPoint'
+
+    ClimateSimulationResponse:
+      type: object
+      properties:
+        scenario:
+          type: string
+          example: SSP5-8.5(고탄소)
+        hazardType:
+          type: string
+        series:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClimateSimulationSeries'
+        timelineActions:
+          type: array
+          items:
+            type: object
+            properties:
+              decade:
+                type: string
+              action:
+                type: string
+              priority:
+                type: string
+              costLevel:
+                type: string
+
+    # Reports
+    Report:
+      type: object
+      properties:
+        id:
+          type: string
+        siteId:
+          type: string
+        type:
+          type: string
+          example: full
+        status:
+          type: string
+          enum: [pending, generating, completed, failed]
+        downloadUrl:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateReportRequest:
+      type: object
+      required: [siteId, type]
+      properties:
+        siteId:
+          type: string
+        type:
+          type: string
+          enum: [summary, full, governance]
+
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: 로그인
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: 로그인 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: 인증 실패
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: 회원가입
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: 회원가입 성공
+        '400':
+          description: 잘못된 요청
+
+  /auth/password/reset-request:
+    post:
+      tags: [Auth]
+      summary: 비밀번호 재설정 메일 요청
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequest'
+      responses:
+        '200':
+          description: 메일 전송 완료
+
+  /auth/password/reset-confirm:
+    post:
+      tags: [Auth]
+      summary: 비밀번호 재설정 완료
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirmRequest'
+      responses:
+        '200':
+          description: 비밀번호 재설정 성공
+
+  /users/me:
+    get:
+      tags: [Users]
+      security: [{ bearerAuth: [] }]
+      summary: 내 정보 조회
+      responses:
+        '200':
+          description: 사용자 정보
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+    patch:
+      tags: [Users]
+      security: [{ bearerAuth: [] }]
+      summary: 내 정보 수정 (이름, 언어 등)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: 수정된 정보
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+  /users/me/delete:
+    post:
+      tags: [Users]
+      security: [{ bearerAuth: [] }]
+      summary: 계정 삭제
+      responses:
+        '204':
+          description: 계정 삭제 완료
+
+  /sites:
+    get:
+      tags: [Sites]
+      security: [{ bearerAuth: [] }]
+      summary: 사업장 목록 조회 (대시보드/사업장 관리)
+      parameters:
+        - in: query
+          name: search
+          schema:
+            type: string
+          description: 이름/주소 검색
+        - in: query
+          name: riskLevel
+          schema:
+            type: string
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: pageSize
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 사업장 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Site'
+    post:
+      tags: [Sites]
+      security: [{ bearerAuth: [] }]
+      summary: 사업장 등록
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSiteRequest'
+      responses:
+        '201':
+          description: 생성된 사업장
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Site'
+
+  /sites/{siteId}:
+    get:
+      tags: [Sites]
+      security: [{ bearerAuth: [] }]
+      summary: 사업장 상세 조회
+      parameters:
+        - in: path
+          name: siteId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 사업장 정보
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Site'
+    patch:
+      tags: [Sites]
+      security: [{ bearerAuth: [] }]
+      summary: 사업장 정보 수정
+      parameters:
+        - in: path
+          name: siteId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSiteRequest'
+      responses:
+        '200':
+          description: 수정된 사업장
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Site'
+    delete:
+      tags: [Sites]
+      security: [{ bearerAuth: [] }]
+      summary: 사업장 삭제
+      parameters:
+        - in: path
+          name: siteId
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: 삭제 완료
+
+  /dashboard/summary:
+    get:
+      tags: [Dashboard]
+      security: [{ bearerAuth: [] }]
+      summary: 대시보드 요약 정보
+      responses:
+        '200':
+          description: 요약 정보
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardSummary'
+
+  /sites/{siteId}/analysis/overview:
+    get:
+      tags: [Analysis]
+      security: [{ bearerAuth: [] }]
+      summary: 사업장 물리적 리스크 개요
+      parameters:
+        - in: path
+          name: siteId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 개요 정보
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisOverviewResponse'
+
+  /sites/{siteId}/analysis/past-events:
+    get:
+      tags: [Analysis]
+      security: [{ bearerAuth: [] }]
+      summary: 과거 재난 이력
+      parameters:
+        - in: path
+          name: siteId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 과거 재난
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PastEventsResponse'
+
+  /sites/{siteId}/analysis/ssp:
+    get:
+      tags: [Analysis]
+      security: [{ bearerAuth: [] }]
+      summary: SSP 시나리오별 리스크 전망
+      parameters:
+        - in: path
+          name: siteId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: hazardType
+          schema:
+            type: string
+          description: 폭염, 홍수 등
+        - in: query
+          name: timeScale
+          schema:
+            type: string
+            example: 장기
+      responses:
+        '200':
+          description: SSP 리스크 전망
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SSPProjectionResponse'
+
+  /sites/{siteId}/analysis/financial-impacts:
+    get:
+      tags: [Analysis]
+      security: [{ bearerAuth: [] }]
+      summary: SSP 시나리오별 재무 영향
+      parameters:
+        - in: path
+          name: siteId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: hazardType
+          schema:
+            type: string
+            example: 태풍
+      responses:
+        '200':
+          description: 재무 영향
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinancialImpactResponse'
+
+  /sites/{siteId}/analysis/vulnerability:
+    get:
+      tags: [Analysis]
+      security: [{ bearerAuth: [] }]
+      summary: 취약성 분석
+      parameters:
+        - in: path
+          name: siteId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 취약성 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VulnerabilityResponse'
+
+  /sites/{siteId}/analysis/total:
+    get:
+      tags: [Analysis]
+      security: [{ bearerAuth: [] }]
+      summary: 특정 Hazard 기준 사업장 전체 분석 결과(통합)
+      parameters:
+        - in: path
+          name: siteId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: hazardType
+          required: true
+          schema:
+            type: string
+          description: 예) 태풍, 폭염, 홍수 등
+        - in: query
+          name: timeScale
+          schema:
+            type: string
+            example: 장기
+          description: SSP 시간 스케일(단기/중기/장기 등)
+      responses:
+        '200':
+          description: 통합 분석 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisTotalResponse'
+
+  /simulation/relocation-candidates:
+    get:
+      tags: [Simulation]
+      security: [{ bearerAuth: [] }]
+      summary: 사업장 이전 후보지 추천 목록
+      parameters:
+        - in: query
+          name: baseSiteId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 후보지 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RelocationCandidate'
+
+  /simulation/relocation-result:
+    post:
+      tags: [Simulation]
+      security: [{ bearerAuth: [] }]
+      summary: 특정 후보지와 현재 사업장 리스크 비교 결과
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [baseSiteId, candidateSiteId]
+              properties:
+                baseSiteId:
+                  type: string
+                candidateSiteId:
+                  type: string
+      responses:
+        '200':
+          description: 비교 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RelocationSimulationResult'
+
+  /simulation/climate:
+    get:
+      tags: [Simulation]
+      security: [{ bearerAuth: [] }]
+      summary: 기후 시뮬레이션 (SSP, 연도, 변수)
+      parameters:
+        - in: query
+          name: scenario
+          required: true
+          schema:
+            type: string
+            example: SSP5-8.5
+        - in: query
+          name: hazardType
+          schema:
+            type: string
+        - in: query
+          name: startYear
+          schema:
+            type: integer
+        - in: query
+          name: endYear
+          schema:
+            type: integer
+        - in: query
+          name: siteIds
+          schema:
+            type: string
+          description: 콤마로 구분된 siteId 목록
+      responses:
+        '200':
+          description: 시뮬레이션 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClimateSimulationResponse'
+
+  /reports:
+    post:
+      tags: [Reports]
+      security: [{ bearerAuth: [] }]
+      summary: 리포트 생성 요청
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReportRequest'
+      responses:
+        '202':
+          description: 리포트 생성 시작
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+
+  /reports/{reportId}:
+    get:
+      tags: [Reports]
+      security: [{ bearerAuth: [] }]
+      summary: 리포트 상세 조회
+      parameters:
+        - in: path
+          name: reportId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 리포트 정보
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+
+  /sites/{siteId}/reports:
+    get:
+      tags: [Reports]
+      security: [{ bearerAuth: [] }]
+      summary: 사업장별 리포트 목록
+      parameters:
+        - in: path
+          name: siteId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 리포트 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Report'
+
+  /meta/hazards:
+    get:
+      tags: [Meta]
+      summary: 지원하는 기후 리스크(위험요인) 목록
+      responses:
+        '200':
+          description: 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  example: 폭염
+
+  /meta/industries:
+    get:
+      tags: [Meta]
+      summary: 업종 목록
+      responses:
+        '200':
+          description: 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  example: DC(Data Center)
+
+  # AI Agent 비동기 분석 작업 관리 엔드포인트 (선택적)
+  /sites/{siteId}/analysis/jobs:
+    post:
+      tags: [Analysis]
+      security: [{ bearerAuth: [] }]
+      summary: AI Agent 분석 작업 시작 (비동기)
+      description: >
+        사업장에 대한 AI Agent 물리적 리스크 분석을 비동기로 시작합니다.
+        LangGraph 워크플로우가 백그라운드에서 실행되며, jobId를 통해 진행 상태를 추적할 수 있습니다.
+      parameters:
+        - in: path
+          name: siteId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                hazardTypes:
+                  type: array
+                  description: 분석할 리스크 유형 (미지정시 전체)
+                  items:
+                    type: string
+                  example: [폭염, 태풍, 홍수]
+                priority:
+                  type: string
+                  description: 작업 우선순위
+                  enum: [low, normal, high]
+                  default: normal
+      responses:
+        '202':
+          description: 분석 작업 시작됨
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisJob'
+        '409':
+          description: 이미 실행 중인 작업이 있음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /sites/{siteId}/analysis/jobs/{jobId}:
+    get:
+      tags: [Analysis]
+      security: [{ bearerAuth: [] }]
+      summary: AI Agent 분석 작업 상태 조회
+      description: >
+        실행 중인 AI Agent 분석 작업의 현재 상태, 진행률, Sub Agent 실행 정보를 조회합니다.
+      parameters:
+        - in: path
+          name: siteId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: jobId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 작업 상태
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisJob'
+        '404':
+          description: 작업을 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags: [Analysis]
+      security: [{ bearerAuth: [] }]
+      summary: AI Agent 분석 작업 취소
+      description: 실행 중인 AI Agent 분석 작업을 취소합니다.
+      parameters:
+        - in: path
+          name: siteId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: jobId
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: 작업 취소 완료
+        '404':
+          description: 작업을 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 이미 완료되어 취소할 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'

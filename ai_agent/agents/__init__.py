@@ -1,11 +1,13 @@
 """
 Agents Package
-Super Agent 계층적 구조 (v04)
+Super Agent 계층적 구조 (v05)
 
 구조:
-- data_processing: 데이터 수집 및 취약성 분석
+- data_processing: 데이터 수집 및 취약성 분석 (2개)
 - risk_analysis: 물리적 리스크 분석 및 AAL 계산 (18개 Sub Agent)
-- report_generation: 보고서 생성, 전략 수립, 검증
+- report_generation: 보고서 생성, 영향 분석, 전략 수립, 검증 (5개)
+
+총 25개 에이전트
 """
 # Data Processing Agents
 from .data_processing import (
@@ -37,12 +39,13 @@ from .risk_analysis import (
     TyphoonAALAgent
 )
 
-# Report Generation Agents
+# Report Generation Agents (5개)
 from .report_generation import (
     ValidationAgent,
     ReportGenerationAgent,
     StrategyGenerationAgent,
-    ReportTemplateAgent
+    ReportTemplateAgent,
+    ImpactAnalysisAgent
 )
 
 
@@ -76,4 +79,5 @@ __all__ = [
     'ReportGenerationAgent',
     'StrategyGenerationAgent',
     'ReportTemplateAgent',
+    'ImpactAnalysisAgent',
 ]

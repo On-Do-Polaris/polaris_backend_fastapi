@@ -20,6 +20,7 @@ from ..agents import (
 	StrategyGenerationAgent,
 	ReportGenerationAgent,
 	ValidationAgent,
+	ImpactAnalysisAgent,
 	HighTemperatureScoreAgent,
 	ColdWaveScoreAgent,
 	WildfireScoreAgent,
@@ -338,7 +339,7 @@ def report_template_node(state: SuperAgentState, config: Any) -> Dict:
 		return {
 			'report_template': report_template,
 			'template_status': 'completed',
-			'current_step': 'strategy_generation',
+			'current_step': 'impact_analysis',
 			'logs': ['리포트 템플릿 생성 완료 (ReportTemplateAgent)']
 		}
 
@@ -350,7 +351,47 @@ def report_template_node(state: SuperAgentState, config: Any) -> Dict:
 		}
 
 
-# ========== Node 6: 대응 전략 생성 (StrategyGenerationAgent) ==========
+# ========== Node 6: 영향 분석 (ImpactAnalysisAgent) ==========
+def impact_analysis_node(state: SuperAgentState, config: Any) -> Dict:
+	"""
+	리스크 영향 분석 노드
+	ImpactAnalysisAgent를 사용하여 전력 사용량 기반 구체적 영향 분석
+
+	Args:
+		state: 현재 워크플로우 상태
+		config: 설정 객체
+
+	Returns:
+		업데이트된 상태 딕셔너리
+	"""
+	print("[Node 6] 영향 분석 시작 (ImpactAnalysisAgent)...")
+
+	try:
+		impact_agent = ImpactAnalysisAgent()
+
+		impact_analysis = impact_agent.analyze_impact(
+			physical_risk_scores=state.get('physical_risk_scores', {}),
+			aal_analysis=state.get('aal_analysis', {}),
+			collected_data=state.get('collected_data', {}),
+			vulnerability_analysis=state.get('vulnerability_analysis', {})
+		)
+
+		return {
+			'impact_analysis': impact_analysis,
+			'impact_status': 'completed',
+			'current_step': 'strategy_generation',
+			'logs': ['영향 분석 완료 (ImpactAnalysisAgent)']
+		}
+
+	except Exception as e:
+		print(f"[Node 6] 오류: {str(e)}")
+		return {
+			'impact_status': 'failed',
+			'errors': [f'영향 분석 오류: {str(e)}']
+		}
+
+
+# ========== Node 7: 대응 전략 생성 (StrategyGenerationAgent) ==========
 def strategy_generation_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	대응 전략 생성 노드
@@ -363,7 +404,7 @@ def strategy_generation_node(state: SuperAgentState, config: Any) -> Dict:
 	Returns:
 		업데이트된 상태 딕셔너리
 	"""
-	print("[Node 6] 대응 전략 생성 시작 (StrategyGenerationAgent)...")
+	print("[Node 7] 대응 전략 생성 시작 (StrategyGenerationAgent)...")
 
 	try:
 		llm_client = LLMClient()
@@ -375,6 +416,7 @@ def strategy_generation_node(state: SuperAgentState, config: Any) -> Dict:
 			vulnerability_analysis=state.get('vulnerability_analysis', {}),
 			aal_analysis=state.get('aal_analysis', {}),
 			physical_risk_scores=state.get('physical_risk_scores', {}),
+			impact_analysis=state.get('impact_analysis', {}),
 			report_template=state.get('report_template', {})
 		)
 
@@ -386,14 +428,14 @@ def strategy_generation_node(state: SuperAgentState, config: Any) -> Dict:
 		}
 
 	except Exception as e:
-		print(f"[Node 6] 오류: {str(e)}")
+		print(f"[Node 7] 오류: {str(e)}")
 		return {
 			'strategy_status': 'failed',
 			'errors': [f'대응 전략 생성 오류: {str(e)}']
 		}
 
 
-# ========== Node 7: 리포트 생성 (ReportGenerationAgent) ==========
+# ========== Node 8: 리포트 생성 (ReportGenerationAgent) ==========
 def report_generation_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	리포트 생성 노드
@@ -406,7 +448,7 @@ def report_generation_node(state: SuperAgentState, config: Any) -> Dict:
 	Returns:
 		업데이트된 상태 딕셔너리
 	"""
-	print("[Node 7] 리포트 생성 시작 (ReportGenerationAgent)...")
+	print("[Node 8] 리포트 생성 시작 (ReportGenerationAgent)...")
 
 	try:
 		report_agent = ReportGenerationAgent()
@@ -417,6 +459,7 @@ def report_generation_node(state: SuperAgentState, config: Any) -> Dict:
 			vulnerability_analysis=state.get('vulnerability_analysis', {}),
 			aal_analysis=state.get('aal_analysis', {}),
 			physical_risk_scores=state.get('physical_risk_scores', {}),
+			impact_analysis=state.get('impact_analysis', {}),
 			report_template=state.get('report_template', {}),
 			response_strategy=state.get('response_strategy', {})
 		)
@@ -429,14 +472,14 @@ def report_generation_node(state: SuperAgentState, config: Any) -> Dict:
 		}
 
 	except Exception as e:
-		print(f"[Node 7] 오류: {str(e)}")
+		print(f"[Node 8] 오류: {str(e)}")
 		return {
 			'report_status': 'failed',
 			'errors': [f'리포트 생성 오류: {str(e)}']
 		}
 
 
-# ========== Node 8: 검증 ==========
+# ========== Node 9: 검증 ==========
 def validation_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	검증 노드
@@ -449,7 +492,7 @@ def validation_node(state: SuperAgentState, config: Any) -> Dict:
 	Returns:
 		업데이트된 상태 딕셔너리
 	"""
-	print("[Node 8] 리포트 검증 시작...")
+	print("[Node 9] 리포트 검증 시작...")
 
 	try:
 		validator = ValidationAgent()
@@ -478,14 +521,14 @@ def validation_node(state: SuperAgentState, config: Any) -> Dict:
 			}
 
 	except Exception as e:
-		print(f"[Node 8] 오류: {str(e)}")
+		print(f"[Node 9] 오류: {str(e)}")
 		return {
 			'validation_status': 'error',
 			'errors': [f'검증 오류: {str(e)}']
 		}
 
 
-# ========== Node 9: 최종 리포트 산출 ==========
+# ========== Node 10: 최종 리포트 산출 ==========
 def finalization_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	최종 리포트 산출 노드
@@ -498,7 +541,7 @@ def finalization_node(state: SuperAgentState, config: Any) -> Dict:
 	Returns:
 		업데이트된 상태 딕셔너리
 	"""
-	print("[Node 9] 최종 리포트 확정...")
+	print("[Node 10] 최종 리포트 확정...")
 
 	return {
 		'final_report': state.get('generated_report'),

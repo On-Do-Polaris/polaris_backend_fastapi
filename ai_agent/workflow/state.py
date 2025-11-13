@@ -46,21 +46,25 @@ class SuperAgentState(TypedDict, total=False):
 	report_template: Optional[Dict[str, Any]]  # 생성된 리포트 템플릿
 	template_status: str  # 템플릿 생성 상태
 
-	# Step 7: 대응 전략 생성 (LLM + RAG)
+	# Step 7: 영향 분석 (전력 사용량 기반)
+	impact_analysis: Optional[Dict[str, Any]]  # 리스크 영향 분석 결과
+	impact_status: str  # 영향 분석 상태
+
+	# Step 8: 대응 전략 생성 (LLM + RAG)
 	response_strategy: Optional[Dict[str, Any]]  # LLM 기반 대응 전략
 	strategy_status: str  # 전략 생성 상태
 	llm_reasoning: Optional[str]  # LLM 추론 과정
 
-	# Step 8: 리포트 생성
+	# Step 9: 리포트 생성
 	generated_report: Optional[Dict[str, Any]]  # 생성된 리포트
 	report_status: str  # 리포트 생성 상태
 
-	# Step 9: 검증 (정확성/일관성 확인)
+	# Step 10: 검증 (정확성/일관성 확인)
 	validation_result: Optional[Dict[str, Any]]  # 검증 결과
 	validation_status: str  # 검증 상태 (passed, failed)
 	validation_feedback: Optional[List[str]]  # 검증 피드백 (미달 시 개선 사항)
 
-	# Step 10: 최종 리포트
+	# Step 11: 최종 리포트
 	final_report: Optional[Dict[str, Any]]  # 최종 승인된 리포트
 	final_status: str  # 최종 상태
 

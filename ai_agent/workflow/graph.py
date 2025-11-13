@@ -1,12 +1,13 @@
 '''
 파일명: graph.py
 최종 수정일: 2025-11-13
-버전: v03
+버전: v04
 파일 개요: LangGraph 워크플로우 그래프 정의 (Super Agent 계층적 구조)
 변경 이력:
 	- 2025-11-11: v01 - Super Agent 계층적 구조로 전면 개편, 검증 재시도 루프 추가
 	- 2025-11-11: v02 - 워크플로우 순서 변경 (AAL 분석 → 물리적 리스크 점수), 100점 스케일 적용
 	- 2025-11-13: v03 - AAL과 물리적 리스크 점수를 병렬 실행으로 변경 (H×E×V 방식 복원)
+	- 2025-11-13: v04 - 영향 분석 노드 추가 (report_template → impact_analysis → strategy)
 '''
 from langgraph.graph import StateGraph, END
 from .state import SuperAgentState
@@ -17,6 +18,7 @@ from .nodes import (
 	aal_analysis_node,
 	risk_integration_node,
 	report_template_node,
+	impact_analysis_node,
 	strategy_generation_node,
 	report_generation_node,
 	validation_node,
@@ -49,8 +51,9 @@ def should_retry_validation(state: SuperAgentState) -> str:
 def create_workflow_graph(config):
 	"""
 	Super Agent 워크플로우 그래프 생성
-	11개 노드를 연결하고 검증 재시도 루프 포함
+	12개 노드를 연결하고 검증 재시도 루프 포함
 	AAL과 물리적 리스크 점수는 병렬 실행 (개념적)
+	report_template → impact_analysis → strategy 흐름
 
 	Args:
 		config: 설정 객체
@@ -68,6 +71,7 @@ def create_workflow_graph(config):
 	workflow.add_node('aal_analysis', lambda state: aal_analysis_node(state, config))
 	workflow.add_node('risk_integration', lambda state: risk_integration_node(state, config))
 	workflow.add_node('report_template', lambda state: report_template_node(state, config))
+	workflow.add_node('impact_analysis', lambda state: impact_analysis_node(state, config))
 	workflow.add_node('strategy_generation', lambda state: strategy_generation_node(state, config))
 	workflow.add_node('report_generation', lambda state: report_generation_node(state, config))
 	workflow.add_node('validation', lambda state: validation_node(state, config))
@@ -96,16 +100,19 @@ def create_workflow_graph(config):
 	# 6. 리스크 통합 -> 리포트 템플릿 생성
 	workflow.add_edge('risk_integration', 'report_template')
 
-	# 7. 리포트 템플릿 생성 -> 대응 전략 생성
-	workflow.add_edge('report_template', 'strategy_generation')
+	# 7. 리포트 템플릿 생성 -> 영향 분석
+	workflow.add_edge('report_template', 'impact_analysis')
 
-	# 8. 대응 전략 생성 -> 리포트 생성
+	# 8. 영향 분석 -> 대응 전략 생성
+	workflow.add_edge('impact_analysis', 'strategy_generation')
+
+	# 9. 대응 전략 생성 -> 리포트 생성
 	workflow.add_edge('strategy_generation', 'report_generation')
 
-	# 9. 리포트 생성 -> 검증
+	# 10. 리포트 생성 -> 검증
 	workflow.add_edge('report_generation', 'validation')
 
-	# 10. 검증 -> 조건부 분기 (검증 통과/실패)
+	# 11. 검증 -> 조건부 분기 (검증 통과/실패)
 	workflow.add_conditional_edges(
 		'validation',
 		should_retry_validation,
@@ -115,7 +122,7 @@ def create_workflow_graph(config):
 		}
 	)
 
-	# 11. 최종화 -> 종료
+	# 12. 최종화 -> 종료
 	workflow.add_edge('finalization', END)
 
 	# 그래프 컴파일
@@ -142,6 +149,7 @@ def print_workflow_structure():
 	+-------------------------------------------------------+
 	|  Node 1: 데이터 수집 (data_collection)                |
 	|  - 대상 위치 기후 데이터 수집                           |
+	|  - 과거~현재 전력 사용량 데이터 수집                    |
 	+-------------------------------------------------------+
 	  |
 	  v
@@ -181,21 +189,30 @@ def print_workflow_structure():
 	  |
 	  v
 	+-------------------------------------------------------+
-	|  Node 6: 대응 전략 생성 (strategy_generation)          |
+	|  Node 6: 영향 분석 (impact_analysis)                  |
+	|  - 전력 사용량 기반 구체적 영향 분석                    |
+	|  - 리스크별 과거 데이터 패턴 분석                       |
+	|  - 운영 비용 및 설비 영향 평가                         |
+	+-------------------------------------------------------+
+	  |
+	  v
+	+-------------------------------------------------------+
+	|  Node 7: 대응 전략 생성 (strategy_generation)          |
 	|  - LLM + RAG 활용                                     |
+	|  - 물리적 리스크, AAL, 영향 분석 기반 전략 수립         |
 	|  - 맞춤형 대응 전략 및 권고 사항 생성                   |
 	+-------------------------------------------------------+
 	  |
 	  v
 	+-------------------------------------------------------+
-	|  Node 7: 리포트 생성 (report_generation)               |
+	|  Node 8: 리포트 생성 (report_generation)               |
 	|  - 템플릿과 분석 결과 통합                             |
 	|  - 최종 리포트 작성                                    |
 	+-------------------------------------------------------+
 	  |
 	  v
 	+-------------------------------------------------------+
-	|  Node 8: 검증 (validation)                            |
+	|  Node 9: 검증 (validation)                            |
 	|  - 정확성 검증 (데이터 일치 여부)                       |
 	|  - 일관성 검증 (논리적 모순 확인)                       |
 	|  - 완전성 검증 (필수 섹션 포함 확인)                    |
@@ -208,8 +225,8 @@ def print_workflow_structure():
 	최대 3회                 |
 	  |                       |
 	  v                       v
-	Node 6으로 복귀         +---------------------------------------+
-	(대응 전략 재생성)      |  Node 9: 최종 리포트 산출 (finalization) |
+	Node 7으로 복귀         +---------------------------------------+
+	(대응 전략 재생성)      |  Node 10: 최종 리포트 산출 (finalization)|
 	                        |  - 검증 통과한 리포트 확정              |
 	                        +---------------------------------------+
 	                          |
@@ -218,9 +235,12 @@ def print_workflow_structure():
 
 	==============================================================
 	주요 특징:
-	- Super Agent 계층적 구조
-	- 18개 Sub Agent (물리적 리스크 9개 + AAL 9개)
+	- Super Agent 계층적 구조 (25개 에이전트)
+	- 데이터 처리: 2개 (데이터 수집, 취약성 분석)
+	- 리스크 분석: 18개 (물리적 리스크 9개 + AAL 9개, 병렬 실행)
+	- 보고서 생성: 5개 (템플릿, 영향 분석, 전략, 생성, 검증)
 	- 물리적 리스크(H×E×V)와 AAL 병렬 계산
+	- 전력 사용량 기반 영향 분석 (신규)
 	- LLM/RAG 통합 (대응 전략 생성)
 	- 검증 재시도 루프 (최대 3회)
 	- 취약성 분석 기반 리스크 선정

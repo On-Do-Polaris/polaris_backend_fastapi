@@ -204,10 +204,10 @@ components:
     # ==========================================
     #
     # AI Agent 구조:
-    # - Super Agent (24개 하위 에이전트)
+    # - Super Agent (25개 하위 에이전트)
     # - 데이터 처리: 2개 (데이터 수집, 취약성 분석)
     # - 리스크 분석: 18개 (물리적 리스크 9개 + AAL 9개, 병렬 실행)
-    # - 보고서 생성: 4개 (템플릿, 전략, 생성, 검증)
+    # - 보고서 생성: 5개 (템플릿, 영향 분석, 전략, 생성, 검증)
     #
     # 계산 방식:
     # - 물리적 리스크 점수: H×E×V (Hazard × Exposure × Vulnerability)
@@ -485,7 +485,7 @@ components:
           type: string
           description: 현재 실행 중인 워크플로우 노드
           example: physical_risk_score
-          enum: [data_collection, vulnerability_analysis, physical_risk_score, aal_analysis, risk_integration, report_template, strategy_generation, report_generation, validation, finalization]
+          enum: [data_collection, vulnerability_analysis, physical_risk_score, aal_analysis, risk_integration, report_template, impact_analysis, strategy_generation, report_generation, validation, finalization]
         progress:
           type: integer
           description: 진행률 (0-100)
@@ -517,11 +517,11 @@ components:
             totalAgents:
               type: integer
               description: 전체 에이전트 수
-              example: 24
+              example: 25
             completedAgents:
               type: integer
               description: 완료된 에이전트 수
-              example: 12
+              example: 13
             subAgentStatus:
               type: array
               description: Sub Agent별 실행 상태

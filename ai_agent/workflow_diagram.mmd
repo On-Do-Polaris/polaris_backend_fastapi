@@ -11,6 +11,7 @@ graph TD;
 	aal_analysis(aal_analysis)
 	risk_integration(risk_integration)
 	report_template(report_template)
+	impact_analysis(impact_analysis)
 	strategy_generation(strategy_generation)
 	report_generation(report_generation)
 	validation(validation)
@@ -19,9 +20,10 @@ graph TD;
 	__start__ --> data_collection;
 	aal_analysis --> risk_integration;
 	data_collection --> vulnerability_analysis;
+	impact_analysis --> strategy_generation;
 	physical_risk_score --> risk_integration;
 	report_generation --> validation;
-	report_template --> strategy_generation;
+	report_template --> impact_analysis;
 	risk_integration --> report_template;
 	strategy_generation --> report_generation;
 	validation -.-> finalization;

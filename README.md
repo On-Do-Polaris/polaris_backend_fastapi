@@ -127,8 +127,7 @@ python -m ai_agent.visualize_workflow
 
 - [AI Agent README](ai_agent/README.md): AI Agent 시스템 상세 설명
 - [개발 표준](ai_agent/development_standard.md): 코딩 컨벤션 및 개발 가이드
-- [소프트웨어 개발 표준](ai_agent/software_development_standard.pdf): 전체 개발 표준 문서
 
 ## 라이선스
 
-Copyright (C) 2025 SKAX Team. All rights reserved.
+Copyright (C) 2025 SKALA On-Do Team. All rights reserved.

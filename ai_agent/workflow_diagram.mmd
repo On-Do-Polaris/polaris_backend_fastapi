@@ -27,6 +27,7 @@ graph TD;
 	risk_integration --> report_template;
 	strategy_generation --> report_generation;
 	validation -.-> finalization;
+	validation -.-> impact_analysis;
 	validation -.-> strategy_generation;
 	vulnerability_analysis --> aal_analysis;
 	vulnerability_analysis --> physical_risk_score;

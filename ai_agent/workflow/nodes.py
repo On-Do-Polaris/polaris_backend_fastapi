@@ -364,7 +364,15 @@ def impact_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 	Returns:
 		업데이트된 상태 딕셔너리
 	"""
-	print("[Node 6] 영향 분석 시작 (ImpactAnalysisAgent)...")
+	retry_count = state.get('retry_count', 0)
+	validation_feedback = state.get('validation_feedback', [])
+
+	if retry_count > 0:
+		print(f"[Node 6] 영향 분석 재실행 (재시도 {retry_count}/3)...")
+		if validation_feedback:
+			print(f"[Node 6] 검증 피드백 반영: {len(validation_feedback)}개 개선사항")
+	else:
+		print("[Node 6] 영향 분석 시작 (ImpactAnalysisAgent)...")
 
 	try:
 		impact_agent = ImpactAnalysisAgent()
@@ -373,14 +381,15 @@ def impact_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 			physical_risk_scores=state.get('physical_risk_scores', {}),
 			aal_analysis=state.get('aal_analysis', {}),
 			collected_data=state.get('collected_data', {}),
-			vulnerability_analysis=state.get('vulnerability_analysis', {})
+			vulnerability_analysis=state.get('vulnerability_analysis', {}),
+			validation_feedback=validation_feedback  # 피드백 전달
 		)
 
 		return {
 			'impact_analysis': impact_analysis,
 			'impact_status': 'completed',
 			'current_step': 'strategy_generation',
-			'logs': ['영향 분석 완료 (ImpactAnalysisAgent)']
+			'logs': [f'영향 분석 {"재실행" if retry_count > 0 else ""} 완료 (ImpactAnalysisAgent)']
 		}
 
 	except Exception as e:
@@ -404,7 +413,15 @@ def strategy_generation_node(state: SuperAgentState, config: Any) -> Dict:
 	Returns:
 		업데이트된 상태 딕셔너리
 	"""
-	print("[Node 7] 대응 전략 생성 시작 (StrategyGenerationAgent)...")
+	retry_count = state.get('retry_count', 0)
+	validation_feedback = state.get('validation_feedback', [])
+
+	if retry_count > 0:
+		print(f"[Node 7] 대응 전략 재생성 (재시도 {retry_count}/3)...")
+		if validation_feedback:
+			print(f"[Node 7] 검증 피드백 반영: {len(validation_feedback)}개 개선사항")
+	else:
+		print("[Node 7] 대응 전략 생성 시작 (StrategyGenerationAgent)...")
 
 	try:
 		llm_client = LLMClient()
@@ -417,14 +434,15 @@ def strategy_generation_node(state: SuperAgentState, config: Any) -> Dict:
 			aal_analysis=state.get('aal_analysis', {}),
 			physical_risk_scores=state.get('physical_risk_scores', {}),
 			impact_analysis=state.get('impact_analysis', {}),
-			report_template=state.get('report_template', {})
+			report_template=state.get('report_template', {}),
+			validation_feedback=validation_feedback  # 피드백 전달
 		)
 
 		return {
 			'response_strategy': response_strategy,
 			'strategy_status': 'completed',
 			'current_step': 'report_generation',
-			'logs': ['대응 전략 생성 완료 (StrategyGenerationAgent)']
+			'logs': [f'대응 전략 {"재생성" if retry_count > 0 else "생성"} 완료 (StrategyGenerationAgent)']
 		}
 
 	except Exception as e:
@@ -492,7 +510,8 @@ def validation_node(state: SuperAgentState, config: Any) -> Dict:
 	Returns:
 		업데이트된 상태 딕셔너리
 	"""
-	print("[Node 9] 리포트 검증 시작...")
+	retry_count = state.get('retry_count', 0)
+	print(f"[Node 9] 리포트 검증 시작... (재시도 {retry_count}/3)")
 
 	try:
 		validator = ValidationAgent()
@@ -500,7 +519,8 @@ def validation_node(state: SuperAgentState, config: Any) -> Dict:
 			state.get('generated_report', {}),
 			state.get('physical_risk_scores', {}),
 			state.get('aal_analysis', {}),
-			state.get('response_strategy', {})
+			state.get('response_strategy', {}),
+			state.get('impact_analysis', {})
 		)
 
 		validation_passed = validation_result.get('validation_passed', False)
@@ -513,10 +533,14 @@ def validation_node(state: SuperAgentState, config: Any) -> Dict:
 				'logs': ['검증 통과']
 			}
 		else:
+			# 검증 실패 - retry_count 증가
+			new_retry_count = retry_count + 1
+
 			return {
 				'validation_result': validation_result,
 				'validation_status': 'failed',
 				'validation_feedback': validation_result.get('improvement_suggestions', []),
+				'retry_count': new_retry_count,
 				'logs': [f'검증 실패: {len(validation_result.get("issues_found", []))}개 이슈 발견']
 			}
 

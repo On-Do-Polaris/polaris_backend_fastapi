@@ -29,23 +29,68 @@ from .nodes import (
 def should_retry_validation(state: SuperAgentState) -> str:
 	"""
 	검증 재시도 판단 함수
-	검증 실패 시 재시도 여부 결정
+	검증 실패 시 이슈 유형에 따라 분기 결정
 
 	Args:
 		state: 현재 워크플로우 상태
 
 	Returns:
-		다음 노드 이름 ('strategy_generation' 또는 'finalization')
+		다음 노드 이름 ('impact_analysis', 'strategy_generation', 또는 'finalization')
 	"""
 	validation_status = state.get('validation_status')
 	retry_count = state.get('retry_count', 0)
+	validation_result = state.get('validation_result', {})
 
-	if validation_status == 'failed' and retry_count < 3:
-		print(f"[조건부 분기] 검증 실패 -> 대응 전략 재생성 (재시도 {retry_count + 1}/3)")
-		return 'strategy_generation'  # 대응 전략 재생성 노드로 복귀
+	# 검증 통과 또는 재시도 횟수 초과
+	if validation_status == 'passed':
+		print("[조건부 분기] 검증 통과 -> 최종화")
+		return 'finalization'
+
+	if retry_count >= 3:
+		print("[조건부 분기] 재시도 횟수 초과 (3/3) -> 최종화")
+		return 'finalization'
+
+	# 검증 실패 - 이슈 유형 분석
+	issues_found = validation_result.get('issues_found', [])
+
+	# 영향 분석 관련 이슈 확인
+	impact_related_issues = [
+		'impact_analysis_missing',
+		'impact_data_inconsistent',
+		'power_consumption_analysis_incomplete',
+		'risk_impact_mismatch'
+	]
+
+	# 전략 관련 이슈 확인
+	strategy_related_issues = [
+		'strategy_missing',
+		'strategy_incomplete',
+		'adaptation_actions_missing',
+		'recommendations_insufficient'
+	]
+
+	# 이슈 분류
+	has_impact_issues = any(
+		issue.get('type') in impact_related_issues or 'impact' in issue.get('type', '').lower()
+		for issue in issues_found
+	)
+
+	has_strategy_issues = any(
+		issue.get('type') in strategy_related_issues or 'strategy' in issue.get('type', '').lower()
+		for issue in issues_found
+	)
+
+	# 분기 결정
+	if has_impact_issues and not has_strategy_issues:
+		print(f"[조건부 분기] 검증 실패 (영향 분석 이슈) -> 영향 분석 재실행 (재시도 {retry_count + 1}/3)")
+		return 'impact_analysis'
+	elif has_strategy_issues or (has_impact_issues and has_strategy_issues):
+		print(f"[조건부 분기] 검증 실패 (전략 이슈) -> 대응 전략 재생성 (재시도 {retry_count + 1}/3)")
+		return 'strategy_generation'
 	else:
-		print("[조건부 분기] 검증 통과 또는 재시도 횟수 초과 -> 최종화")
-		return 'finalization'  # 최종화 노드로 이동
+		# 기타 이슈는 전략 재생성으로
+		print(f"[조건부 분기] 검증 실패 (일반 이슈) -> 대응 전략 재생성 (재시도 {retry_count + 1}/3)")
+		return 'strategy_generation'
 
 
 def create_workflow_graph(config):
@@ -112,13 +157,14 @@ def create_workflow_graph(config):
 	# 10. 리포트 생성 -> 검증
 	workflow.add_edge('report_generation', 'validation')
 
-	# 11. 검증 -> 조건부 분기 (검증 통과/실패)
+	# 11. 검증 -> 조건부 분기 (이슈 유형에 따라 분기)
 	workflow.add_conditional_edges(
 		'validation',
 		should_retry_validation,
 		{
-			'strategy_generation': 'strategy_generation',  # 검증 실패 시 재생성
-			'finalization': 'finalization'  # 검증 통과 시 최종화
+			'impact_analysis': 'impact_analysis',  # 영향 분석 이슈 -> 영향 분석 재실행
+			'strategy_generation': 'strategy_generation',  # 전략 이슈 -> 전략 재생성
+			'finalization': 'finalization'  # 검증 통과 또는 재시도 초과 -> 최종화
 		}
 	)
 
@@ -216,22 +262,23 @@ def print_workflow_structure():
 	|  - 정확성 검증 (데이터 일치 여부)                       |
 	|  - 일관성 검증 (논리적 모순 확인)                       |
 	|  - 완전성 검증 (필수 섹션 포함 확인)                    |
+	|  - 이슈 유형 분석 (영향 분석 / 전략 이슈)               |
 	+-------------------------------------------------------+
 	  |
-	  +-----------------------+
-	  |                       |
-	  v (검증 실패)          v (검증 통과)
-	[재시도 루프]            |
-	최대 3회                 |
-	  |                       |
-	  v                       v
-	Node 7으로 복귀         +---------------------------------------+
-	(대응 전략 재생성)      |  Node 10: 최종 리포트 산출 (finalization)|
-	                        |  - 검증 통과한 리포트 확정              |
-	                        +---------------------------------------+
-	                          |
-	                          v
-	                        END
+	  +-----------------------------------+
+	  |                 |                 |
+	  v (영향분석 이슈) v (전략 이슈)    v (검증 통과)
+	[재시도 루프]      [재시도 루프]    |
+	최대 3회            최대 3회          |
+	  |                 |                 |
+	  v                 v                 v
+	Node 6으로 복귀    Node 7으로 복귀   +---------------------------------------+
+	(영향 분석 재실행) (대응 전략 재생성)|  Node 10: 최종 리포트 산출 (finalization)|
+	                                     |  - 검증 통과한 리포트 확정              |
+	                                     +---------------------------------------+
+	                                       |
+	                                       v
+	                                     END
 
 	==============================================================
 	주요 특징:
@@ -242,7 +289,10 @@ def print_workflow_structure():
 	- 물리적 리스크(H×E×V)와 AAL 병렬 계산
 	- 전력 사용량 기반 영향 분석 (신규)
 	- LLM/RAG 통합 (대응 전략 생성)
-	- 검증 재시도 루프 (최대 3회)
+	- 지능형 검증 재시도 루프 (최대 3회, 이슈 유형별 분기)
+	  * 영향 분석 이슈 → Node 6 (영향 분석) 재실행
+	  * 전략 이슈 → Node 7 (대응 전략) 재생성
+	  * 검증 피드백 자동 반영
 	- 취약성 분석 기반 리스크 선정
 	==============================================================
 	"""

@@ -1,11 +1,12 @@
 '''
 파일명: settings.py
-최종 수정일: 2025-11-11
-버전: v03
+최종 수정일: 2025-11-17
+버전: v04
 파일 개요: SKAX 물리적 리스크 분석 설정 클래스 정의 (Super Agent 구조)
 변경 이력:
 	- 2025-11-05: v00 - 초기 설정
 	- 2025-11-11: v03 - Super Agent 구조에 맞게 업데이트
+	- 2025-11-17: v04 - LangSmith 트레이싱 설정 추가
 '''
 import os
 from typing import Dict, Any
@@ -198,6 +199,33 @@ class Config:
 			'cache_backend': 'memory'  # 'memory', 'redis', 'file'
 		}
 
+		# ===== LangSmith 트레이싱 설정 =====
+		self.LANGSMITH_CONFIG = {
+			'enabled': os.getenv('LANGSMITH_ENABLED', 'False').lower() == 'true',
+			'project_name': os.getenv('LANGSMITH_PROJECT', 'skax-physical-risk'),
+			'api_key': os.getenv('LANGSMITH_API_KEY', ''),
+			'endpoint': os.getenv('LANGSMITH_ENDPOINT', 'https://api.smith.langchain.com'),
+			'tracing_v2': os.getenv('LANGCHAIN_TRACING_V2', 'false').lower() == 'true',
+			# 추적할 항목
+			'trace_inputs': True,  # 입력 데이터 추적
+			'trace_outputs': True,  # 출력 데이터 추적
+			'trace_errors': True,  # 에러 추적
+			'trace_metadata': True,  # 메타데이터 추적 (실행 시간, Agent 정보 등)
+			# 샘플링 설정
+			'sampling_rate': float(os.getenv('LANGSMITH_SAMPLING_RATE', '1.0')),  # 1.0 = 100% 추적
+			# 태그 설정
+			'default_tags': ['physical-risk', 'climate-analysis', 'super-agent'],
+		}
+
+		# LangSmith 환경 변수 자동 설정
+		if self.LANGSMITH_CONFIG['enabled']:
+			os.environ['LANGCHAIN_TRACING_V2'] = 'true'
+			os.environ['LANGCHAIN_PROJECT'] = self.LANGSMITH_CONFIG['project_name']
+			if self.LANGSMITH_CONFIG['api_key']:
+				os.environ['LANGCHAIN_API_KEY'] = self.LANGSMITH_CONFIG['api_key']
+			if self.LANGSMITH_CONFIG['endpoint']:
+				os.environ['LANGCHAIN_ENDPOINT'] = self.LANGSMITH_CONFIG['endpoint']
+
 	def _override_config(self, config_dict: Dict):
 		"""
 		사용자 정의 설정으로 오버라이드
@@ -263,6 +291,8 @@ class DevelopmentConfig(Config):
 		super().__init__()
 		self.DEBUG = True
 		self.LOGGING['level'] = 'DEBUG'
+		# 개발 환경에서는 LangSmith 선택적 활성화 (환경 변수로 제어)
+		self.LANGSMITH_CONFIG['project_name'] = os.getenv('LANGSMITH_PROJECT', 'skax-physical-risk-dev')
 
 
 class ProductionConfig(Config):
@@ -279,6 +309,12 @@ class ProductionConfig(Config):
 		self.DEBUG = False
 		self.LOGGING['level'] = 'INFO'
 		self.PERFORMANCE['max_workers'] = 8
+		# 프로덕션 환경에서는 LangSmith 기본 활성화 (API 키가 있는 경우)
+		if os.getenv('LANGSMITH_API_KEY'):
+			self.LANGSMITH_CONFIG['enabled'] = True
+			self.LANGSMITH_CONFIG['project_name'] = os.getenv('LANGSMITH_PROJECT', 'skax-physical-risk-prod')
+			# 프로덕션 추가 태그
+			self.LANGSMITH_CONFIG['default_tags'].extend(['production', 'monitoring'])
 
 
 class TestConfig(Config):
@@ -295,6 +331,9 @@ class TestConfig(Config):
 		self.DEBUG = True
 		self.DATA_COLLECTION['cache_enabled'] = False
 		self.LOGGING['level'] = 'DEBUG'
+		# 테스트 환경에서는 LangSmith 비활성화 (CI 성능 최적화)
+		self.LANGSMITH_CONFIG['enabled'] = False
+		os.environ['LANGCHAIN_TRACING_V2'] = 'false'
 
 
 # 환경에 따른 설정 로드

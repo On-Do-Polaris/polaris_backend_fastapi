@@ -13,10 +13,9 @@ dependencies = [
     # LangChain & AI
     "langchain==0.3.27",
     "langchain-openai==0.3.35",
-    "langchain-community==0.4",
+    "langchain-community==0.3.31",
     "langchain-core==0.3.79",
     "langchain-text-splitters==0.3.11",
-    "langchain-classic==1.0.0",
 
     # LangGraph (Workflow)
     "langgraph==1.0.1",

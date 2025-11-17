@@ -297,7 +297,13 @@ def print_workflow_structure():
 	==============================================================
 	"""
 
-	print(structure)
+	try:
+		print(structure)
+	except UnicodeEncodeError:
+		# Windows cp949 인코딩 문제 회피 - ASCII 문자만 출력
+		import re
+		ascii_structure = re.sub(r'[^\x00-\x7F]+', '?', structure)
+		print(ascii_structure)
 
 
 def visualize_workflow(graph, output_path: str = "workflow_graph.png"):

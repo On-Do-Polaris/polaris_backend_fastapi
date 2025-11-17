@@ -1,15 +1,30 @@
 '''
 파일명: llm_client.py
-최종 수정일: 2025-11-11
-버전: v00
-파일 개요: LLM 클라이언트 (OpenAI API 기반)
+최종 수정일: 2025-11-17
+버전: v01
+파일 개요: LLM 클라이언트 (OpenAI API 기반 + LangSmith 트레이싱)
 '''
 from typing import Dict, Any, List, Optional
 import logging
 import os
+from dotenv import load_dotenv
 
+# .env 파일 로드
+load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+# LangSmith 트레이싱 초기화
+if os.getenv('LANGSMITH_ENABLED', 'false').lower() == 'true':
+	try:
+		from langchain_teddynote import logging as langsmith_logging
+		project_name = os.getenv('LANGSMITH_PROJECT', 'skax-physical-risk-dev')
+		langsmith_logging.langsmith(project_name)
+		logger.info(f"LangSmith tracing enabled for project: {project_name}")
+	except ImportError:
+		logger.warning("langchain-teddynote not installed. LangSmith tracing disabled.")
+	except Exception as e:
+		logger.warning(f"Failed to initialize LangSmith: {e}")
 
 
 class LLMClient:

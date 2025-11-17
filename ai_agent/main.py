@@ -1,15 +1,18 @@
 '''
 파일명: main.py
-최종 수정일: 2025-11-13
-버전: v04
+최종 수정일: 2025-11-17
+버전: v05
 파일 개요: SKAX 물리적 리스크 분석 메인 오케스트레이터 (Super Agent 계층 구조)
 변경 이력:
 	- 2025-11-05: v00 - 초기 LangGraph 구조
 	- 2025-11-11: v03 - Super Agent 계층 구조로 전면 개편
 	- 2025-11-13: v04 - 물리적 리스크 점수를 H×E×V 방식으로 복원, AAL과 병렬 실행
+	- 2025-11-17: v05 - LangSmith 트레이싱 통합
 '''
 from .config.settings import Config
 from .workflow import create_workflow_graph, print_workflow_structure
+from .utils.langsmith_tracer import get_tracer
+from datetime import datetime
 
 
 class SKAXPhysicalRiskAnalyzer:
@@ -29,6 +32,9 @@ class SKAXPhysicalRiskAnalyzer:
 			config: 설정 객체
 		"""
 		self.config = config
+
+		# LangSmith Tracer 초기화
+		self.tracer = get_tracer(config)
 
 		# LangGraph 워크플로우 생성
 		print("[INFO] LangGraph workflow creating (Super Agent structure)...")
@@ -77,6 +83,9 @@ class SKAXPhysicalRiskAnalyzer:
 		print("SKAX Physical Risk Analysis Start (Super Agent Structure)")
 		print("=" * 70)
 
+		# 실행 시작 시간 기록
+		workflow_start_time = datetime.now()
+
 		# 초기 상태 설정
 		initial_state = {
 			'target_location': target_location,
@@ -87,7 +96,8 @@ class SKAXPhysicalRiskAnalyzer:
 			'logs': [],
 			'current_step': 'data_collection',
 			'workflow_status': 'in_progress',
-			'retry_count': 0
+			'retry_count': 0,
+			'_workflow_start_time': workflow_start_time.isoformat()
 		}
 
 		# 워크플로우 실행
@@ -108,9 +118,24 @@ class SKAXPhysicalRiskAnalyzer:
 				last_node_key = list(final_state.keys())[-1]
 				result = final_state[last_node_key]
 
+				# 워크플로우 실행 시간 계산
+				workflow_execution_time = (datetime.now() - workflow_start_time).total_seconds()
+
 				print("\n" + "=" * 70)
 				print("Workflow execution completed")
 				print("=" * 70)
+
+				# LangSmith 메트릭 기록
+				self.tracer.log_metric(
+					metric_name="workflow_execution_time",
+					value=workflow_execution_time,
+					metadata={
+						'total_nodes': 11,
+						'total_agents': 25,
+						'location': target_location.get('name', 'unknown'),
+						'status': result.get('workflow_status', 'unknown')
+					}
+				)
 
 				# 결과 요약 출력
 				self._print_summary(result)
@@ -120,7 +145,22 @@ class SKAXPhysicalRiskAnalyzer:
 				raise Exception("No workflow execution result")
 
 		except Exception as e:
+			# 워크플로우 실행 시간 계산 (실패 시)
+			workflow_execution_time = (datetime.now() - workflow_start_time).total_seconds()
+
 			print(f"\n[ERROR] Workflow execution failed: {e}")
+
+			# LangSmith 에러 기록
+			self.tracer.log_agent_execution(
+				agent_name="workflow_orchestrator",
+				execution_time=workflow_execution_time,
+				status="failed",
+				input_data={
+					'location': target_location.get('name', 'unknown')
+				},
+				error=e
+			)
+
 			return {
 				'workflow_status': 'failed',
 				'errors': [str(e)]

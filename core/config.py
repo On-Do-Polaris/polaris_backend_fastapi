@@ -30,10 +30,14 @@ class Settings(BaseSettings):
     # Agent Settings
     AGENT_TIMEOUT: int = 300  # 5분
 
+    # Mock Data (개발/테스트용)
+    USE_MOCK_DATA: bool = True  # False로 설정하면 실제 ai_agent 사용
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = True
+        extra = "ignore"  # 정의되지 않은 환경변수 무시
 
 
 settings = Settings()

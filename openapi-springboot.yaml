@@ -449,12 +449,12 @@ components:
         mainHazard:
           type: string
           example: 폭염
-          description: 주요 위험요인
+          description: 가장 높은 물리적 리스크 종류
         mainHazardScore:
           type: integer
           minimum: 0
           maximum: 100
-          description: 주요 위험요인 점수
+          description: 주요 위험요인 물리적 리스크 점수
         overallRiskScore:
           type: integer
           minimum: 0
@@ -464,15 +464,21 @@ components:
           type: string
           enum: [낮음, 보통, 높음, 심각]
           description: 리스크 레벨
-        expectedDamageRate:
+        aal:
           type: number
           format: float
-          description: 예상 피해율 (0.0-1.0)
-        physicalRiskScores:
-          type: array
-          description: Hazard별 물리적 리스크 점수
-          items:
-            $ref: '#/components/schemas/PhysicalRiskBarItem'
+          description: 연평균 자산 손실률 (AAL, 0.0-1.0)
+          example: 0.023
+        annualExpectedLoss:
+          type: number
+          format: double
+          description: 연평균 재무 손실액 (KRW) = AAL × 자산가치
+          example: 230000000
+        assetValue:
+          type: number
+          format: double
+          description: 자산 가치 (KRW)
+          example: 10000000000
         recommendations:
           type: array
           description: AI가 생성한 추천사항
@@ -481,6 +487,26 @@ components:
           example:
             - 냉각 시스템 용량 증설 검토
             - 폭염 대비 비상 전력 공급 계획 수립
+
+    PhysicalRiskScoreResponse:
+      type: object
+      description: Hazard별 물리적 리스크 점수
+      properties:
+        siteId:
+          type: string
+          format: uuid
+        analyzedAt:
+          type: string
+          format: date-time
+        hazardType:
+          type: string
+          example: 폭염
+          description: 조회한 위험요인 (전체인 경우 null)
+        physicalRiskScores:
+          type: array
+          description: Hazard별 물리적 리스크 점수
+          items:
+            $ref: '#/components/schemas/PhysicalRiskBarItem'
 
     PastEventSummary:
       type: object
@@ -563,10 +589,22 @@ components:
           type: integer
           example: 2045
           description: 대표 연도
-        score:
+        physicalRiskScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: 물리적 리스크 점수 (0-100)
+          example: 75
+        aal:
           type: number
           format: float
-          description: 리스크 점수
+          description: 연평균 자산 손실률 (AAL, 0.0-1.0)
+          example: 0.035
+        annualExpectedLoss:
+          type: number
+          format: double
+          description: 연평균 재무 손실액 (KRW) = AAL × 자산가치
+          example: 350000000
         intensity:
           type: number
           format: float
@@ -632,101 +670,48 @@ components:
           enum: [low, medium, high]
           description: 분석 신뢰도
 
-    FinancialImpactPoint:
+    FinancialImpactItem:
       type: object
       properties:
-        decade:
+        hazardType:
           type: string
-          example: "2040s"
-        year:
-          type: integer
-          example: 2045
-        averageLossKRW:
+          example: 폭염
+          description: 위험요인 유형
+        aal:
+          type: number
+          format: float
+          description: 연평균 자산 손실률 (AAL, 0.0-1.0)
+          example: 0.023
+        annualExpectedLoss:
           type: number
           format: double
-          description: 평균 손실액 (KRW)
-        minLossKRW:
-          type: number
-          format: double
-          description: 최소 손실액
-        maxLossKRW:
-          type: number
-          format: double
-          description: 최대 손실액
-
-    FinancialImpactScenario:
-      type: object
-      properties:
-        scenario:
-          type: string
-          example: SSP5-8.5
-          enum: [SSP1-1.9, SSP1-2.6, SSP2-4.5, SSP3-7.0, SSP5-8.5]
-        points:
-          type: array
-          items:
-            $ref: '#/components/schemas/FinancialImpactPoint'
+          description: 연평균 재무 손실액 (KRW) = AAL × 자산가치
+          example: 230000000
 
     FinancialImpactResponse:
       type: object
+      description: Hazard별 재무 영향 (AAL)
       properties:
         siteId:
           type: string
           format: uuid
+        analyzedAt:
+          type: string
+          format: date-time
         hazardType:
           type: string
           example: 폭염
-        projections:
+          description: 조회한 위험요인 (전체인 경우 null)
+        assetValue:
+          type: number
+          format: double
+          description: 자산 가치 (KRW)
+          example: 10000000000
+        financialImpacts:
           type: array
-          description: 시나리오별 재무 영향 전망
+          description: Hazard별 재무 영향
           items:
-            $ref: '#/components/schemas/FinancialImpactScenario'
-        aalAnalysis:
-          type: object
-          description: Average Annual Loss 분석
-          properties:
-            probability:
-              type: number
-              format: float
-              description: 발생 확률
-            damageRate:
-              type: number
-              format: float
-              description: 피해율
-            expectedLoss:
-              type: number
-              format: double
-              description: 예상 연간 손실액 (KRW)
-            assetValue:
-              type: number
-              format: double
-              description: 자산 가치 (KRW)
-            cvar95:
-              type: number
-              format: double
-              description: 95% CVaR (Conditional Value at Risk)
-            cvar99:
-              type: number
-              format: double
-              description: 99% CVaR
-        description:
-          type: string
-          description: AI가 생성한 재무 영향 설명
-        riskMitigationOptions:
-          type: array
-          description: 리스크 완화 옵션
-          items:
-            type: object
-            properties:
-              option:
-                type: string
-                example: 보험 가입
-              estimatedCost:
-                type: number
-                description: 예상 비용
-              expectedReduction:
-                type: number
-                format: float
-                description: 예상 손실 감소율
+            $ref: '#/components/schemas/FinancialImpactItem'
 
     VulnerabilityItem:
       type: object
@@ -1030,14 +1015,26 @@ components:
 
     RelocationSimulationRequest:
       type: object
-      required: [baseSiteId, candidateSiteId]
+      required: [baseSiteId, candidateLatitude, candidateLongitude]
       properties:
         baseSiteId:
           type: string
           format: uuid
-        candidateSiteId:
+          description: 기준 사업장 ID
+        candidateLatitude:
+          type: number
+          format: double
+          description: 후보지 위도
+          example: 37.0892
+        candidateLongitude:
+          type: number
+          format: double
+          description: 후보지 경도
+          example: 127.0548
+        candidateName:
           type: string
-          format: uuid
+          description: 후보지 이름 (선택사항)
+          example: 평택 산업단지
 
     RelocationSimulationResult:
       type: object
@@ -1047,21 +1044,39 @@ components:
           properties:
             id:
               type: string
-              format: uuid
             name:
               type: string
             riskScore:
               type: integer
+            aal:
+              type: number
+              format: float
+              description: 연평균 자산 손실률 (AAL)
+            annualExpectedLoss:
+              type: number
+              format: double
+              description: 연평균 재무 손실액 (KRW)
         candidateSite:
           type: object
           properties:
-            id:
-              type: string
-              format: uuid
             name:
               type: string
+            latitude:
+              type: number
+              format: double
+            longitude:
+              type: number
+              format: double
             riskScore:
               type: integer
+            aal:
+              type: number
+              format: float
+              description: 연평균 자산 손실률 (AAL)
+            annualExpectedLoss:
+              type: number
+              format: double
+              description: 연평균 재무 손실액 (KRW)
         comparison:
           type: object
           properties:
@@ -1074,12 +1089,12 @@ components:
               description: 리스크 점수 차이 비율 (%)
             aalDiff:
               type: number
-              format: double
-              description: AAL 차이 (KRW)
-            cvarDiff:
+              format: float
+              description: AAL 차이 (음수면 개선)
+            annualExpectedLossDiff:
               type: number
               format: double
-              description: CVaR 차이 (KRW)
+              description: 연평균 재무 손실액 차이 (KRW, 음수면 절감)
         climateFactorComparison:
           type: object
           description: 기후 요인별 비교
@@ -1690,6 +1705,36 @@ paths:
         '404':
           description: 분석 결과가 없음 (분석 먼저 실행 필요)
 
+  /api/sites/{siteId}/analysis/physical-risk-scores:
+    get:
+      tags: [Analysis]
+      security: [{ bearerAuth: [] }]
+      summary: 물리적 리스크 점수 조회
+      description: Hazard별 물리적 리스크 점수를 조회합니다.
+      parameters:
+        - in: path
+          name: siteId
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: 사업장 ID
+        - in: query
+          name: hazardType
+          schema:
+            type: string
+            enum: [폭염, 한파, 태풍, 홍수, 가뭄, 산불, 해안침수, 도시침수, 물부족]
+          description: 특정 Hazard만 조회 (미지정시 전체)
+      responses:
+        '200':
+          description: 물리적 리스크 점수
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PhysicalRiskScoreResponse'
+        '404':
+          description: 분석 결과를 찾을 수 없음
+
   /api/sites/{siteId}/analysis/past-events:
     get:
       tags: [Analysis]
@@ -1741,7 +1786,7 @@ paths:
     get:
       tags: [Analysis]
       security: [{ bearerAuth: [] }]
-      summary: SSP 시나리오별 재무 영향
+      summary: 연평균 자산 손실률 조회
       parameters:
         - in: path
           name: siteId

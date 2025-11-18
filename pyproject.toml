@@ -9,6 +9,8 @@ dependencies = [
     "uvicorn==0.35.0",
     "starlette==0.47.2",
     "httpx==0.28.1",
+    "python-multipart==0.0.20",
+    "aiofiles==24.1.0",
 
     # LangChain & AI
     "langchain==0.3.27",

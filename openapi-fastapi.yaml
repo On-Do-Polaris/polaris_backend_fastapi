@@ -28,6 +28,8 @@ servers:
 tags:
   - name: Analysis
     description: AI Agent 기반 리스크 분석
+  - name: Reports
+    description: LLM 기반 리포트 생성
   - name: Simulation
     description: 시뮬레이션
   - name: Meta
@@ -981,6 +983,215 @@ components:
           description: AI가 생성한 시뮬레이션 요약
 
     # ==========================================
+    # Report Schemas
+    # ==========================================
+
+    ReportGenerationRequest:
+      type: object
+      required: [siteId, reportType]
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: 사업장 ID
+        reportType:
+          type: string
+          enum: [summary, full, governance]
+          description: >
+            - summary: 요약 리포트 (5-10페이지)
+            - full: 전체 리포트 (30-50페이지)
+            - governance: 거버넌스 리포트 (TCFD 기반)
+        includeCharts:
+          type: boolean
+          default: true
+          description: 차트 포함 여부
+        language:
+          type: string
+          enum: [ko, en]
+          default: ko
+          description: 리포트 언어
+        customSections:
+          type: array
+          description: 포함할 커스텀 섹션
+          items:
+            type: string
+          example: [executive_summary, risk_matrix, action_plan]
+
+    ReportGenerationStatus:
+      type: object
+      properties:
+        reportId:
+          type: string
+          format: uuid
+        siteId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [queued, analyzing, generating, completed, failed]
+          description: 리포트 생성 상태
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: 진행률 (%)
+        currentStep:
+          type: string
+          example: LLM으로 요약 생성 중
+          description: 현재 진행 단계
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+        estimatedCompletionTime:
+          type: string
+          format: date-time
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+
+    ReportContent:
+      type: object
+      description: LLM이 생성한 리포트 컨텐츠
+      properties:
+        reportId:
+          type: string
+          format: uuid
+        siteId:
+          type: string
+          format: uuid
+        siteName:
+          type: string
+        reportType:
+          type: string
+          enum: [summary, full, governance]
+        language:
+          type: string
+          enum: [ko, en]
+        generatedAt:
+          type: string
+          format: date-time
+        sections:
+          type: array
+          description: 리포트 섹션들
+          items:
+            type: object
+            properties:
+              sectionId:
+                type: string
+                example: executive_summary
+              title:
+                type: string
+                example: 경영진 요약
+              content:
+                type: string
+                description: LLM이 생성한 텍스트 내용
+              order:
+                type: integer
+                description: 섹션 순서
+        executiveSummary:
+          type: string
+          description: LLM이 생성한 경영진 요약 (1-2페이지)
+        keyFindings:
+          type: array
+          description: 주요 발견 사항
+          items:
+            type: string
+        riskMatrix:
+          type: object
+          description: 리스크 매트릭스 데이터
+          properties:
+            hazards:
+              type: array
+              items:
+                type: object
+                properties:
+                  hazardType:
+                    type: string
+                  likelihood:
+                    type: string
+                    enum: [낮음, 보통, 높음]
+                  impact:
+                    type: string
+                    enum: [낮음, 보통, 높음, 심각]
+                  riskLevel:
+                    type: string
+                    enum: [낮음, 보통, 높음, 심각]
+        actionPlan:
+          type: array
+          description: LLM이 제안한 실행 계획
+          items:
+            type: object
+            properties:
+              priority:
+                type: string
+                enum: [low, medium, high, critical]
+              action:
+                type: string
+              timeline:
+                type: string
+                example: 6개월 이내
+              estimatedCost:
+                type: number
+              expectedBenefit:
+                type: string
+        charts:
+          type: array
+          description: 차트 데이터 (프론트엔드에서 렌더링용)
+          items:
+            type: object
+            properties:
+              chartId:
+                type: string
+              chartType:
+                type: string
+                enum: [bar, line, pie, scatter, heatmap]
+              title:
+                type: string
+              data:
+                type: object
+                description: 차트 데이터 (형식은 chartType에 따라 다름)
+        metadata:
+          type: object
+          properties:
+            totalPages:
+              type: integer
+            wordCount:
+              type: integer
+            llmModel:
+              type: string
+              example: gpt-4
+            generationTimeSeconds:
+              type: number
+              format: float
+
+    ReportDownloadInfo:
+      type: object
+      properties:
+        reportId:
+          type: string
+          format: uuid
+        downloadUrl:
+          type: string
+          description: 리포트 다운로드 URL (임시 URL)
+        format:
+          type: string
+          enum: [pdf, docx, json]
+        fileSize:
+          type: integer
+          description: 파일 크기 (bytes)
+        expiresAt:
+          type: string
+          format: date-time
+          description: URL 만료 시간
+
+    # ==========================================
     # Meta Schemas
     # ==========================================
 
@@ -1370,6 +1581,150 @@ paths:
                 $ref: '#/components/schemas/ClimateSimulationResponse'
         '400':
           description: 잘못된 요청
+
+  # ==========================================
+  # Reports Endpoints
+  # ==========================================
+
+  /api/v1/reports/generate:
+    post:
+      tags: [Reports]
+      summary: 리포트 생성 시작
+      description: >
+        LLM을 사용하여 사업장 리스크 분석 리포트를 생성합니다.
+        분석 데이터를 기반으로 LLM이 자동으로 텍스트를 작성합니다.
+        비동기로 처리되며 reportId를 반환합니다.
+      security:
+        - apiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportGenerationRequest'
+      responses:
+        '202':
+          description: 리포트 생성 작업이 시작됨
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportGenerationStatus'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 사업장 또는 분석 결과를 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/reports/{reportId}/status:
+    get:
+      tags: [Reports]
+      summary: 리포트 생성 상태 조회
+      description: 리포트 생성 작업의 진행 상태를 조회합니다.
+      security:
+        - apiKeyAuth: []
+      parameters:
+        - in: path
+          name: reportId
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: 리포트 ID
+      responses:
+        '200':
+          description: 리포트 생성 상태
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportGenerationStatus'
+        '404':
+          description: 리포트를 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/reports/{reportId}/content:
+    get:
+      tags: [Reports]
+      summary: 리포트 컨텐츠 조회
+      description: >
+        LLM이 생성한 리포트 컨텐츠를 JSON 형태로 반환합니다.
+        Spring Boot는 이 데이터를 사용하여 PDF/Excel로 변환할 수 있습니다.
+      security:
+        - apiKeyAuth: []
+      parameters:
+        - in: path
+          name: reportId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 리포트 컨텐츠
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportContent'
+        '404':
+          description: 리포트를 찾을 수 없음 또는 아직 생성 중
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/reports/{reportId}/download:
+    get:
+      tags: [Reports]
+      summary: 리포트 파일 다운로드
+      description: >
+        생성된 리포트 파일을 다운로드합니다.
+        FastAPI가 PDF/DOCX를 직접 생성하는 경우 사용합니다.
+      security:
+        - apiKeyAuth: []
+      parameters:
+        - in: path
+          name: reportId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: format
+          schema:
+            type: string
+            enum: [pdf, docx, json]
+            default: pdf
+          description: 다운로드 형식
+      responses:
+        '200':
+          description: 리포트 파일 또는 다운로드 URL
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            application/vnd.openxmlformats-officedocument.wordprocessingml.document:
+              schema:
+                type: string
+                format: binary
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportDownloadInfo'
+        '404':
+          description: 리포트를 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   # ==========================================
   # Meta Endpoints

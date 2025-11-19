@@ -1,14 +1,14 @@
 from fastapi import APIRouter, Depends
 from uuid import UUID
 
-from schemas.simulation import (
+from src.schemas.simulation import (
     RelocationSimulationRequest,
     RelocationSimulationResult,
     ClimateSimulationRequest,
     ClimateSimulationResponse,
 )
-from services.simulation_service import SimulationService
-from core.auth import verify_api_key
+from src.services.simulation_service import SimulationService
+from src.core.auth import verify_api_key
 
 router = APIRouter(prefix="/api/v1/simulation", tags=["Simulation"])
 

@@ -2,8 +2,8 @@ from uuid import UUID, uuid4
 from typing import Optional
 from datetime import datetime
 
-from core.config import settings
-from schemas.analysis import (
+from src.core.config import settings
+from src.schemas.analysis import (
     StartAnalysisRequest,
     AnalysisJobStatus,
     AnalysisOverviewResponse,
@@ -21,7 +21,7 @@ from schemas.analysis import (
     FinancialImpactItem,
     VulnerabilityItem,
 )
-from schemas.common import HazardType, TimeScale, RiskLevel, SSPScenario
+from src.schemas.common import HazardType, TimeScale, RiskLevel, SSPScenario
 
 # ai_agent 호출
 from ai_agent import SKAXPhysicalRiskAnalyzer

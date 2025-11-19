@@ -1,8 +1,8 @@
 from uuid import UUID, uuid4
 from typing import Optional
 
-from core.config import settings
-from schemas.simulation import (
+from src.core.config import settings
+from src.schemas.simulation import (
     RelocationCandidatesRequest,
     RelocationCandidatesResponse,
     RelocationSimulationRequest,
@@ -14,7 +14,7 @@ from schemas.simulation import (
     ClimateSimulationSeries,
     ClimateSimulationPoint,
 )
-from schemas.common import RiskLevel, SSPScenario
+from src.schemas.common import RiskLevel, SSPScenario
 
 # ai_agent 호출
 from ai_agent import SKAXPhysicalRiskAnalyzer

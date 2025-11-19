@@ -1,7 +1,7 @@
 from typing import Optional
 from datetime import datetime
 
-from schemas.meta import HazardTypeInfo, HealthCheckResponse
+from src.schemas.meta import HazardTypeInfo, HealthCheckResponse
 
 
 class MetaService:

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from uuid import UUID
 from typing import Optional
 
-from schemas.analysis import (
+from src.schemas.analysis import (
     StartAnalysisRequest,
     AnalysisJobStatus,
     AnalysisOverviewResponse,
@@ -13,9 +13,9 @@ from schemas.analysis import (
     VulnerabilityResponse,
     AnalysisTotalResponse,
 )
-from schemas.common import HazardType, TimeScale
-from services.analysis_service import AnalysisService
-from core.auth import verify_api_key
+from src.schemas.common import HazardType, TimeScale
+from src.services.analysis_service import AnalysisService
+from src.core.auth import verify_api_key
 
 router = APIRouter(prefix="/api/v1/analysis", tags=["Analysis"])
 

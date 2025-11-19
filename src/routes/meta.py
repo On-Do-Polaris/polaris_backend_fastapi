@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from datetime import datetime
 
-from schemas.meta import HazardTypeInfo, HealthCheckResponse
-from services.meta_service import MetaService
-from core.auth import verify_api_key
+from src.schemas.meta import HazardTypeInfo, HealthCheckResponse
+from src.services.meta_service import MetaService
+from src.core.auth import verify_api_key
 
 router = APIRouter(prefix="/api/v1", tags=["Meta"])
 

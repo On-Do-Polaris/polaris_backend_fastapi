@@ -2,8 +2,8 @@ from uuid import UUID, uuid4
 from typing import Optional
 from datetime import datetime
 
-from core.config import settings
-from schemas.reports import (
+from src.core.config import settings
+from src.schemas.reports import (
     ReportGenerationRequest,
     ReportGenerationStatus,
     ReportContent,

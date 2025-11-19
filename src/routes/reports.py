@@ -3,14 +3,14 @@ from fastapi.responses import FileResponse
 from uuid import UUID
 from typing import Optional
 
-from schemas.reports import (
+from src.schemas.reports import (
     ReportGenerationRequest,
     ReportGenerationStatus,
     ReportContent,
     ReportDownloadInfo,
 )
-from services.report_service import ReportService
-from core.auth import verify_api_key
+from src.services.report_service import ReportService
+from src.core.auth import verify_api_key
 
 router = APIRouter(prefix="/api/v1/reports", tags=["Reports"])
 

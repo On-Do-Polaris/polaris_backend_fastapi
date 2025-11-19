@@ -2,8 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-from core.config import settings
-from routes import analysis_router, reports_router, simulation_router, meta_router
+from src.core.config import settings
+from src.routes import analysis_router, reports_router, simulation_router, meta_router
 
 # FastAPI 앱 생성
 app = FastAPI(

@@ -6,20 +6,20 @@ from datetime import datetime
 
 
 class HazardType(str, Enum):
-    EXTREME_HEAT = "폭염"
-    COLD_WAVE = "한파"
     TYPHOON = "태풍"
-    FLOOD = "홍수"
-    DROUGHT = "가뭄"
-    WILDFIRE = "산불"
+    INLAND_FLOOD = "내륙침수"
     COASTAL_FLOOD = "해안침수"
     URBAN_FLOOD = "도시침수"
+    DROUGHT = "가뭄"
+    WILDFIRE = "산불"
+    HIGH_TEMPERATURE = "폭염"
+    COLD_WAVE = "한파"
     WATER_SCARCITY = "물부족"
 
 
 class TimeScale(str, Enum):
     SHORT = "단기"
-    MEDIUM = "중기"
+    MID = "중기"
     LONG = "장기"
 
 
@@ -32,7 +32,7 @@ class SSPScenario(str, Enum):
 
 class RiskLevel(str, Enum):
     LOW = "낮음"
-    MODERATE = "보통"
+    MEDIUM = "보통"
     HIGH = "높음"
     CRITICAL = "심각"
 

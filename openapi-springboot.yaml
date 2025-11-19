@@ -1968,61 +1968,6 @@ paths:
   # Simulation Endpoints
   # ==========================================
 
-  /api/simulation/relocation/candidates:
-    post:
-      tags: [Simulation]
-      security: [{ bearerAuth: [] }]
-      summary: 사업장 이전 후보지 추천 목록
-      description: >
-        현재 사업장 대비 리스크가 낮은 후보지를 추천합니다.
-        FastAPI로부터 각 후보지의 리스크 분석 결과를 받아 비교합니다.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [baseSiteId]
-              properties:
-                baseSiteId:
-                  type: string
-                  format: uuid
-                  description: 기준 사업장 ID
-                maxDistance:
-                  type: number
-                  format: float
-                  description: 최대 거리 (km)
-                  default: 100
-                limit:
-                  type: integer
-                  description: 최대 후보지 수
-                  default: 10
-                preferredRegions:
-                  type: array
-                  description: 선호 지역
-                  items:
-                    type: string
-                  example: [경기도, 충청남도]
-                excludeRegions:
-                  type: array
-                  description: 제외 지역
-                  items:
-                    type: string
-      responses:
-        '200':
-          description: 후보지 목록
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  baseSite:
-                    $ref: '#/components/schemas/Site'
-                  candidates:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/RelocationCandidate'
-
   /api/simulation/relocation/compare:
     post:
       tags: [Simulation]

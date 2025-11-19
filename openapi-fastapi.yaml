@@ -723,15 +723,6 @@ components:
           example:
             - 폭염 리스크 소폭 증가
 
-    RelocationCandidatesRequest:
-      type: object
-      required: [baseSiteId]
-      properties:
-        baseSiteId:
-          type: string
-          format: uuid
-          description: 기준 사업장 ID (Agent가 자동으로 최적 후보지를 추천)
-
     RelocationSimulationRequest:
       type: object
       required: [baseSiteId, candidateLatitude, candidateLongitude]
@@ -1559,45 +1550,6 @@ paths:
   # ==========================================
   # Simulation Endpoints
   # ==========================================
-
-  /api/v1/simulation/relocation/candidates:
-    post:
-      tags: [Simulation]
-      summary: 사업장 이전 후보지 추천
-      description: >
-        AI Agent가 현재 사업장 대비 리스크가 낮은 후보지를 추천합니다.
-        각 후보지에 대해 리스크 분석을 수행합니다.
-      security:
-        - apiKeyAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RelocationCandidatesRequest'
-      responses:
-        '200':
-          description: 후보지 목록
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  baseSite:
-                    type: object
-                    properties:
-                      id:
-                        type: string
-                      name:
-                        type: string
-                      riskScore:
-                        type: integer
-                  candidates:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/RelocationCandidate'
-        '400':
-          description: 잘못된 요청
 
   /api/v1/simulation/relocation/compare:
     post:

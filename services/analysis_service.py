@@ -399,8 +399,8 @@ class AnalysisService:
                     points.append(SSPProjectionPoint(
                         decade=decade,
                         year=year,
-                        physicalRiskScore=round(base_score * scenario_factor * time_factor),
-                        aal=round(base_aal * scenario_factor * time_factor, 4),
+                        physicalRiskScore=min(100, round(base_score * scenario_factor * time_factor)),
+                        aal=min(1.0, round(base_aal * scenario_factor * time_factor, 4)),
                         annualExpectedLoss=round(125000000 * scenario_factor * time_factor),
                     ))
 

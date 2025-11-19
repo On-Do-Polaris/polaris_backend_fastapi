@@ -2,8 +2,6 @@ from fastapi import APIRouter, Depends
 from uuid import UUID
 
 from schemas.simulation import (
-    RelocationCandidatesRequest,
-    RelocationCandidatesResponse,
     RelocationSimulationRequest,
     RelocationSimulationResult,
     ClimateSimulationRequest,
@@ -13,16 +11,6 @@ from services.simulation_service import SimulationService
 from core.auth import verify_api_key
 
 router = APIRouter(prefix="/api/v1/simulation", tags=["Simulation"])
-
-
-@router.post("/relocation/candidates", response_model=RelocationCandidatesResponse)
-async def get_relocation_candidates(
-    request: RelocationCandidatesRequest,
-    api_key: str = Depends(verify_api_key),
-):
-    """사업장 이전 후보지 추천"""
-    service = SimulationService()
-    return await service.get_relocation_candidates(request)
 
 
 @router.post("/relocation/compare", response_model=RelocationSimulationResult)

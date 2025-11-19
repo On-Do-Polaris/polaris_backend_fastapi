@@ -1,0 +1,36 @@
+name: Python CI
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  python-ci:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: uv 설치
+        uses: astral-sh/setup-uv@v7
+        with:
+          restore-cache: true
+          save-cache: true
+
+      - name: Python 3.11 설치
+        run: uv python install 3.11
+
+      - name: 의존성 설치
+        run: uv sync
+
+      - name: 코드 포맷 검사 (Black)
+        run: uv run black --check .
+
+      - name: 코드 스타일 검사 (Flake8)
+        run: uv run flake8 .
+
+      - name: 단위 테스트 실행 (pytest)
+        run: uv run pytest

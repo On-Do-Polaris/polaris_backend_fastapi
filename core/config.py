@@ -17,8 +17,10 @@ class Settings(BaseSettings):
     # API Key Authentication
     API_KEY: str = "your-secret-api-key"  # 환경변수로 설정
 
-    # Database (필요시)
-    DATABASE_URL: Optional[str] = None
+    # Database (PostgreSQL)
+    DATABASE_URL: Optional[str] = "postgresql+asyncpg://user:password@localhost:5432/polaris"
+    DATABASE_POOL_SIZE: int = 5
+    DATABASE_MAX_OVERFLOW: int = 10
 
     # Redis (작업 큐용, 필요시)
     REDIS_URL: Optional[str] = None

@@ -65,6 +65,8 @@ dependencies = [
 
     # Database
     "sqlalchemy==2.0.42",
+    "psycopg2-binary==2.9.10",  # PostgreSQL driver
+    "asyncpg==0.30.0",  # Async PostgreSQL driver
 
     # Utilities
     "tenacity==9.1.2",

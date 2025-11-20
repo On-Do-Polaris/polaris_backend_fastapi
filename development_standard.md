@@ -162,7 +162,7 @@ app/
 ### 로그 레벨 사용 규칙
 
 - DEBUG: 개발 중 상세 진단
-  - 예) logger.debug("Redis cache miss: %s", key)
+  - 예) logger.debug("Cache miss for key: %s", key)
 - INFO: 정상 동작 기록, 주요 처리 시작/완료
   - 예) logger.info("User %s logged in", user_id)
 - WARNING: 잠재적 문제, 재시도 가능 이벤트

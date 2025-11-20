@@ -196,7 +196,7 @@ class Config:
 			'max_workers': 4,  # 병렬 처리 워커 수
 			'batch_size': 100,
 			'enable_caching': True,
-			'cache_backend': 'memory'  # 'memory', 'redis', 'file'
+			'cache_backend': 'memory'  # 'memory', 'file'
 		}
 
 		# ===== LangSmith 트레이싱 설정 =====

@@ -146,7 +146,7 @@ class AnalysisService:
                 completedAt=datetime.now(),
             )
 
-        # TODO: 실제 작업 상태 조회 (Redis 등에서)
+        # TODO: 실제 작업 상태 조회 (PostgreSQL에서)
         return None
 
     async def get_overview(self, site_id: UUID) -> Optional[AnalysisOverviewResponse]:

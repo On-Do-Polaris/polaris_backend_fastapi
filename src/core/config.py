@@ -22,9 +22,6 @@ class Settings(BaseSettings):
     DATABASE_POOL_SIZE: int = 5
     DATABASE_MAX_OVERFLOW: int = 10
 
-    # Redis (작업 큐용, 필요시)
-    REDIS_URL: Optional[str] = None
-
     # LLM Settings
     OPENAI_API_KEY: Optional[str] = None
     LLM_MODEL: str = "gpt-4"

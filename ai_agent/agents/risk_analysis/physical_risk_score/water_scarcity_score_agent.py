@@ -21,7 +21,7 @@ class WaterScarcityScoreAgent(BasePhysicalRiskScoreAgent):
 		"""
 		WaterScarcityScoreAgent 초기화
 		"""
-		super().__init__(risk_type='water_scarcity')
+		super().__init__(risk_type='물부족')
 
 	def calculate_hazard(self, collected_data: Dict[str, Any]) -> float:
 		"""

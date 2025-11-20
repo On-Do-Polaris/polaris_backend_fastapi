@@ -21,7 +21,7 @@ class InlandFloodScoreAgent(BasePhysicalRiskScoreAgent):
 		"""
 		InlandFloodScoreAgent 초기화
 		"""
-		super().__init__(risk_type='inland_flood')
+		super().__init__(risk_type='하천 홍수')
 
 	def calculate_hazard(self, collected_data: Dict[str, Any]) -> float:
 		"""

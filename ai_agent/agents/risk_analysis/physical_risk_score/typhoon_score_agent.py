@@ -21,7 +21,7 @@ class TyphoonScoreAgent(BasePhysicalRiskScoreAgent):
 		"""
 		TyphoonScoreAgent 초기화
 		"""
-		super().__init__(risk_type='typhoon')
+		super().__init__(risk_type='태풍')
 
 	def calculate_hazard(self, collected_data: Dict[str, Any]) -> float:
 		"""

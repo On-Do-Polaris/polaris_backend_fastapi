@@ -1,32 +1,126 @@
 '''
 파일명: drought_aal_agent.py
-최종 수정일: 2025-11-11
-버전: v00
-파일 개요: 가뭄 리스크 AAL 분석 Agent
+최종 수정일: 2025-11-20
+버전: v9
+파일 개요: 가뭄 리스크 AAL 분석 Agent (AAL_final_logic_v9 기반)
+변경 이력:
+	- 2025-11-11: v00 - 초기 생성
+	- 2025-11-20: v9 - AAL_final_logic_v9.md 로직 적용
+		* 강도지표: X_drought(t) = min SPEI12(t,k) (연중 최소값)
+		* bin: (>-1), [-1~-1.5), [-1.5~-2.0), (≤-2.0)
+		* DR_intensity: [0.00, 0.02, 0.07, 0.20]
 '''
 from typing import Dict, Any
+import numpy as np
 from .base_aal_analysis_agent import BaseAALAnalysisAgent
 
 
 class DroughtAALAgent(BaseAALAnalysisAgent):
+	"""
+	가뭄 리스크 AAL 분석 Agent (v9)
+
+	사용 데이터: KMA SPEI12 (Standardized Precipitation-Evapotranspiration Index 12개월)
+	강도지표: X_drought(t) = min over month k in year t [ SPEI12(t, k) ]
+	"""
+
 	def __init__(self):
-		super().__init__(risk_type='drought')
+		"""
+		DroughtAALAgent 초기화 (v9)
 
-	def calculate_hazard_probability(self, collected_data: Dict[str, Any], physical_risk_score: float) -> float:
+		bin 구간:
+			- bin1: SPEI12 > -1 (정상~약한 가뭄)
+			- bin2: -1 >= SPEI12 > -1.5 (중간 가뭄)
+			- bin3: -1.5 >= SPEI12 > -2.0 (심각 가뭄)
+			- bin4: SPEI12 <= -2.0 (극심 가뭄)
+
+		기본 손상률 (DR_intensity):
+			- bin1: 0%
+			- bin2: 2%
+			- bin3: 7%
+			- bin4: 20%
+		"""
+		bins = [
+			(-1, float('inf')),   # SPEI12 > -1
+			(-1.5, -1),           # -1.5 < SPEI12 <= -1
+			(-2.0, -1.5),         # -2.0 < SPEI12 <= -1.5
+			(float('-inf'), -2.0) # SPEI12 <= -2.0
+		]
+
+		dr_intensity = [
+			0.00,   # 0%
+			0.02,   # 2%
+			0.07,   # 7%
+			0.20    # 20%
+		]
+
+		super().__init__(
+			risk_type='가뭄',
+			bins=bins,
+			dr_intensity=dr_intensity,
+			s_min=0.7,
+			s_max=1.3,
+			insurance_rate=0.0
+		)
+
+	def calculate_intensity_indicator(self, collected_data: Dict[str, Any]) -> np.ndarray:
+		"""
+		가뭄 강도지표 X_drought(t) 계산
+		X_drought(t) = min over month k in year t [ SPEI12(t, k) ]
+
+		Args:
+			collected_data: 수집된 기후 데이터
+				- spei12_monthly: 연도별 월별 SPEI12 데이터 리스트
+					각 원소는 {'year': int, 'months': [spei12_values]}
+
+		Returns:
+			연도별 최소 SPEI12 값 배열
+		"""
 		climate_data = collected_data.get('climate_data', {})
-		drought_index = climate_data.get('drought_index', 0.3)
-		base_probability = drought_index
-		adjusted_probability = base_probability * (1 + physical_risk_score)
-		return round(min(adjusted_probability, 1.0), 4)
+		spei12_data = climate_data.get('spei12_monthly', [])
 
-	def calculate_damage_rate(self, collected_data: Dict[str, Any], physical_risk_score: float, asset_info: Dict[str, Any]) -> float:
-		water_dependency = asset_info.get('water_dependency', 0.5)
-		if physical_risk_score >= 0.8:
-			damage_rate = 0.20 * water_dependency
-		elif physical_risk_score >= 0.6:
-			damage_rate = 0.12 * water_dependency
-		elif physical_risk_score >= 0.4:
-			damage_rate = 0.06 * water_dependency
-		else:
-			damage_rate = 0.02 * water_dependency
-		return round(damage_rate, 4)
+		if not spei12_data:
+			self.logger.warning("SPEI12 월별 데이터가 없습니다. 기본값 0으로 설정합니다.")
+			return np.array([0.0])
+
+		yearly_min_spei12 = []
+
+		for year_data in spei12_data:
+			year = year_data.get('year')
+			monthly_values = year_data.get('months', [])
+
+			if not monthly_values:
+				yearly_min_spei12.append(0.0)
+				continue
+
+			# 연도별 최소 SPEI12 값 (가장 건조한 달)
+			min_spei12 = min(monthly_values)
+			yearly_min_spei12.append(min_spei12)
+
+		spei12_array = np.array(yearly_min_spei12, dtype=float)
+		self.logger.info(f"SPEI12 데이터: {len(spei12_array)}개 연도, 범위: {spei12_array.min():.2f} ~ {spei12_array.max():.2f}")
+
+		return spei12_array
+
+	def _classify_into_bins(self, intensity_values: np.ndarray) -> np.ndarray:
+		"""
+		SPEI12 값을 bin으로 분류 (가뭄 전용 - 음수 값 처리)
+
+		Args:
+			intensity_values: 연도별 SPEI12 값 배열
+
+		Returns:
+			각 연도의 bin 인덱스 배열 (0-based)
+		"""
+		bin_indices = np.zeros(len(intensity_values), dtype=int)
+
+		for idx, value in enumerate(intensity_values):
+			if value > -1:
+				bin_indices[idx] = 0  # bin1: SPEI12 > -1
+			elif value > -1.5:
+				bin_indices[idx] = 1  # bin2: -1.5 < SPEI12 <= -1
+			elif value > -2.0:
+				bin_indices[idx] = 2  # bin3: -2.0 < SPEI12 <= -1.5
+			else:
+				bin_indices[idx] = 3  # bin4: SPEI12 <= -2.0
+
+		return bin_indices

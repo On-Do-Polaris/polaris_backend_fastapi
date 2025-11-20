@@ -21,7 +21,7 @@ class WildfireScoreAgent(BasePhysicalRiskScoreAgent):
 		"""
 		WildfireScoreAgent 초기화
 		"""
-		super().__init__(risk_type='wildfire')
+		super().__init__(risk_type='산불')
 
 	def calculate_hazard(self, collected_data: Dict[str, Any]) -> float:
 		"""

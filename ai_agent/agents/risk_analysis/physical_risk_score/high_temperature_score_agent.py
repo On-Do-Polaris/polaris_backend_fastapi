@@ -21,7 +21,7 @@ class HighTemperatureScoreAgent(BasePhysicalRiskScoreAgent):
 		"""
 		HighTemperatureScoreAgent 초기화
 		"""
-		super().__init__(risk_type='high_temperature')
+		super().__init__(risk_type='극심한 고온')
 
 	def calculate_hazard(self, collected_data: Dict[str, Any]) -> float:
 		"""

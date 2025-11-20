@@ -1,31 +1,143 @@
 '''
 파일명: wildfire_aal_agent.py
-최종 수정일: 2025-11-11
-버전: v00
-파일 개요: 산불 리스크 AAL 분석 Agent
+최종 수정일: 2025-11-20
+버전: v9
+파일 개요: 산불 리스크 AAL 분석 Agent (AAL_final_logic_v9 기반)
+변경 이력:
+	- 2025-11-11: v00 - 초기 생성
+	- 2025-11-20: v9 - AAL_final_logic_v9.md 로직 적용
+		* 강도지표: X_fire(t) = max FWI(t,d) (Fire Weather Index)
+		* FWI 계산식 적용
+		* bin: [11.2~21.3), [21.3~38), [38~50), [50~)
+		* DR_intensity: [0.01, 0.03, 0.10, 0.25]
 '''
 from typing import Dict, Any
+import numpy as np
 from .base_aal_analysis_agent import BaseAALAnalysisAgent
 
 
 class WildfireAALAgent(BaseAALAnalysisAgent):
+	"""
+	산불 리스크 AAL 분석 Agent (v9)
+
+	사용 데이터: 월별 기상 데이터 (TA, RHM, WS, RN)
+	강도지표: X_fire(t) = max FWI(t,d) over year t
+	FWI 계산식:
+		FWI(t,d) = (1 - RHM/100) × 0.5 × (WS + 1) × exp(0.05 × (TA - 10)) × exp(-0.001 × RN)
+	"""
+
 	def __init__(self):
-		super().__init__(risk_type='wildfire')
+		"""
+		WildfireAALAgent 초기화 (v9)
 
-	def calculate_hazard_probability(self, collected_data: Dict[str, Any], physical_risk_score: float) -> float:
+		bin 구간 (EFFIS FWI 기준):
+			- bin1: 11.2 <= FWI < 21.3 (Moderate)
+			- bin2: 21.3 <= FWI < 38 (High)
+			- bin3: 38 <= FWI < 50 (Very High)
+			- bin4: FWI >= 50 (Extreme)
+
+		기본 손상률 (DR_intensity):
+			- bin1: 1%
+			- bin2: 3%
+			- bin3: 10%
+			- bin4: 25%
+		"""
+		bins = [
+			(11.2, 21.3),
+			(21.3, 38),
+			(38, 50),
+			(50, float('inf'))
+		]
+
+		dr_intensity = [
+			0.01,   # 1%
+			0.03,   # 3%
+			0.10,   # 10%
+			0.25    # 25%
+		]
+
+		super().__init__(
+			risk_type='산불',
+			bins=bins,
+			dr_intensity=dr_intensity,
+			s_min=0.7,
+			s_max=1.3,
+			insurance_rate=0.0
+		)
+
+	def calculate_intensity_indicator(self, collected_data: Dict[str, Any]) -> np.ndarray:
+		"""
+		산불 강도지표 X_fire(t) 계산
+		X_fire(t) = max over d in year t [ FWI(t, d) ]
+
+		FWI(t,d) = (1 - RHM(t,d)/100) × 0.5 × (WS(t,d) + 1)
+		           × exp(0.05 × (TA(t,d) - 10)) × exp(-0.001 × RN(t,d))
+
+		Args:
+			collected_data: 수집된 기후 데이터
+				- monthly_data: 연도별 월별 데이터 리스트
+					각 원소는 {'year': int, 'months': [{'ta': float, 'rhm': float, 'ws': float, 'rn': float}, ...]}
+
+		Returns:
+			연도별 최대 FWI 값 배열
+		"""
 		climate_data = collected_data.get('climate_data', {})
-		fire_risk_index = climate_data.get('fire_risk_index', 0.3)
-		base_probability = fire_risk_index * 0.1
-		adjusted_probability = base_probability * (1 + physical_risk_score * 2)
-		return round(min(adjusted_probability, 1.0), 4)
+		monthly_data = climate_data.get('monthly_data', [])
 
-	def calculate_damage_rate(self, collected_data: Dict[str, Any], physical_risk_score: float, asset_info: Dict[str, Any]) -> float:
-		if physical_risk_score >= 0.8:
-			damage_rate = 0.50
-		elif physical_risk_score >= 0.6:
-			damage_rate = 0.30
-		elif physical_risk_score >= 0.4:
-			damage_rate = 0.15
-		else:
-			damage_rate = 0.05
-		return round(damage_rate, 4)
+		if not monthly_data:
+			self.logger.warning("월별 기상 데이터가 없습니다. 기본값 0으로 설정합니다.")
+			return np.array([0.0])
+
+		yearly_max_fwi = []
+
+		for year_data in monthly_data:
+			year = year_data.get('year')
+			months = year_data.get('months', [])
+
+			if not months:
+				yearly_max_fwi.append(0.0)
+				continue
+
+			monthly_fwi = []
+			for month in months:
+				ta = month.get('ta', 10.0)    # 기온 (°C)
+				rhm = month.get('rhm', 50.0)  # 상대습도 (%)
+				ws = month.get('ws', 2.0)     # 풍속 (m/s)
+				rn = month.get('rn', 0.0)     # 강수량 (mm)
+
+				# FWI 계산
+				fwi = self._calculate_fwi(ta, rhm, ws, rn)
+				monthly_fwi.append(fwi)
+
+			# 연도별 최대 FWI
+			max_fwi = max(monthly_fwi) if monthly_fwi else 0.0
+			yearly_max_fwi.append(max_fwi)
+
+		fwi_array = np.array(yearly_max_fwi, dtype=float)
+		self.logger.info(f"FWI 데이터: {len(fwi_array)}개 연도, 범위: {fwi_array.min():.2f} ~ {fwi_array.max():.2f}")
+
+		return fwi_array
+
+	def _calculate_fwi(self, ta: float, rhm: float, ws: float, rn: float) -> float:
+		"""
+		Fire Weather Index (FWI) 계산
+
+		FWI = (1 - RHM/100) × 0.5 × (WS + 1) × exp(0.05 × (TA - 10)) × exp(-0.001 × RN)
+
+		Args:
+			ta: 평균 기온 (°C)
+			rhm: 상대습도 (%)
+			ws: 평균 풍속 (m/s)
+			rn: 강수량 (mm)
+
+		Returns:
+			FWI 값
+		"""
+		humidity_factor = 1 - (rhm / 100.0)
+		wind_factor = 0.5 * (ws + 1)
+		temp_factor = np.exp(0.05 * (ta - 10))
+		rain_factor = np.exp(-0.001 * rn)
+
+		fwi = humidity_factor * wind_factor * temp_factor * rain_factor
+
+		return max(fwi, 0.0)  # 음수 방지

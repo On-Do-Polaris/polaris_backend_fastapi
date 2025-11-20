@@ -98,26 +98,26 @@ class Config:
 			},
 			'water_scarcity': {
 				'enabled': True,
-				'name': '물 부족'
+				'name': '물부족'
 			},
 			'coastal_flood': {
 				'enabled': True,
-				'name': '해안 홍수',
+				'name': '해수면 상승',
 				'extreme_rainfall_threshold': 100  # mm/day
 			},
 			'inland_flood': {
 				'enabled': True,
-				'name': '내륙 홍수',
+				'name': '하천 홍수',
 				'extreme_rainfall_threshold': 150  # mm/day
 			},
 			'urban_flood': {
 				'enabled': True,
-				'name': '도심 홍수',
+				'name': '도시 홍수',
 				'hourly_rainfall_threshold': 50  # mm/hr
 			},
 			'typhoon': {
 				'enabled': True,
-				'name': '열대성 태풍',
+				'name': '태풍',
 				'wind_speed_threshold': 17.2  # m/s (Beaufort scale 8)
 			}
 		}

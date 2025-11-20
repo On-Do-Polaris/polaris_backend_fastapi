@@ -21,7 +21,7 @@ class CoastalFloodScoreAgent(BasePhysicalRiskScoreAgent):
 		"""
 		CoastalFloodScoreAgent 초기화
 		"""
-		super().__init__(risk_type='coastal_flood')
+		super().__init__(risk_type='해수면 상승')
 
 	def calculate_hazard(self, collected_data: Dict[str, Any]) -> float:
 		"""

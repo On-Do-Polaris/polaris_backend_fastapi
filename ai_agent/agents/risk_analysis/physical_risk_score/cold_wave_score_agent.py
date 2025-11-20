@@ -21,7 +21,7 @@ class ColdWaveScoreAgent(BasePhysicalRiskScoreAgent):
 		"""
 		ColdWaveScoreAgent 초기화
 		"""
-		super().__init__(risk_type='cold_wave')
+		super().__init__(risk_type='극심한 한파')
 
 	def calculate_hazard(self, collected_data: Dict[str, Any]) -> float:
 		"""

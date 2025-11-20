@@ -21,7 +21,7 @@ class DroughtScoreAgent(BasePhysicalRiskScoreAgent):
 		"""
 		DroughtScoreAgent 초기화
 		"""
-		super().__init__(risk_type='drought')
+		super().__init__(risk_type='가뭄')
 
 	def calculate_hazard(self, collected_data: Dict[str, Any]) -> float:
 		"""

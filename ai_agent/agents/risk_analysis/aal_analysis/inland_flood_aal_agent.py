@@ -1,31 +1,104 @@
 '''
 파일명: inland_flood_aal_agent.py
-최종 수정일: 2025-11-11
-버전: v00
-파일 개요: 내륙 홍수 리스크 AAL 분석 Agent
+최종 수정일: 2025-11-20
+버전: v9
+파일 개요: 내륙 홍수 리스크 AAL 분석 Agent (AAL_final_logic_v9 기반)
+변경 이력:
+	- 2025-11-11: v00 - 초기 생성
+	- 2025-11-20: v9 - AAL_final_logic_v9.md 로직 적용
+		* 강도지표: X_rflood(t) = RX1DAY(t)
+		* bin: 기준기간 분위수 기반 (<Q80), [Q80~Q95), [Q95~Q99), [≥Q99)
+		* DR_intensity: [0.00, 0.02, 0.08, 0.20]
 '''
 from typing import Dict, Any
+import numpy as np
 from .base_aal_analysis_agent import BaseAALAnalysisAgent
 
 
 class InlandFloodAALAgent(BaseAALAnalysisAgent):
+	"""
+	내륙 홍수 리스크 AAL 분석 Agent (v9)
+
+	사용 데이터: KMA 연간 강수 극값 지수 RX1DAY
+	강도지표: X_rflood(t) = RX1DAY(t)
+	bin: 기준기간(예: 1991-2020) 분포 기반 분위수로 구간 설정
+	"""
+
 	def __init__(self):
-		super().__init__(risk_type='inland_flood')
+		"""
+		InlandFloodAALAgent 초기화 (v9)
 
-	def calculate_hazard_probability(self, collected_data: Dict[str, Any], physical_risk_score: float) -> float:
+		bin 구간은 기준기간 데이터 분석 후 동적으로 설정
+		초기값은 임시값이며, analyze_aal 호출 시 재설정됨
+		"""
+		bins = [
+			(0, 100),      # bin1: < Q80 (임시)
+			(100, 150),    # bin2: Q80 ~ Q95 (임시)
+			(150, 200),    # bin3: Q95 ~ Q99 (임시)
+			(200, float('inf'))  # bin4: >= Q99 (임시)
+		]
+
+		dr_intensity = [
+			0.00,   # 0% - 평범한 강우
+			0.02,   # 2% - 상위 20% 강우
+			0.08,   # 8% - 상위 5% 강우
+			0.20    # 20% - 상위 1% 강우
+		]
+
+		super().__init__(
+			risk_type='하천 홍수',
+			bins=bins,
+			dr_intensity=dr_intensity,
+			s_min=0.7,
+			s_max=1.3,
+			insurance_rate=0.0
+		)
+
+	def calculate_intensity_indicator(self, collected_data: Dict[str, Any]) -> np.ndarray:
+		"""
+		내륙 홍수 강도지표 X_rflood(t) 계산
+		X_rflood(t) = RX1DAY(t)
+
+		Args:
+			collected_data: 수집된 기후 데이터
+				- rx1day: 연도별 RX1DAY 값 리스트 또는 배열
+				- baseline_years: 기준기간 데이터 (옵션, 분위수 계산용)
+
+		Returns:
+			연도별 RX1DAY 값 배열
+		"""
 		climate_data = collected_data.get('climate_data', {})
-		heavy_rainfall_days = climate_data.get('heavy_rainfall_days', 10)
-		base_probability = min(heavy_rainfall_days / 365, 0.2)
-		adjusted_probability = base_probability * (1 + physical_risk_score * 3)
-		return round(min(adjusted_probability, 1.0), 4)
+		rx1day_data = climate_data.get('rx1day', [])
 
-	def calculate_damage_rate(self, collected_data: Dict[str, Any], physical_risk_score: float, asset_info: Dict[str, Any]) -> float:
-		if physical_risk_score >= 0.8:
-			damage_rate = 0.50
-		elif physical_risk_score >= 0.6:
-			damage_rate = 0.35
-		elif physical_risk_score >= 0.4:
-			damage_rate = 0.18
-		else:
-			damage_rate = 0.05
-		return round(damage_rate, 4)
+		if not rx1day_data:
+			self.logger.warning("RX1DAY 데이터가 없습니다. 기본값 0으로 설정합니다.")
+			return np.array([0.0])
+
+		rx1day_array = np.array(rx1day_data, dtype=float)
+
+		# 기준기간 데이터가 있으면 분위수 기반 bin 재설정
+		baseline_data = climate_data.get('baseline_rx1day', rx1day_data)
+		baseline_array = np.array(baseline_data, dtype=float)
+
+		# 분위수 계산 (80%, 95%, 99%)
+		q80 = np.percentile(baseline_array, 80)
+		q95 = np.percentile(baseline_array, 95)
+		q99 = np.percentile(baseline_array, 99)
+
+		# bin 재설정
+		self.bins = [
+			(0, q80),
+			(q80, q95),
+			(q95, q99),
+			(q99, float('inf'))
+		]
+
+		self.logger.info(
+			f"RX1DAY 기준기간 분위수: Q80={q80:.2f}, Q95={q95:.2f}, Q99={q99:.2f}"
+		)
+		self.logger.info(
+			f"RX1DAY 데이터: {len(rx1day_array)}개 연도, "
+			f"범위: {rx1day_array.min():.2f} ~ {rx1day_array.max():.2f}"
+		)
+
+		return rx1day_array

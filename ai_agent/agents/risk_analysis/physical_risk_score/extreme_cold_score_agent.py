@@ -1,8 +1,8 @@
 '''
-파일명: water_scarcity_score_agent.py
+파일명: extreme_cold_score_agent.py
 최종 수정일: 2025-11-13
 버전: v02
-파일 개요: 물 부족 리스크 물리적 종합 점수 산출 Agent
+파일 개요: 극심한 한파 리스크 물리적 종합 점수 산출 Agent
 변경 이력:
 	- 2025-11-11: v01 - AAL×자산가치 방식으로 변경 (H×E×V 제거)
 	- 2025-11-13: v02 - H×E×V 방식으로 복원
@@ -11,22 +11,22 @@ from typing import Dict, Any
 from .base_physical_risk_score_agent import BasePhysicalRiskScoreAgent
 
 
-class WaterScarcityScoreAgent(BasePhysicalRiskScoreAgent):
+class ExtremeColdScoreAgent(BasePhysicalRiskScoreAgent):
 	"""
-	물 부족 리스크 물리적 종합 점수 산출 Agent
+	극심한 한파 리스크 물리적 종합 점수 산출 Agent
 	H (Hazard) × E (Exposure) × V (Vulnerability) 기반 리스크 점수 계산
 	"""
 
 	def __init__(self):
 		"""
-		WaterScarcityScoreAgent 초기화
+		ExtremeColdScoreAgent 초기화
 		"""
-		super().__init__(risk_type='물부족')
+		super().__init__(risk_type='극심한 한파')
 
 	def calculate_hazard(self, collected_data: Dict[str, Any]) -> float:
 		"""
-		물 부족 Hazard 점수 계산
-		기후 데이터 기반 물부족수준 위험도 평가
+		극심한 한파 Hazard 점수 계산
+		기후 데이터 기반 한파일수 위험도 평가
 
 		Args:
 			collected_data: 수집된 기후 데이터
@@ -36,8 +36,8 @@ class WaterScarcityScoreAgent(BasePhysicalRiskScoreAgent):
 		"""
 		climate_data = collected_data.get('climate_data', {})
 
-		# 물부족수준 관련 데이터
-		risk_days = climate_data.get('water_stress_level', 5)
+		# 한파일수 관련 데이터
+		risk_days = climate_data.get('coldwave_days', 5)
 
 		# Hazard 점수 계산 (임시 구현)
 		hazard_score = min(risk_days / 30, 1.0)
@@ -46,7 +46,7 @@ class WaterScarcityScoreAgent(BasePhysicalRiskScoreAgent):
 
 	def calculate_exposure(self, asset_info: Dict[str, Any]) -> float:
 		"""
-		물 부족 Exposure 점수 계산
+		극심한 한파 Exposure 점수 계산
 		자산 가치 및 노출 정도 평가
 
 		Args:
@@ -69,7 +69,7 @@ class WaterScarcityScoreAgent(BasePhysicalRiskScoreAgent):
 		asset_info: Dict[str, Any]
 	) -> float:
 		"""
-		물 부족 Vulnerability 점수 계산
+		극심한 한파 Vulnerability 점수 계산
 		건물 및 시설 취약성 평가
 
 		Args:

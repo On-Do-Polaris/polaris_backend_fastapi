@@ -1,5 +1,5 @@
 '''
-파일명: inland_flood_aal_agent.py
+파일명: river_flood_aal_agent.py
 최종 수정일: 2025-11-21
 버전: v2
 파일 개요: 내륙 홍수 리스크 AAL 분석 Agent (AAL_final_logic_v2 기반)
@@ -16,7 +16,7 @@ import numpy as np
 from .base_aal_analysis_agent import BaseAALAnalysisAgent
 
 
-class InlandFloodAALAgent(BaseAALAnalysisAgent):
+class RiverFloodAALAgent(BaseAALAnalysisAgent):
 	"""
 	내륙 홍수 리스크 AAL 분석 Agent (v2)
 
@@ -27,7 +27,7 @@ class InlandFloodAALAgent(BaseAALAnalysisAgent):
 
 	def __init__(self):
 		"""
-		InlandFloodAALAgent 초기화 (v2)
+		RiverFloodAALAgent 초기화 (v2)
 
 		bin 구간은 기준기간 데이터 분석 후 동적으로 설정
 		초기값은 임시값이며, analyze_aal 호출 시 재설정됨

@@ -1,5 +1,5 @@
 '''
-파일명: high_temperature_aal_agent.py
+파일명: extreme_heat_aal_agent.py
 최종 수정일: 2025-11-21
 버전: v2
 파일 개요: 극심한 고온 리스크 AAL 분석 Agent (AAL_final_logic_v2 기반)
@@ -7,6 +7,7 @@
 	- 2025-11-11: v00 - 초기 생성
 	- 2025-11-20: v9 - AAL_final_logic_v9.md 로직 적용
 	- 2025-11-21: v2 - AAL_final_logic_v2.md 로직 적용
+	- 2025-11-21: v3 - 리스크 명칭 통일 (high_temperature → extreme_heat)
 		* 강도지표: X_heat(t) = WSDI(t) (Warm Spell Duration Index)
 		* bin: [0~3), [3~8), [8~20), [20~)
 		* DR_intensity: [0.001, 0.003, 0.010, 0.020]
@@ -17,7 +18,7 @@ import numpy as np
 from .base_aal_analysis_agent import BaseAALAnalysisAgent
 
 
-class HighTemperatureAALAgent(BaseAALAnalysisAgent):
+class ExtremeHeatAALAgent(BaseAALAnalysisAgent):
 	"""
 	극심한 고온 리스크 AAL 분석 Agent (v2)
 
@@ -28,7 +29,7 @@ class HighTemperatureAALAgent(BaseAALAnalysisAgent):
 
 	def __init__(self):
 		"""
-		HighTemperatureAALAgent 초기화 (v2)
+		ExtremeHeatAALAgent 초기화 (v2)
 
 		bin 구간:
 			- bin1: 0 <= WSDI < 3 (낮음)

@@ -114,17 +114,17 @@ class ImpactAnalysisAgent:
 		# 리스크 유형별 영향 분석 로직
 		impact_text = ""
 
-		if risk_type == 'high_temperature':
+		if risk_type == 'extreme_heat':
 			impact_text = self._analyze_heat_impact(
 				score, hazard_score, exposure_score, vulnerability_score,
 				historical_power, current_power, expected_loss, probability
 			)
-		elif risk_type == 'cold_wave':
+		elif risk_type == 'extreme_cold':
 			impact_text = self._analyze_cold_impact(
 				score, hazard_score, exposure_score, vulnerability_score,
 				historical_power, current_power, expected_loss, probability
 			)
-		elif risk_type in ['coastal_flood', 'inland_flood', 'urban_flood']:
+		elif risk_type in ['sea_level_rise', 'river_flood', 'urban_flood']:
 			impact_text = self._analyze_flood_impact(
 				risk_type, score, hazard_score, exposure_score, vulnerability_score,
 				historical_power, current_power, expected_loss, probability
@@ -139,7 +139,7 @@ class ImpactAnalysisAgent:
 				score, hazard_score, exposure_score, vulnerability_score,
 				historical_power, current_power, expected_loss, probability
 			)
-		elif risk_type in ['drought', 'water_scarcity']:
+		elif risk_type in ['drought', 'water_stress']:
 			impact_text = self._analyze_water_impact(
 				risk_type, score, hazard_score, exposure_score, vulnerability_score,
 				historical_power, current_power, expected_loss, probability
@@ -221,8 +221,8 @@ class ImpactAnalysisAgent:
 	) -> str:
 		"""홍수 리스크 영향 분석"""
 		flood_type_korean = {
-			'coastal_flood': '해안 홍수',
-			'inland_flood': '내륙 홍수',
+			'sea_level_rise': '해수면 상승',
+			'river_flood': '하천 홍수',
 			'urban_flood': '도심 홍수'
 		}.get(risk_type, '홍수')
 
@@ -468,13 +468,13 @@ class ImpactAnalysisAgent:
 			리스크 유형 (한글)
 		"""
 		risk_names = {
-			'high_temperature': '극심한 고온',
-			'cold_wave': '극심한 한파',
+			'extreme_heat': '극심한 고온',
+			'extreme_cold': '극심한 한파',
 			'wildfire': '산불',
 			'drought': '가뭄',
-			'water_scarcity': '물 부족',
-			'coastal_flood': '해안 홍수',
-			'inland_flood': '내륙 홍수',
+			'water_stress': '물부족',
+			'sea_level_rise': '해수면 상승',
+			'river_flood': '하천 홍수',
 			'urban_flood': '도심 홍수',
 			'typhoon': '열대성 태풍'
 		}

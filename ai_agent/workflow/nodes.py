@@ -1,17 +1,20 @@
 '''
 파일명: nodes.py
-최종 수정일: 2025-11-11
-버전: v02
+최종 수정일: 2025-11-21
+버전: v03
 파일 개요: LangGraph 워크플로우 노드 함수 정의 (Super Agent 계층적 구조용)
 변경 이력:
 	- 2025-11-11: v01 - Super Agent 계층적 구조로 전면 개편, 10개 주요 노드 재구성
 	- 2025-11-11: v02 - 노드 순서 변경 (Node 3: AAL 분석, Node 4: 물리적 리스크 점수 100점 스케일)
+	- 2025-11-21: v03 - Scratch Space 기반 데이터 관리 적용
 '''
 from typing import Dict, Any
+import numpy as np
 from .state import SuperAgentState
 
 from ..utils.llm_client import LLMClient
 from ..utils.rag_engine import RAGEngine
+from ..utils.scratch_manager import ScratchSpaceManager
 
 from ..agents import (
 	DataCollectionAgent,
@@ -21,31 +24,35 @@ from ..agents import (
 	ReportGenerationAgent,
 	ValidationAgent,
 	ImpactAnalysisAgent,
-	HighTemperatureScoreAgent,
-	ColdWaveScoreAgent,
+	ExtremeHeatScoreAgent,
+	ExtremeColdScoreAgent,
 	WildfireScoreAgent,
 	DroughtScoreAgent,
-	WaterScarcityScoreAgent,
-	CoastalFloodScoreAgent,
-	InlandFloodScoreAgent,
+	WaterStressScoreAgent,
+	SeaLevelRiseScoreAgent,
+	RiverFloodScoreAgent,
 	UrbanFloodScoreAgent,
 	TyphoonScoreAgent,
-	HighTemperatureAALAgent,
-	ColdWaveAALAgent,
+	ExtremeHeatAALAgent,
+	ExtremeColdAALAgent,
 	WildfireAALAgent,
 	DroughtAALAgent,
-	WaterScarcityAALAgent,
-	CoastalFloodAALAgent,
-	InlandFloodAALAgent,
+	WaterStressAALAgent,
+	SeaLevelRiseAALAgent,
+	RiverFloodAALAgent,
 	UrbanFloodAALAgent,
 	TyphoonAALAgent
 )
 
-# ========== Node 1: 데이터 수집 ==========
+# Scratch Space Manager 초기화 (TTL 4시간)
+scratch_manager = ScratchSpaceManager(base_path="./scratch", default_ttl_hours=4)
+
+
+# ========== Node 1: 데이터 수집 (Scratch Space 기반) ==========
 def data_collection_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
-	데이터 수집 노드
-	대상 위치의 기후 데이터를 수집
+	데이터 수집 노드 (Scratch Space 기반)
+	대상 위치의 기후 데이터를 수집하고 Scratch Space에 저장
 
 	Args:
 		state: 현재 워크플로우 상태
@@ -54,20 +61,59 @@ def data_collection_node(state: SuperAgentState, config: Any) -> Dict:
 	Returns:
 		업데이트된 상태 딕셔너리
 	"""
-	print("[Node 1] 데이터 수집 시작...")
+	print("[Node 1] 데이터 수집 시작 (Scratch Space 기반)...")
 
 	try:
+		# 1. Scratch Space 세션 생성
+		session_id = scratch_manager.create_session(
+			ttl_hours=4,
+			metadata={
+				"location": state['target_location'],
+				"analysis_type": "climate_risk"
+			}
+		)
+		print(f"  ✓ Scratch session created: {session_id}")
+
+		# 2. 데이터 수집
 		agent = DataCollectionAgent(config)
 		collected_data = agent.collect(
 			state['target_location'],
 			state.get('analysis_params', {})
 		)
 
+		# 3. 원본 데이터 → Scratch Space 저장
+		scratch_manager.save_data(
+			session_id,
+			"climate_raw.json",
+			collected_data,
+			format="json"
+		)
+		print(f"  ✓ Raw data saved to scratch space")
+
+		# 4. 요약 통계 계산
+		climate_data = collected_data.get('climate_data', {})
+		climate_summary = {
+			"location": collected_data.get('location', {}),
+			"data_years": list(range(2025, 2051)),
+			"ssp_scenarios": ["ssp1-2.6", "ssp2-4.5", "ssp3-7.0", "ssp5-8.5"],
+			"statistics": {
+				"wsdi_mean": float(np.mean(climate_data.get('wsdi', [0]))),
+				"wsdi_max": float(np.max(climate_data.get('wsdi', [0]))),
+				"wsdi_min": float(np.min(climate_data.get('wsdi', [0]))),
+			}
+		}
+
+		# 5. State에는 참조와 요약만
 		return {
-			'collected_data': collected_data,
+			'scratch_session_id': session_id,
+			'climate_summary': climate_summary,
 			'data_collection_status': 'completed',
 			'current_step': 'vulnerability_analysis',
-			'logs': ['데이터 수집 완료']
+			'logs': [
+				'데이터 수집 완료',
+				f'Scratch session: {session_id}',
+				f'TTL: 4 hours'
+			]
 		}
 
 	except Exception as e:
@@ -102,13 +148,13 @@ def vulnerability_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 
 		# 9개 리스크 선정
 		selected_risks = [
-			'high_temperature',
-			'cold_wave',
+			'extreme_heat',
+			'extreme_cold',
 			'wildfire',
 			'drought',
-			'water_scarcity',
-			'coastal_flood',
-			'inland_flood',
+			'water_stress',
+			'sea_level_rise',
+			'river_flood',
 			'urban_flood',
 			'typhoon'
 		]
@@ -147,18 +193,20 @@ def aal_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 	try:
 		# 9개 AAL Agent 인스턴스 생성
 		agents = {
-			'high_temperature': HighTemperatureAALAgent(),
-			'cold_wave': ColdWaveAALAgent(),
+			'extreme_heat': ExtremeHeatAALAgent(),
+			'extreme_cold': ExtremeColdAALAgent(),
 			'wildfire': WildfireAALAgent(),
 			'drought': DroughtAALAgent(),
-			'water_scarcity': WaterScarcityAALAgent(),
-			'coastal_flood': CoastalFloodAALAgent(),
-			'inland_flood': InlandFloodAALAgent(),
+			'water_stress': WaterStressAALAgent(),
+			'sea_level_rise': SeaLevelRiseAALAgent(),
+			'river_flood': RiverFloodAALAgent(),
 			'urban_flood': UrbanFloodAALAgent(),
 			'typhoon': TyphoonAALAgent()
 		}
 
-		collected_data = state.get('collected_data', {})
+		# Scratch Space에서 원본 데이터 로드
+		session_id = state.get('scratch_session_id')
+		collected_data = scratch_manager.load_data(session_id, "climate_raw.json", format="json")
 		asset_info = state.get('asset_info', {})
 
 		aal_analysis = {}
@@ -206,18 +254,20 @@ def physical_risk_score_node(state: SuperAgentState, config: Any) -> Dict:
 	try:
 		# 9개 Physical Risk Score Agent 인스턴스 생성
 		agents = {
-			'high_temperature': HighTemperatureScoreAgent(),
-			'cold_wave': ColdWaveScoreAgent(),
+			'extreme_heat': ExtremeHeatScoreAgent(),
+			'extreme_cold': ExtremeColdScoreAgent(),
 			'wildfire': WildfireScoreAgent(),
 			'drought': DroughtScoreAgent(),
-			'water_scarcity': WaterScarcityScoreAgent(),
-			'coastal_flood': CoastalFloodScoreAgent(),
-			'inland_flood': InlandFloodScoreAgent(),
+			'water_stress': WaterStressScoreAgent(),
+			'sea_level_rise': SeaLevelRiseScoreAgent(),
+			'river_flood': RiverFloodScoreAgent(),
 			'urban_flood': UrbanFloodScoreAgent(),
 			'typhoon': TyphoonScoreAgent()
 		}
 
-		collected_data = state.get('collected_data', {})
+		# Scratch Space에서 원본 데이터 로드
+		session_id = state.get('scratch_session_id')
+		collected_data = scratch_manager.load_data(session_id, "climate_raw.json", format="json")
 		vulnerability_analysis = state.get('vulnerability_analysis', {})
 		asset_info = state.get('asset_info', {})
 

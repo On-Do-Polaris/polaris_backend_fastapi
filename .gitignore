@@ -48,6 +48,10 @@ venv.bak/
 .env.local
 .env.*.local
 
+# Scratch Space (Temporary Data)
+scratch/
+!scratch/.gitkeep
+
 # Logs
 *.log
 logs/

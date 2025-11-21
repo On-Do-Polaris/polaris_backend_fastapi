@@ -1,5 +1,5 @@
 '''
-파일명: water_scarcity_aal_agent.py
+파일명: water_stress_aal_agent.py
 최종 수정일: 2025-11-21
 버전: v2
 파일 개요: 물부족 리스크 AAL 분석 Agent (AAL_final_logic_v2 기반)
@@ -16,7 +16,7 @@ import numpy as np
 from .base_aal_analysis_agent import BaseAALAnalysisAgent
 
 
-class WaterScarcityAALAgent(BaseAALAnalysisAgent):
+class WaterStressAALAgent(BaseAALAnalysisAgent):
 	"""
 	물부족 리스크 AAL 분석 Agent (v2)
 
@@ -28,7 +28,7 @@ class WaterScarcityAALAgent(BaseAALAnalysisAgent):
 
 	def __init__(self):
 		"""
-		WaterScarcityAALAgent 초기화 (v2)
+		WaterStressAALAgent 초기화 (v2)
 
 		bin 구간 (WRI 기준):
 			- bin1: WSI < 0.2 (낮은 물 스트레스)

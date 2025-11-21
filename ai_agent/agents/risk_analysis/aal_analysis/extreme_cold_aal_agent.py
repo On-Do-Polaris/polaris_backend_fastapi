@@ -1,5 +1,5 @@
 '''
-파일명: cold_wave_aal_agent.py
+파일명: extreme_cold_aal_agent.py
 최종 수정일: 2025-11-21
 버전: v2
 파일 개요: 극심한 한파 리스크 AAL 분석 Agent (AAL_final_logic_v2 기반)
@@ -17,7 +17,7 @@ import numpy as np
 from .base_aal_analysis_agent import BaseAALAnalysisAgent
 
 
-class ColdWaveAALAgent(BaseAALAnalysisAgent):
+class ExtremeColdAALAgent(BaseAALAnalysisAgent):
 	"""
 	극심한 한파 리스크 AAL 분석 Agent (v2)
 
@@ -28,7 +28,7 @@ class ColdWaveAALAgent(BaseAALAnalysisAgent):
 
 	def __init__(self):
 		"""
-		ColdWaveAALAgent 초기화 (v2)
+		ExtremeColdAALAgent 초기화 (v2)
 
 		bin 구간:
 			- bin1: 0 <= CSDI < 3 (낮음)

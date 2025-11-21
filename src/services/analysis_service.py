@@ -190,13 +190,13 @@ class AnalysisService:
                 # risk_type을 HazardType으로 매핑
                 hazard_map = {
                     'typhoon': HazardType.TYPHOON,
-                    'inland_flood': HazardType.INLAND_FLOOD,
-                    'coastal_flood': HazardType.COASTAL_FLOOD,
+                    'river_flood': HazardType.INLAND_FLOOD,
+                    'sea_level_rise': HazardType.COASTAL_FLOOD,
                     'drought': HazardType.DROUGHT,
                     'wildfire': HazardType.WILDFIRE,
-                    'high_temperature': HazardType.HIGH_TEMPERATURE,
-                    'cold_wave': HazardType.COLD_WAVE,
-                    'water_scarcity': HazardType.WATER_SCARCITY,
+                    'extreme_heat': HazardType.HIGH_TEMPERATURE,
+                    'extreme_cold': HazardType.COLD_WAVE,
+                    'water_stress': HazardType.WATER_SCARCITY,
                     'urban_flood': HazardType.URBAN_FLOOD,
                 }
                 main_hazard = hazard_map.get(risk_type, HazardType.TYPHOON)
@@ -276,13 +276,13 @@ class AnalysisService:
 
         hazard_map = {
             'typhoon': HazardType.TYPHOON,
-            'inland_flood': HazardType.INLAND_FLOOD,
-            'coastal_flood': HazardType.COASTAL_FLOOD,
+            'river_flood': HazardType.INLAND_FLOOD,
+            'sea_level_rise': HazardType.COASTAL_FLOOD,
             'drought': HazardType.DROUGHT,
             'wildfire': HazardType.WILDFIRE,
-            'high_temperature': HazardType.HIGH_TEMPERATURE,
-            'cold_wave': HazardType.COLD_WAVE,
-            'water_scarcity': HazardType.WATER_SCARCITY,
+            'extreme_heat': HazardType.HIGH_TEMPERATURE,
+            'extreme_cold': HazardType.COLD_WAVE,
+            'water_stress': HazardType.WATER_SCARCITY,
             'urban_flood': HazardType.URBAN_FLOOD,
         }
 
@@ -470,13 +470,13 @@ class AnalysisService:
 
         hazard_map = {
             'typhoon': HazardType.TYPHOON,
-            'inland_flood': HazardType.INLAND_FLOOD,
-            'coastal_flood': HazardType.COASTAL_FLOOD,
+            'river_flood': HazardType.INLAND_FLOOD,
+            'sea_level_rise': HazardType.COASTAL_FLOOD,
             'drought': HazardType.DROUGHT,
             'wildfire': HazardType.WILDFIRE,
-            'high_temperature': HazardType.HIGH_TEMPERATURE,
-            'cold_wave': HazardType.COLD_WAVE,
-            'water_scarcity': HazardType.WATER_SCARCITY,
+            'extreme_heat': HazardType.HIGH_TEMPERATURE,
+            'extreme_cold': HazardType.COLD_WAVE,
+            'water_stress': HazardType.WATER_SCARCITY,
             'urban_flood': HazardType.URBAN_FLOOD,
         }
 

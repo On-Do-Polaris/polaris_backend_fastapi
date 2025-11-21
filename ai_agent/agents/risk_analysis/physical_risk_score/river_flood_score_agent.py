@@ -1,5 +1,5 @@
 '''
-파일명: inland_flood_score_agent.py
+파일명: river_flood_score_agent.py
 최종 수정일: 2025-11-13
 버전: v02
 파일 개요: 내륙 홍수 리스크 물리적 종합 점수 산출 Agent
@@ -11,7 +11,7 @@ from typing import Dict, Any
 from .base_physical_risk_score_agent import BasePhysicalRiskScoreAgent
 
 
-class InlandFloodScoreAgent(BasePhysicalRiskScoreAgent):
+class RiverFloodScoreAgent(BasePhysicalRiskScoreAgent):
 	"""
 	내륙 홍수 리스크 물리적 종합 점수 산출 Agent
 	H (Hazard) × E (Exposure) × V (Vulnerability) 기반 리스크 점수 계산
@@ -19,7 +19,7 @@ class InlandFloodScoreAgent(BasePhysicalRiskScoreAgent):
 
 	def __init__(self):
 		"""
-		InlandFloodScoreAgent 초기화
+		RiverFloodScoreAgent 초기화
 		"""
 		super().__init__(risk_type='하천 홍수')
 
@@ -37,7 +37,7 @@ class InlandFloodScoreAgent(BasePhysicalRiskScoreAgent):
 		climate_data = collected_data.get('climate_data', {})
 
 		# 내륙홍수위험 관련 데이터
-		risk_days = climate_data.get('inland_flood_risk', 5)
+		risk_days = climate_data.get('river_flood_risk', 5)
 
 		# Hazard 점수 계산 (임시 구현)
 		hazard_score = min(risk_days / 30, 1.0)

@@ -19,7 +19,7 @@ class MetaService:
                 availableMetrics=["온도", "빈도", "지속시간"],
             ),
             HazardTypeInfo(
-                code="cold_wave",
+                code="extreme_cold",
                 name="한파",
                 nameEn="Cold Wave",
                 category="temperature",
@@ -59,7 +59,7 @@ class MetaService:
                 availableMetrics=["건조도", "풍속", "빈도"],
             ),
             HazardTypeInfo(
-                code="coastal_flood",
+                code="sea_level_rise",
                 name="해안침수",
                 nameEn="Coastal Flood",
                 category="water",
@@ -75,7 +75,7 @@ class MetaService:
                 availableMetrics=["강수량", "빈도"],
             ),
             HazardTypeInfo(
-                code="water_scarcity",
+                code="water_stress",
                 name="물부족",
                 nameEn="Water Scarcity",
                 category="water",

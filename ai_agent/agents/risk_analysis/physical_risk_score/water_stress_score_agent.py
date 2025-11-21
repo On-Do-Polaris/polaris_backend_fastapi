@@ -1,8 +1,8 @@
 '''
-파일명: coastal_flood_score_agent.py
+파일명: water_stress_score_agent.py
 최종 수정일: 2025-11-13
 버전: v02
-파일 개요: 해안 홍수 리스크 물리적 종합 점수 산출 Agent
+파일 개요: 물 부족 리스크 물리적 종합 점수 산출 Agent
 변경 이력:
 	- 2025-11-11: v01 - AAL×자산가치 방식으로 변경 (H×E×V 제거)
 	- 2025-11-13: v02 - H×E×V 방식으로 복원
@@ -11,22 +11,22 @@ from typing import Dict, Any
 from .base_physical_risk_score_agent import BasePhysicalRiskScoreAgent
 
 
-class CoastalFloodScoreAgent(BasePhysicalRiskScoreAgent):
+class WaterStressScoreAgent(BasePhysicalRiskScoreAgent):
 	"""
-	해안 홍수 리스크 물리적 종합 점수 산출 Agent
+	물 부족 리스크 물리적 종합 점수 산출 Agent
 	H (Hazard) × E (Exposure) × V (Vulnerability) 기반 리스크 점수 계산
 	"""
 
 	def __init__(self):
 		"""
-		CoastalFloodScoreAgent 초기화
+		WaterStressScoreAgent 초기화
 		"""
-		super().__init__(risk_type='해수면 상승')
+		super().__init__(risk_type='물부족')
 
 	def calculate_hazard(self, collected_data: Dict[str, Any]) -> float:
 		"""
-		해안 홍수 Hazard 점수 계산
-		기후 데이터 기반 해안홍수위험 위험도 평가
+		물 부족 Hazard 점수 계산
+		기후 데이터 기반 물부족수준 위험도 평가
 
 		Args:
 			collected_data: 수집된 기후 데이터
@@ -36,8 +36,8 @@ class CoastalFloodScoreAgent(BasePhysicalRiskScoreAgent):
 		"""
 		climate_data = collected_data.get('climate_data', {})
 
-		# 해안홍수위험 관련 데이터
-		risk_days = climate_data.get('coastal_flood_risk', 5)
+		# 물부족수준 관련 데이터
+		risk_days = climate_data.get('water_stress_level', 5)
 
 		# Hazard 점수 계산 (임시 구현)
 		hazard_score = min(risk_days / 30, 1.0)
@@ -46,7 +46,7 @@ class CoastalFloodScoreAgent(BasePhysicalRiskScoreAgent):
 
 	def calculate_exposure(self, asset_info: Dict[str, Any]) -> float:
 		"""
-		해안 홍수 Exposure 점수 계산
+		물 부족 Exposure 점수 계산
 		자산 가치 및 노출 정도 평가
 
 		Args:
@@ -69,7 +69,7 @@ class CoastalFloodScoreAgent(BasePhysicalRiskScoreAgent):
 		asset_info: Dict[str, Any]
 	) -> float:
 		"""
-		해안 홍수 Vulnerability 점수 계산
+		물 부족 Vulnerability 점수 계산
 		건물 및 시설 취약성 평가
 
 		Args:

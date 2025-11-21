@@ -26,7 +26,7 @@ class BasePhysicalRiskScoreAgent(ABC):
 		BasePhysicalRiskScoreAgent 초기화
 
 		Args:
-			risk_type: 리스크 타입 (예: 'high_temperature', 'typhoon')
+			risk_type: 리스크 타입 (예: 'extreme_heat', 'typhoon')
 		"""
 		self.risk_type = risk_type
 		self.logger = logger

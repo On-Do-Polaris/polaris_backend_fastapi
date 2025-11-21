@@ -21,22 +21,22 @@ from ..agents import (
 	ReportGenerationAgent,
 	ValidationAgent,
 	ImpactAnalysisAgent,
-	HighTemperatureScoreAgent,
-	ColdWaveScoreAgent,
+	ExtremeHeatScoreAgent,
+	ExtremeColdScoreAgent,
 	WildfireScoreAgent,
 	DroughtScoreAgent,
-	WaterScarcityScoreAgent,
-	CoastalFloodScoreAgent,
-	InlandFloodScoreAgent,
+	WaterStressScoreAgent,
+	SeaLevelRiseScoreAgent,
+	RiverFloodScoreAgent,
 	UrbanFloodScoreAgent,
 	TyphoonScoreAgent,
-	HighTemperatureAALAgent,
-	ColdWaveAALAgent,
+	ExtremeHeatAALAgent,
+	ExtremeColdAALAgent,
 	WildfireAALAgent,
 	DroughtAALAgent,
-	WaterScarcityAALAgent,
-	CoastalFloodAALAgent,
-	InlandFloodAALAgent,
+	WaterStressAALAgent,
+	SeaLevelRiseAALAgent,
+	RiverFloodAALAgent,
 	UrbanFloodAALAgent,
 	TyphoonAALAgent
 )
@@ -102,13 +102,13 @@ def vulnerability_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 
 		# 9개 리스크 선정
 		selected_risks = [
-			'high_temperature',
-			'cold_wave',
+			'extreme_heat',
+			'extreme_cold',
 			'wildfire',
 			'drought',
-			'water_scarcity',
-			'coastal_flood',
-			'inland_flood',
+			'water_stress',
+			'sea_level_rise',
+			'river_flood',
 			'urban_flood',
 			'typhoon'
 		]
@@ -147,13 +147,13 @@ def aal_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 	try:
 		# 9개 AAL Agent 인스턴스 생성
 		agents = {
-			'high_temperature': HighTemperatureAALAgent(),
-			'cold_wave': ColdWaveAALAgent(),
+			'extreme_heat': ExtremeHeatAALAgent(),
+			'extreme_cold': ExtremeColdAALAgent(),
 			'wildfire': WildfireAALAgent(),
 			'drought': DroughtAALAgent(),
-			'water_scarcity': WaterScarcityAALAgent(),
-			'coastal_flood': CoastalFloodAALAgent(),
-			'inland_flood': InlandFloodAALAgent(),
+			'water_stress': WaterStressAALAgent(),
+			'sea_level_rise': SeaLevelRiseAALAgent(),
+			'river_flood': RiverFloodAALAgent(),
 			'urban_flood': UrbanFloodAALAgent(),
 			'typhoon': TyphoonAALAgent()
 		}
@@ -206,13 +206,13 @@ def physical_risk_score_node(state: SuperAgentState, config: Any) -> Dict:
 	try:
 		# 9개 Physical Risk Score Agent 인스턴스 생성
 		agents = {
-			'high_temperature': HighTemperatureScoreAgent(),
-			'cold_wave': ColdWaveScoreAgent(),
+			'extreme_heat': ExtremeHeatScoreAgent(),
+			'extreme_cold': ExtremeColdScoreAgent(),
 			'wildfire': WildfireScoreAgent(),
 			'drought': DroughtScoreAgent(),
-			'water_scarcity': WaterScarcityScoreAgent(),
-			'coastal_flood': CoastalFloodScoreAgent(),
-			'inland_flood': InlandFloodScoreAgent(),
+			'water_stress': WaterStressScoreAgent(),
+			'sea_level_rise': SeaLevelRiseScoreAgent(),
+			'river_flood': RiverFloodScoreAgent(),
 			'urban_flood': UrbanFloodScoreAgent(),
 			'typhoon': TyphoonScoreAgent()
 		}

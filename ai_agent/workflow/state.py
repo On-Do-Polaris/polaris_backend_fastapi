@@ -83,7 +83,7 @@ class PhysicalRiskScoreState(TypedDict, total=False):
 	물리적 리스크별 종합 점수 산출 Sub Agent 상태
 	각 리스크별로 H x E x V 기반 종합 점수 계산
 	"""
-	risk_type: str  # 리스크 타입 (high_temperature, cold_wave, wildfire, drought, water_scarcity, coastal_flood, inland_flood, urban_flood, typhoon)
+	risk_type: str  # 리스크 타입 (extreme_heat, extreme_cold, wildfire, drought, water_stress, sea_level_rise, river_flood, urban_flood, typhoon)
 	collected_data: Dict[str, Any]  # 수집된 기후 데이터
 	vulnerability_analysis: Dict[str, Any]  # 취약성 분석 결과
 	asset_info: Dict[str, Any]  # 사업장 노출 자산 정보

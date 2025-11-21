@@ -16,71 +16,38 @@ class ReportType(str, Enum):
     GOVERNANCE = "governance"
 
 
-class ReportGenerationRequest(BaseModel):
-    scope: ReportScope
-    site_id: Optional[UUID] = Field(None, alias="siteId")
-    site_ids: Optional[list[UUID]] = Field(None, alias="siteIds")
-    report_type: ReportType = Field(..., alias="reportType")
-    include_charts: bool = Field(True, alias="includeCharts")
-    language: str = "ko"
-    custom_sections: Optional[list[str]] = Field(None, alias="customSections")
+class CreateReportRequest(BaseModel):
+    """Spring Boot API 호환 - 리포트 생성 요청"""
+    site_id: Optional[UUID] = Field(None, alias="siteId", description="사업장 ID (null이면 전체 사업장 리포트)")
 
     class Config:
         populate_by_name = True
 
 
-class ReportGenerationStatus(BaseModel):
-    report_id: UUID = Field(..., alias="reportId")
-    scope: ReportScope
-    site_id: Optional[UUID] = Field(None, alias="siteId")
-    site_ids: Optional[list[UUID]] = Field(None, alias="siteIds")
-    status: str  # queued, analyzing, generating, completed, failed
-    progress: int = Field(ge=0, le=100)
-    current_step: Optional[str] = Field(None, alias="currentStep")
-    started_at: Optional[datetime] = Field(None, alias="startedAt")
-    completed_at: Optional[datetime] = Field(None, alias="completedAt")
-    estimated_completion_time: Optional[datetime] = Field(None, alias="estimatedCompletionTime")
-    error: Optional[dict] = None
+class ReportPage(BaseModel):
+    """리포트 페이지"""
+    page_number: int = Field(..., alias="pageNumber", description="페이지 번호")
+    image_url: str = Field(..., alias="imageUrl", description="이미지 URL")
+    title: str = Field(..., description="페이지 제목")
 
     class Config:
         populate_by_name = True
 
 
-class ReportSection(BaseModel):
-    section_id: str = Field(..., alias="sectionId")
-    title: str
-    content: str
-    order: int
+class ReportWebViewResponse(BaseModel):
+    """Spring Boot API 호환 - 웹 리포트 뷰"""
+    site_id: Optional[UUID] = Field(None, alias="siteId", description="사업장 ID (전체 리포트인 경우 null)")
+    pages: list[ReportPage] = Field(..., description="리포트 페이지 이미지 목록")
 
     class Config:
         populate_by_name = True
 
 
-class ReportContent(BaseModel):
-    report_id: UUID = Field(..., alias="reportId")
-    site_id: Optional[UUID] = Field(None, alias="siteId")
-    site_name: Optional[str] = Field(None, alias="siteName")
-    report_type: ReportType = Field(..., alias="reportType")
-    language: str
-    generated_at: datetime = Field(..., alias="generatedAt")
-    sections: list[ReportSection]
-    executive_summary: str = Field(..., alias="executiveSummary")
-    key_findings: list[str] = Field([], alias="keyFindings")
-    risk_matrix: Optional[dict] = Field(None, alias="riskMatrix")
-    action_plan: list[dict] = Field([], alias="actionPlan")
-    charts: list[dict] = []
-    metadata: dict = {}
-
-    class Config:
-        populate_by_name = True
-
-
-class ReportDownloadInfo(BaseModel):
-    report_id: UUID = Field(..., alias="reportId")
-    download_url: str = Field(..., alias="downloadUrl")
-    format: str
-    file_size: int = Field(..., alias="fileSize")
-    expires_at: datetime = Field(..., alias="expiresAt")
+class ReportPdfResponse(BaseModel):
+    """Spring Boot API 호환 - PDF 리포트"""
+    download_url: str = Field(..., alias="downloadUrl", description="PDF 다운로드 URL")
+    file_size: int = Field(..., alias="fileSize", description="파일 크기 (bytes)")
+    expires_at: datetime = Field(..., alias="expiresAt", description="만료 시간")
 
     class Config:
         populate_by_name = True

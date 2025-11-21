@@ -1,1256 +1,34 @@
 openapi: 3.0.3
 info:
-  title: SKAX Physical Risk AI Agent API (FastAPI)
+  title: SKAX Physical Risk AI Agent API
+  description: "\n    사업장 기후 물리적 리스크 AI Agent 분석 시스템 API\n\n    Spring Boot 서버로부터\
+    \ 요청을 받아 AI Agent를 통해 기후 리스크를 분석하고 결과를 반환합니다.\n\n    주요 기능:\n    - AI Agent 기반\
+    \ 물리적 리스크 분석\n    - 비동기 작업 처리 및 상태 관리\n    - 과거 재난 이력 분석\n    - SSP 시나리오별 미래 리스크\
+    \ 전망\n    - 재무 영향 분석 (AAL)\n    - 취약성 평가\n    - 사업장 이전 시뮬레이션\n    - LLM 기반 리포트\
+    \ 생성\n    "
   version: 1.0.0
-  description: >
-    사업장 기후 물리적 리스크 AI Agent 분석 시스템 API
-
-    Spring Boot 서버로부터 요청을 받아 AI Agent를 통해 기후 리스크를 분석하고 결과를 반환합니다.
-
-    주요 기능:
-    - AI Agent 기반 물리적 리스크 분석
-    - 비동기 작업 처리 및 상태 관리
-    - 과거 재난 이력 분석
-    - SSP 시나리오별 미래 리스크 전망
-    - 재무 영향 분석 (AAL, CVaR)
-    - 취약성 평가
-    - 사업장 이전 시뮬레이션
-    - 기후 변화 시뮬레이션
-
-servers:
-  - url: https://ai-api.skax.co.kr
-    description: Production
-  - url: https://staging-ai-api.skax.co.kr
-    description: Staging
-  - url: http://localhost:8000
-    description: Local Development
-
-tags:
-  - name: Analysis
-    description: AI Agent 기반 리스크 분석
-  - name: Reports
-    description: LLM 기반 리포트 생성
-  - name: Simulation
-    description: 시뮬레이션
-  - name: Meta
-    description: 메타데이터
-
-components:
-  securitySchemes:
-    apiKeyAuth:
-      type: apiKey
-      in: header
-      name: X-API-Key
-      description: Spring Boot 서버 인증용 API Key
-
-  schemas:
-    ErrorResponse:
-      type: object
-      properties:
-        code:
-          type: string
-          example: ANALYSIS_FAILED
-        message:
-          type: string
-          example: 분석 중 오류가 발생했습니다.
-        detail:
-          type: string
-          description: 상세 오류 메시지
-        timestamp:
-          type: string
-          format: date-time
-
-    # ==========================================
-    # Site Input Schemas
-    # ==========================================
-
-    SiteInfo:
-      type: object
-      required: [id, name, latitude, longitude, industry]
-      properties:
-        id:
-          type: string
-          format: uuid
-          description: 사업장 ID
-        name:
-          type: string
-          example: 대덕 데이터센터
-        address:
-          type: string
-          example: 대전광역시 유성구 대덕대로 512
-        city:
-          type: string
-          example: 대전광역시
-        latitude:
-          type: number
-          format: double
-          example: 36.368
-        longitude:
-          type: number
-          format: double
-          example: 127.364
-        industry:
-          type: string
-          example: DC(Data Center)
-          description: 업종
-        buildingAge:
-          type: integer
-          description: 건물 연령 (년)
-          example: 15
-        buildingType:
-          type: string
-          description: 건물 유형
-          example: 철근 콘크리트
-        seismicDesign:
-          type: boolean
-          description: 내진설계 여부
-          default: false
-        floorArea:
-          type: number
-          format: double
-          description: 연면적 (m²)
-        assetValue:
-          type: number
-          format: double
-          description: 자산 가치 (KRW)
-        employeeCount:
-          type: integer
-          description: 직원 수
-
-    # ==========================================
-    # Analysis Request/Response Schemas
-    # ==========================================
-
-    StartAnalysisRequest:
-      type: object
-      required: [site]
-      properties:
-        site:
-          $ref: '#/components/schemas/SiteInfo'
-        hazardTypes:
-          type: array
-          description: 분석할 리스크 유형 (미지정시 전체)
-          items:
-            type: string
-            enum: [폭염, 한파, 태풍, 홍수, 가뭄, 산불, 해안침수, 도시침수, 물부족]
-          example: [폭염, 태풍, 홍수]
-        priority:
-          type: string
-          enum: [low, normal, high]
-          default: normal
-          description: 분석 우선순위
-        options:
-          type: object
-          description: 분석 옵션
-          properties:
-            includeFinancialImpact:
-              type: boolean
-              default: true
-            includeVulnerability:
-              type: boolean
-              default: true
-            includePastEvents:
-              type: boolean
-              default: true
-            sspScenarios:
-              type: array
-              items:
-                type: string
-                enum: [SSP1-2.6, SSP2-4.5, SSP3-7.0, SSP5-8.5]
-              default: [SSP2-4.5, SSP5-8.5]
-
-    AnalysisJobStatus:
-      type: object
-      properties:
-        jobId:
-          type: string
-          format: uuid
-          description: 작업 ID
-        siteId:
-          type: string
-          format: uuid
-          description: 사업장 ID
-        status:
-          type: string
-          enum: [queued, running, completed, failed]
-          description: 작업 상태
-        progress:
-          type: integer
-          minimum: 0
-          maximum: 100
-          description: 진행률 (%)
-        currentNode:
-          type: string
-          example: physical_risk_score
-          description: 현재 실행 중인 Agent Node
-        currentHazard:
-          type: string
-          example: 폭염
-          description: 현재 분석 중인 Hazard
-        startedAt:
-          type: string
-          format: date-time
-        completedAt:
-          type: string
-          format: date-time
-        estimatedCompletionTime:
-          type: string
-          format: date-time
-          description: 예상 완료 시간
-        error:
-          type: object
-          properties:
-            code:
-              type: string
-            message:
-              type: string
-            node:
-              type: string
-              description: 오류 발생 Node
-
-    PhysicalRiskBarItem:
-      type: object
-      properties:
-        hazardType:
-          type: string
-          example: 폭염
-          description: 위험요인 유형
-        score:
-          type: integer
-          minimum: 0
-          maximum: 100
-          description: 물리적 리스크 종합 점수 (0-100)
-        hazardScore:
-          type: number
-          format: float
-          minimum: 0.0
-          maximum: 1.0
-          description: Hazard 점수 (0.0-1.0)
-        exposureScore:
-          type: number
-          format: float
-          minimum: 0.0
-          maximum: 1.0
-          description: Exposure 점수 (0.0-1.0)
-        vulnerabilityScore:
-          type: number
-          format: float
-          minimum: 0.0
-          maximum: 1.0
-          description: Vulnerability 점수 (0.0-1.0)
-        riskCalculationMethod:
-          type: string
-          example: H×E×V
-          description: 리스크 계산 방법
-
-    AnalysisOverviewResponse:
-      type: object
-      description: 사업장 리스크 분석 개요
-      properties:
-        siteId:
-          type: string
-          format: uuid
-        analyzedAt:
-          type: string
-          format: date-time
-        mainHazard:
-          type: string
-          example: 폭염
-          description: 가장 높은 물리적 리스크 종류
-        mainHazardScore:
-          type: integer
-          minimum: 0
-          maximum: 100
-          description: 주요 위험요인 물리적 리스크 점수
-        overallRiskScore:
-          type: integer
-          minimum: 0
-          maximum: 100
-          description: 종합 리스크 점수
-        riskLevel:
-          type: string
-          enum: [낮음, 보통, 높음, 심각]
-          description: 리스크 레벨
-        aal:
-          type: number
-          format: float
-          description: 연평균 자산 손실률 (AAL, 0.0-1.0)
-          example: 0.023
-        annualExpectedLoss:
-          type: number
-          format: double
-          description: 연평균 재무 손실액 (KRW) = AAL × 자산가치
-          example: 230000000
-        assetValue:
-          type: number
-          format: double
-          description: 자산 가치 (KRW)
-          example: 10000000000
-        recommendations:
-          type: array
-          description: AI가 생성한 추천사항
-          items:
-            type: string
-          example:
-            - 냉각 시스템 용량 증설 검토
-            - 폭염 대비 비상 전력 공급 계획 수립
-
-    # ==========================================
-    # Physical Risk Score Schemas
-    # ==========================================
-
-    PhysicalRiskScoreResponse:
-      type: object
-      description: Hazard별 물리적 리스크 점수
-      properties:
-        siteId:
-          type: string
-          format: uuid
-        analyzedAt:
-          type: string
-          format: date-time
-        hazardType:
-          type: string
-          example: 폭염
-          description: 조회한 위험요인 (전체인 경우 null)
-        physicalRiskScores:
-          type: array
-          description: Hazard별 물리적 리스크 점수
-          items:
-            $ref: '#/components/schemas/PhysicalRiskBarItem'
-
-    # ==========================================
-    # Past Events Schemas
-    # ==========================================
-
-    PastEventSummary:
-      type: object
-      properties:
-        totalEvents:
-          type: integer
-          description: 총 이벤트 수
-        severeEvents:
-          type: integer
-          description: 심각한 이벤트 수
-        avgWarningDays:
-          type: number
-          format: float
-          description: 평균 경보 일수
-        avgSevereDays:
-          type: number
-          format: float
-          description: 평균 심각 일수
-        mostFrequentHazard:
-          type: string
-          description: 가장 빈번한 위험요인
-        yearRange:
-          type: object
-          properties:
-            start:
-              type: integer
-            end:
-              type: integer
-
-    PastEventItem:
-      type: object
-      properties:
-        year:
-          type: integer
-          example: 2023
-        month:
-          type: integer
-          example: 7
-        hazardType:
-          type: string
-          example: 폭염
-        warningDays:
-          type: integer
-          description: 경보 발령 일수
-        severeDays:
-          type: integer
-          description: 심각 단계 일수
-        maxIntensity:
-          type: number
-          format: float
-          description: 최대 강도
-        severityLevel:
-          type: string
-          enum: [경미, 주의, 심각]
-        description:
-          type: string
-          example: 2023년 7월 폭염으로 인한 전력 수요 급증
-
-    PastEventsResponse:
-      type: object
-      properties:
-        siteId:
-          type: string
-          format: uuid
-        summary:
-          $ref: '#/components/schemas/PastEventSummary'
-        events:
-          type: array
-          items:
-            $ref: '#/components/schemas/PastEventItem'
-
-    # ==========================================
-    # SSP Projection Schemas
-    # ==========================================
-
-    SSPProjectionPoint:
-      type: object
-      properties:
-        decade:
-          type: string
-          example: "2040s"
-          description: 연대 (2030s, 2040s, ...)
-        year:
-          type: integer
-          example: 2045
-          description: 대표 연도
-        physicalRiskScore:
-          type: integer
-          minimum: 0
-          maximum: 100
-          description: 물리적 리스크 점수 (0-100)
-          example: 75
-        aal:
-          type: number
-          format: float
-          description: 연평균 자산 손실률 (AAL, 0.0-1.0)
-          example: 0.035
-        annualExpectedLoss:
-          type: number
-          format: double
-          description: 연평균 재무 손실액 (KRW) = AAL × 자산가치
-          example: 350000000
-        intensity:
-          type: number
-          format: float
-          description: 위험요인 강도
-        frequency:
-          type: number
-          format: float
-          description: 발생 빈도
-
-    SSPScenarioProjection:
-      type: object
-      properties:
-        scenario:
-          type: string
-          example: SSP5-8.5
-          enum: [SSP1-2.6, SSP2-4.5, SSP3-7.0, SSP5-8.5]
-        scenarioDescription:
-          type: string
-          example: 고탄소 시나리오 (최악의 경우)
-        points:
-          type: array
-          items:
-            $ref: '#/components/schemas/SSPProjectionPoint'
-
-    SSPProjectionResponse:
-      type: object
-      properties:
-        siteId:
-          type: string
-          format: uuid
-        hazardType:
-          type: string
-          example: 폭염
-        timeScale:
-          type: string
-          example: 장기
-          enum: [단기, 중기, 장기]
-        projections:
-          type: array
-          description: 시나리오별 전망
-          items:
-            $ref: '#/components/schemas/SSPScenarioProjection'
-        adaptationActions:
-          type: array
-          description: AI가 제안하는 적응 조치
-          items:
-            type: object
-            properties:
-              decade:
-                type: string
-                example: "2030s"
-              action:
-                type: string
-                example: 냉각 시스템 용량 50% 증설
-              priority:
-                type: string
-                enum: [low, medium, high, critical]
-              estimatedCost:
-                type: number
-                description: 예상 비용 (KRW)
-        confidenceLevel:
-          type: string
-          enum: [low, medium, high]
-          description: 분석 신뢰도
-
-    # ==========================================
-    # Financial Impact Schemas
-    # ==========================================
-
-    FinancialImpactItem:
-      type: object
-      properties:
-        hazardType:
-          type: string
-          example: 폭염
-          description: 위험요인 유형
-        aal:
-          type: number
-          format: float
-          description: 연평균 자산 손실률 (AAL, 0.0-1.0)
-          example: 0.023
-        annualExpectedLoss:
-          type: number
-          format: double
-          description: 연평균 재무 손실액 (KRW) = AAL × 자산가치
-          example: 230000000
-
-    FinancialImpactResponse:
-      type: object
-      description: Hazard별 재무 영향 (AAL)
-      properties:
-        siteId:
-          type: string
-          format: uuid
-        analyzedAt:
-          type: string
-          format: date-time
-        hazardType:
-          type: string
-          example: 폭염
-          description: 조회한 위험요인 (전체인 경우 null)
-        assetValue:
-          type: number
-          format: double
-          description: 자산 가치 (KRW)
-          example: 10000000000
-        financialImpacts:
-          type: array
-          description: Hazard별 재무 영향
-          items:
-            $ref: '#/components/schemas/FinancialImpactItem'
-
-    # ==========================================
-    # Vulnerability Schemas
-    # ==========================================
-
-    VulnerabilityItem:
-      type: object
-      properties:
-        hazardType:
-          type: string
-          example: 폭염
-        score:
-          type: integer
-          minimum: 0
-          maximum: 100
-          description: 취약성 점수
-        level:
-          type: string
-          enum: [낮음, 보통, 높음, 심각]
-        factors:
-          type: object
-          description: 취약성 요인
-          properties:
-            buildingAge:
-              type: integer
-              description: 건물 연령
-            buildingAgeScore:
-              type: number
-              format: float
-            seismicDesign:
-              type: boolean
-              description: 내진설계 여부
-            seismicScore:
-              type: number
-              format: float
-            firetruckAccessibility:
-              type: string
-              enum: [우수, 양호, 보통, 미흡]
-            accessibilityScore:
-              type: number
-              format: float
-            infrastructureQuality:
-              type: string
-              enum: [우수, 양호, 보통, 미흡]
-            infrastructureScore:
-              type: number
-              format: float
-        improvementActions:
-          type: array
-          description: 개선 조치
-          items:
-            type: string
-
-    VulnerabilityResponse:
-      type: object
-      properties:
-        siteId:
-          type: string
-          format: uuid
-        totalScore:
-          type: integer
-          minimum: 0
-          maximum: 100
-          description: 종합 취약성 점수
-        overallLevel:
-          type: string
-          enum: [낮음, 보통, 높음, 심각]
-        siteInfo:
-          type: object
-          description: 사업장 정보
-          properties:
-            buildingAge:
-              type: integer
-            buildingType:
-              type: string
-            seismicDesign:
-              type: boolean
-            floorArea:
-              type: number
-        details:
-          type: array
-          description: Hazard별 취약성 상세
-          items:
-            $ref: '#/components/schemas/VulnerabilityItem'
-        priorityActions:
-          type: array
-          description: 우선 조치 사항
-          items:
-            type: object
-            properties:
-              action:
-                type: string
-              priority:
-                type: string
-                enum: [low, medium, high, critical]
-              estimatedCost:
-                type: number
-
-    # ==========================================
-    # Total Analysis Response
-    # ==========================================
-
-    AnalysisTotalResponse:
-      type: object
-      description: 특정 Hazard 기준 통합 분석 결과
-      properties:
-        siteId:
-          type: string
-          format: uuid
-        hazardType:
-          type: string
-          example: 폭염
-        overview:
-          $ref: '#/components/schemas/AnalysisOverviewResponse'
-        pastEvents:
-          $ref: '#/components/schemas/PastEventsResponse'
-        sspProjection:
-          $ref: '#/components/schemas/SSPProjectionResponse'
-        financialImpact:
-          $ref: '#/components/schemas/FinancialImpactResponse'
-        vulnerability:
-          $ref: '#/components/schemas/VulnerabilityResponse'
-        executiveSummary:
-          type: string
-          description: AI가 생성한 경영진 요약 리포트
-        generatedAt:
-          type: string
-          format: date-time
-
-    # ==========================================
-    # Simulation Schemas
-    # ==========================================
-
-    RelocationCandidate:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        name:
-          type: string
-          example: 평택 산업단지
-        city:
-          type: string
-          example: 경기도 평택시
-        latitude:
-          type: number
-          format: double
-        longitude:
-          type: number
-          format: double
-        locationSummary:
-          type: string
-          example: 경기도 평택시, 산업단지 인근
-        riskScore:
-          type: integer
-          minimum: 0
-          maximum: 100
-          description: 종합 리스크 점수
-        riskLevel:
-          type: string
-          enum: [낮음, 보통, 높음, 심각]
-        aal:
-          type: number
-          format: double
-          description: Average Annual Loss (KRW)
-        distance:
-          type: number
-          format: float
-          description: 현재 사업장으로부터 거리 (km)
-        estimatedCost:
-          type: number
-          format: double
-          description: 예상 이전 비용 (KRW)
-        advantages:
-          type: array
-          items:
-            type: string
-          example:
-            - 홍수 리스크 낮음
-            - 태풍 영향 적음
-        disadvantages:
-          type: array
-          items:
-            type: string
-          example:
-            - 폭염 리스크 소폭 증가
-
-    RelocationSimulationRequest:
-      type: object
-      required: [baseSiteId, candidateLatitude, candidateLongitude]
-      properties:
-        baseSiteId:
-          type: string
-          format: uuid
-          description: 기준 사업장 ID
-        candidateLatitude:
-          type: number
-          format: double
-          description: 후보지 위도
-          example: 37.0892
-        candidateLongitude:
-          type: number
-          format: double
-          description: 후보지 경도
-          example: 127.0548
-        candidateName:
-          type: string
-          description: 후보지 이름 (선택사항)
-          example: 평택 산업단지
-
-    RelocationSimulationResult:
-      type: object
-      properties:
-        baseSite:
-          type: object
-          properties:
-            id:
-              type: string
-            name:
-              type: string
-            riskScore:
-              type: integer
-            aal:
-              type: number
-              format: float
-              description: 연평균 자산 손실률 (AAL)
-            annualExpectedLoss:
-              type: number
-              format: double
-              description: 연평균 재무 손실액 (KRW)
-        candidateSite:
-          type: object
-          properties:
-            name:
-              type: string
-            latitude:
-              type: number
-              format: double
-            longitude:
-              type: number
-              format: double
-            riskScore:
-              type: integer
-            aal:
-              type: number
-              format: float
-              description: 연평균 자산 손실률 (AAL)
-            annualExpectedLoss:
-              type: number
-              format: double
-              description: 연평균 재무 손실액 (KRW)
-        comparison:
-          type: object
-          properties:
-            riskScoreDiff:
-              type: integer
-              description: 리스크 점수 차이 (음수면 개선)
-            riskScoreDiffPercent:
-              type: number
-              format: float
-              description: 리스크 점수 차이 비율 (%)
-            aalDiff:
-              type: number
-              format: float
-              description: AAL 차이 (음수면 개선)
-            annualExpectedLossDiff:
-              type: number
-              format: double
-              description: 연평균 재무 손실액 차이 (KRW, 음수면 절감)
-        climateFactorComparison:
-          type: object
-          description: 기후 요인별 비교
-          additionalProperties:
-            type: object
-            properties:
-              hazardType:
-                type: string
-              base:
-                type: integer
-                description: 현재 사업장 점수
-              candidate:
-                type: integer
-                description: 후보지 점수
-              diff:
-                type: integer
-                description: 점수 차이
-              diffPercent:
-                type: number
-                format: float
-        pros:
-          type: array
-          description: 이전 시 장점
-          items:
-            type: string
-          example:
-            - 홍수 리스크 30% 감소
-            - 태풍 빈도 낮음
-            - 연간 예상 손실액 20억원 감소
-        cons:
-          type: array
-          description: 이전 시 단점
-          items:
-            type: string
-          example:
-            - 폭염 리스크 10% 증가
-            - 이전 비용 약 50억원
-        recommendation:
-          type: string
-          description: AI가 생성한 추천 의견
-          example: 장기적 리스크 감소를 고려할 때 이전을 권장합니다.
-        financialAnalysis:
-          type: object
-          properties:
-            relocationCost:
-              type: number
-              format: double
-            annualSavings:
-              type: number
-              format: double
-              description: 연간 절감 예상액
-            breakEvenYears:
-              type: number
-              format: float
-              description: 손익분기점 (년)
-            npv10Years:
-              type: number
-              format: double
-              description: 10년 순현재가치
-
-    ClimateSimulationRequest:
-      type: object
-      required: [scenario, sites]
-      properties:
-        scenario:
-          type: string
-          enum: [SSP1-2.6, SSP2-4.5, SSP3-7.0, SSP5-8.5]
-          example: SSP5-8.5
-        hazardType:
-          type: string
-          example: 폭염
-          description: 특정 Hazard 지정 (미지정시 전체)
-        sites:
-          type: array
-          description: 비교할 사업장 목록
-          items:
-            $ref: '#/components/schemas/SiteInfo'
-        startYear:
-          type: integer
-          example: 2025
-          default: 2025
-        endYear:
-          type: integer
-          example: 2100
-          default: 2100
-        timeStep:
-          type: integer
-          description: 시간 간격 (년)
-          default: 10
-
-    ClimateSimulationPoint:
-      type: object
-      properties:
-        year:
-          type: integer
-          example: 2045
-        metric:
-          type: number
-          format: float
-          description: 측정값 (온도, 강수량 등)
-        riskScore:
-          type: integer
-          description: 해당 시점의 리스크 점수
-
-    ClimateSimulationSeries:
-      type: object
-      properties:
-        siteId:
-          type: string
-          format: uuid
-        siteName:
-          type: string
-        metricName:
-          type: string
-          example: avg_temperature
-          description: 측정 지표명
-        metricUnit:
-          type: string
-          example: "°C"
-        points:
-          type: array
-          items:
-            $ref: '#/components/schemas/ClimateSimulationPoint'
-
-    ClimateSimulationResponse:
-      type: object
-      properties:
-        scenario:
-          type: string
-          example: SSP5-8.5
-        scenarioDescription:
-          type: string
-        hazardType:
-          type: string
-        series:
-          type: array
-          description: 사업장별 시계열 데이터
-          items:
-            $ref: '#/components/schemas/ClimateSimulationSeries'
-        timelineActions:
-          type: array
-          description: 시간대별 권장 조치
-          items:
-            type: object
-            properties:
-              decade:
-                type: string
-                example: "2030s"
-              year:
-                type: integer
-                example: 2035
-              action:
-                type: string
-                example: 냉각 시스템 업그레이드
-              targetSites:
-                type: array
-                description: 해당 조치가 필요한 사업장
-                items:
-                  type: string
-              priority:
-                type: string
-                enum: [low, medium, high, critical]
-              estimatedCost:
-                type: number
-                format: double
-              expectedBenefit:
-                type: string
-        summary:
-          type: string
-          description: AI가 생성한 시뮬레이션 요약
-
-    # ==========================================
-    # Report Schemas
-    # ==========================================
-
-    ReportGenerationRequest:
-      type: object
-      required: [scope, reportType]
-      properties:
-        scope:
-          type: string
-          enum: [single, all]
-          description: >
-            - single: 단일 사업장 리포트
-            - all: 전체 사업장 통합 리포트
-        siteId:
-          type: string
-          format: uuid
-          description: 사업장 ID (scope=single일 때 필수)
-        siteIds:
-          type: array
-          items:
-            type: string
-            format: uuid
-          description: 포함할 사업장 목록 (scope=all일 때 선택, 미지정시 전체)
-        reportType:
-          type: string
-          enum: [summary, full, governance]
-          description: >
-            - summary: 요약 리포트 (5-10페이지)
-            - full: 전체 리포트 (30-50페이지)
-            - governance: 거버넌스 리포트 (TCFD 기반)
-        includeCharts:
-          type: boolean
-          default: true
-          description: 차트 포함 여부
-        language:
-          type: string
-          enum: [ko, en]
-          default: ko
-          description: 리포트 언어
-        customSections:
-          type: array
-          description: 포함할 커스텀 섹션
-          items:
-            type: string
-          example: [executive_summary, risk_matrix, action_plan]
-
-    ReportGenerationStatus:
-      type: object
-      properties:
-        reportId:
-          type: string
-          format: uuid
-        scope:
-          type: string
-          enum: [single, all]
-        siteId:
-          type: string
-          format: uuid
-          description: scope=single일 때만 존재
-        siteIds:
-          type: array
-          items:
-            type: string
-            format: uuid
-          description: scope=all일 때 포함된 사업장 목록
-        status:
-          type: string
-          enum: [queued, analyzing, generating, completed, failed]
-          description: 리포트 생성 상태
-        progress:
-          type: integer
-          minimum: 0
-          maximum: 100
-          description: 진행률 (%)
-        currentStep:
-          type: string
-          example: LLM으로 요약 생성 중
-          description: 현재 진행 단계
-        startedAt:
-          type: string
-          format: date-time
-        completedAt:
-          type: string
-          format: date-time
-        estimatedCompletionTime:
-          type: string
-          format: date-time
-        error:
-          type: object
-          properties:
-            code:
-              type: string
-            message:
-              type: string
-
-    ReportContent:
-      type: object
-      description: LLM이 생성한 리포트 컨텐츠
-      properties:
-        reportId:
-          type: string
-          format: uuid
-        siteId:
-          type: string
-          format: uuid
-        siteName:
-          type: string
-        reportType:
-          type: string
-          enum: [summary, full, governance]
-        language:
-          type: string
-          enum: [ko, en]
-        generatedAt:
-          type: string
-          format: date-time
-        sections:
-          type: array
-          description: 리포트 섹션들
-          items:
-            type: object
-            properties:
-              sectionId:
-                type: string
-                example: executive_summary
-              title:
-                type: string
-                example: 경영진 요약
-              content:
-                type: string
-                description: LLM이 생성한 텍스트 내용
-              order:
-                type: integer
-                description: 섹션 순서
-        executiveSummary:
-          type: string
-          description: LLM이 생성한 경영진 요약 (1-2페이지)
-        keyFindings:
-          type: array
-          description: 주요 발견 사항
-          items:
-            type: string
-        riskMatrix:
-          type: object
-          description: 리스크 매트릭스 데이터
-          properties:
-            hazards:
-              type: array
-              items:
-                type: object
-                properties:
-                  hazardType:
-                    type: string
-                  likelihood:
-                    type: string
-                    enum: [낮음, 보통, 높음]
-                  impact:
-                    type: string
-                    enum: [낮음, 보통, 높음, 심각]
-                  riskLevel:
-                    type: string
-                    enum: [낮음, 보통, 높음, 심각]
-        actionPlan:
-          type: array
-          description: LLM이 제안한 실행 계획
-          items:
-            type: object
-            properties:
-              priority:
-                type: string
-                enum: [low, medium, high, critical]
-              action:
-                type: string
-              timeline:
-                type: string
-                example: 6개월 이내
-              estimatedCost:
-                type: number
-              expectedBenefit:
-                type: string
-        charts:
-          type: array
-          description: 차트 데이터 (프론트엔드에서 렌더링용)
-          items:
-            type: object
-            properties:
-              chartId:
-                type: string
-              chartType:
-                type: string
-                enum: [bar, line, pie, scatter, heatmap]
-              title:
-                type: string
-              data:
-                type: object
-                description: 차트 데이터 (형식은 chartType에 따라 다름)
-        metadata:
-          type: object
-          properties:
-            totalPages:
-              type: integer
-            wordCount:
-              type: integer
-            llmModel:
-              type: string
-              example: gpt-4
-            generationTimeSeconds:
-              type: number
-              format: float
-
-    ReportDownloadInfo:
-      type: object
-      properties:
-        reportId:
-          type: string
-          format: uuid
-        downloadUrl:
-          type: string
-          description: 리포트 다운로드 URL (임시 URL)
-        format:
-          type: string
-          enum: [pdf, docx, json]
-        fileSize:
-          type: integer
-          description: 파일 크기 (bytes)
-        expiresAt:
-          type: string
-          format: date-time
-          description: URL 만료 시간
-
-    # ==========================================
-    # Meta Schemas
-    # ==========================================
-
-    HazardType:
-      type: object
-      properties:
-        code:
-          type: string
-          example: extreme_heat
-        name:
-          type: string
-          example: 폭염
-        nameEn:
-          type: string
-          example: Extreme Heat
-        category:
-          type: string
-          enum: [temperature, water, wind, other]
-          example: temperature
-        description:
-          type: string
-          example: 일 최고기온 33도 이상이 2일 이상 지속되는 현상
-        availableMetrics:
-          type: array
-          description: 분석 가능한 지표
-          items:
-            type: string
-          example: [온도, 빈도, 지속시간]
-
 paths:
-  # ==========================================
-  # Analysis Endpoints
-  # ==========================================
-
-  /api/v1/analysis/start:
+  /api/sites/{site_id}/analysis/start:
     post:
-      tags: [Analysis]
-      summary: AI 리스크 분석 시작
-      description: >
-        AI Agent를 통해 사업장의 기후 물리적 리스크를 분석합니다.
-        비동기로 처리되며 jobId를 반환합니다.
-      security:
-        - apiKeyAuth: []
+      tags:
+      - Analysis
+      summary: Start Analysis
+      description: Spring Boot API 호환 - AI 리스크 분석 시작
+      operationId: start_analysis_api_sites__site_id__analysis_start_post
+      parameters:
+      - name: site_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Site Id
+      - name: X-API-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-Api-Key
       requestBody:
         required: true
         content:
@@ -1258,308 +36,367 @@ paths:
             schema:
               $ref: '#/components/schemas/StartAnalysisRequest'
       responses:
-        '202':
-          description: 분석 작업이 시작됨
+        '200':
+          description: Successful Response
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AnalysisJobStatus'
-        '400':
-          description: 잘못된 요청
+        '422':
+          description: Validation Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '401':
-          description: 인증 실패
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '409':
-          description: 이미 실행 중인 작업이 있음
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /api/v1/analysis/status/{jobId}:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/sites/{site_id}/analysis/status/{job_id}:
     get:
-      tags: [Analysis]
-      summary: 분석 작업 상태 조회
-      description: 실행 중인 분석 작업의 진행 상태를 조회합니다.
-      security:
-        - apiKeyAuth: []
+      tags:
+      - Analysis
+      summary: Get Analysis Status
+      description: Spring Boot API 호환 - 분석 작업 상태 조회
+      operationId: get_analysis_status_api_sites__site_id__analysis_status__job_id__get
       parameters:
-        - in: path
-          name: jobId
-          required: true
-          schema:
-            type: string
-            format: uuid
-          description: 작업 ID
+      - name: site_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Site Id
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Job Id
+      - name: X-API-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-Api-Key
       responses:
         '200':
-          description: 작업 상태
+          description: Successful Response
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AnalysisJobStatus'
-        '404':
-          description: 작업을 찾을 수 없음
+        '422':
+          description: Validation Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /api/v1/analysis/{siteId}/overview:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/sites/{site_id}/analysis/physical-risk-scores:
     get:
-      tags: [Analysis]
-      summary: 물리적 리스크 개요 조회
-      description: 사업장의 물리적 리스크 분석 개요를 반환합니다.
-      security:
-        - apiKeyAuth: []
+      tags:
+      - Analysis
+      summary: Get Physical Risk Scores
+      description: Spring Boot API 호환 - 시나리오별 물리적 리스크 점수 조회
+      operationId: get_physical_risk_scores_api_sites__site_id__analysis_physical_risk_scores_get
       parameters:
-        - in: path
-          name: siteId
-          required: true
-          schema:
-            type: string
-            format: uuid
-          description: 사업장 ID
+      - name: site_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Site Id
+      - name: hazardType
+        in: query
+        required: false
+        schema:
+          type: string
+          nullable: true
+          title: Hazardtype
+      - name: X-API-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-Api-Key
       responses:
         '200':
-          description: 분석 개요
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnalysisOverviewResponse'
-        '404':
-          description: 분석 결과를 찾을 수 없음 (분석을 먼저 실행해야 함)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /api/v1/analysis/{siteId}/physical-risk-scores:
-    get:
-      tags: [Analysis]
-      summary: 물리적 리스크 점수 조회
-      description: Hazard별 물리적 리스크 점수를 조회합니다.
-      security:
-        - apiKeyAuth: []
-      parameters:
-        - in: path
-          name: siteId
-          required: true
-          schema:
-            type: string
-            format: uuid
-          description: 사업장 ID
-        - in: query
-          name: hazardType
-          schema:
-            type: string
-            enum: [폭염, 한파, 태풍, 홍수, 가뭄, 산불, 해안침수, 도시침수, 물부족]
-          description: 특정 Hazard만 조회 (미지정시 전체)
-      responses:
-        '200':
-          description: 물리적 리스크 점수
+          description: Successful Response
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/PhysicalRiskScoreResponse'
-        '404':
-          description: 분석 결과를 찾을 수 없음
+        '422':
+          description: Validation Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /api/v1/analysis/{siteId}/past-events:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/sites/{site_id}/analysis/past-events:
     get:
-      tags: [Analysis]
-      summary: 과거 재난 이력 조회
-      description: 사업장 인근의 과거 재난 이력을 분석하여 반환합니다.
-      security:
-        - apiKeyAuth: []
+      tags:
+      - Analysis
+      summary: Get Past Events
+      description: Spring Boot API 호환 - 과거 재난 이력 조회
+      operationId: get_past_events_api_sites__site_id__analysis_past_events_get
       parameters:
-        - in: path
-          name: siteId
-          required: true
-          schema:
-            type: string
-            format: uuid
-        - in: query
-          name: hazardType
-          schema:
-            type: string
-            enum: [폭염, 한파, 태풍, 홍수, 가뭄, 산불, 해안침수, 도시침수, 물부족]
-          description: 특정 Hazard만 조회 (미지정시 전체)
-        - in: query
-          name: startYear
-          schema:
-            type: integer
-          description: 시작 연도
-        - in: query
-          name: endYear
-          schema:
-            type: integer
-          description: 종료 연도
+      - name: site_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Site Id
+      - name: X-API-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-Api-Key
       responses:
         '200':
-          description: 과거 재난 이력
+          description: Successful Response
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/PastEventsResponse'
-        '404':
-          description: 분석 결과를 찾을 수 없음
-
-  /api/v1/analysis/{siteId}/ssp:
-    get:
-      tags: [Analysis]
-      summary: SSP 시나리오별 리스크 전망
-      description: SSP 시나리오에 따른 미래 리스크 전망을 반환합니다.
-      security:
-        - apiKeyAuth: []
-      parameters:
-        - in: path
-          name: siteId
-          required: true
-          schema:
-            type: string
-            format: uuid
-        - in: query
-          name: hazardType
-          schema:
-            type: string
-          description: 특정 Hazard (미지정시 주요 Hazard)
-        - in: query
-          name: timeScale
-          schema:
-            type: string
-            enum: [단기, 중기, 장기]
-          description: 시간 척도
-      responses:
-        '200':
-          description: SSP 리스크 전망
+        '422':
+          description: Validation Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SSPProjectionResponse'
-        '404':
-          description: 분석 결과를 찾을 수 없음
-
-  /api/v1/analysis/{siteId}/financial-impacts:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/sites/{site_id}/analysis/financial-impacts:
     get:
-      tags: [Analysis]
-      summary: 재무 영향 조회 (AAL)
-      description: Hazard별 재무 영향(AAL)을 조회합니다.
-      security:
-        - apiKeyAuth: []
+      tags:
+      - Analysis
+      summary: Get Financial Impacts
+      description: Spring Boot API 호환 - 시나리오별 재무 영향(AAL) 조회
+      operationId: get_financial_impacts_api_sites__site_id__analysis_financial_impacts_get
       parameters:
-        - in: path
-          name: siteId
-          required: true
-          schema:
-            type: string
-            format: uuid
-          description: 사업장 ID
-        - in: query
-          name: hazardType
-          schema:
-            type: string
-            enum: [폭염, 한파, 태풍, 홍수, 가뭄, 산불, 해안침수, 도시침수, 물부족]
-          description: 특정 Hazard만 조회 (미지정시 전체)
+      - name: site_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Site Id
+      - name: X-API-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-Api-Key
       responses:
         '200':
-          description: 재무 영향 분석
+          description: Successful Response
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/FinancialImpactResponse'
-        '404':
-          description: 분석 결과를 찾을 수 없음
+        '422':
+          description: Validation Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /api/v1/analysis/{siteId}/vulnerability:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/sites/{site_id}/analysis/vulnerability:
     get:
-      tags: [Analysis]
-      summary: 취약성 분석
-      description: 사업장의 기후 리스크에 대한 취약성을 분석하여 반환합니다.
-      security:
-        - apiKeyAuth: []
+      tags:
+      - Analysis
+      summary: Get Vulnerability
+      description: Spring Boot API 호환 - 취약성 분석
+      operationId: get_vulnerability_api_sites__site_id__analysis_vulnerability_get
       parameters:
-        - in: path
-          name: siteId
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: site_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Site Id
+      - name: X-API-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-Api-Key
       responses:
         '200':
-          description: 취약성 분석 결과
+          description: Successful Response
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/VulnerabilityResponse'
-        '404':
-          description: 분석 결과를 찾을 수 없음
-
-  /api/v1/analysis/{siteId}/total:
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/sites/{site_id}/analysis/total:
     get:
-      tags: [Analysis]
-      summary: 특정 Hazard 기준 통합 분석 결과
-      description: >
-        특정 Hazard에 대한 모든 분석 결과를 통합하여 반환합니다.
-        (개요 + 과거이력 + SSP전망 + 재무영향 + 취약성)
-      security:
-        - apiKeyAuth: []
+      tags:
+      - Analysis
+      summary: Get Total Analysis
+      description: Spring Boot API 호환 - 특정 Hazard 기준 통합 분석 결과
+      operationId: get_total_analysis_api_sites__site_id__analysis_total_get
       parameters:
-        - in: path
-          name: siteId
-          required: true
-          schema:
-            type: string
-            format: uuid
-        - in: query
-          name: hazardType
-          required: true
-          schema:
-            type: string
-          description: 위험요인 유형
-        - in: query
-          name: timeScale
-          schema:
-            type: string
-            enum: [단기, 중기, 장기]
+      - name: site_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Site Id
+      - name: hazardType
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Hazardtype
+      - name: X-API-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-Api-Key
       responses:
         '200':
-          description: 통합 분석 결과
+          description: Successful Response
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AnalysisTotalResponse'
-        '404':
-          description: 분석 결과를 찾을 수 없음
-
-  # ==========================================
-  # Simulation Endpoints
-  # ==========================================
-
-  /api/v1/simulation/relocation/compare:
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/reports:
     post:
-      tags: [Simulation]
-      summary: 사업장 이전 시뮬레이션 (비교)
-      description: >
-        현재 사업장과 후보지의 리스크를 상세 비교합니다.
-        두 사업장에 대해 전체 분석을 수행하고 비교 결과를 반환합니다.
-      security:
-        - apiKeyAuth: []
+      tags:
+      - Reports
+      summary: Create Report
+      description: Spring Boot API 호환 - 리포트 생성
+      operationId: create_report_api_reports_post
+      parameters:
+      - name: X-API-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-Api-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReportRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - Reports
+      summary: Delete Report
+      description: Spring Boot API 호환 - 리포트 삭제
+      operationId: delete_report_api_reports_delete
+      parameters:
+      - name: X-API-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/reports/web:
+    get:
+      tags:
+      - Reports
+      summary: Get Report Web View
+      description: Spring Boot API 호환 - 웹 리포트 뷰 조회
+      operationId: get_report_web_view_api_reports_web_get
+      parameters:
+      - name: X-API-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportWebViewResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/reports/pdf:
+    get:
+      tags:
+      - Reports
+      summary: Get Report Pdf
+      description: Spring Boot API 호환 - PDF 리포트 조회
+      operationId: get_report_pdf_api_reports_pdf_get
+      parameters:
+      - name: X-API-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportPdfResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/simulation/relocation/compare:
+    post:
+      tags:
+      - Simulation
+      summary: Compare Relocation
+      description: Spring Boot API 호환 - 사업장 이전 시뮬레이션 (비교)
+      operationId: compare_relocation_api_simulation_relocation_compare_post
+      parameters:
+      - name: X-API-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-Api-Key
       requestBody:
         required: true
         content:
@@ -1568,23 +405,31 @@ paths:
               $ref: '#/components/schemas/RelocationSimulationRequest'
       responses:
         '200':
-          description: 비교 결과
+          description: Successful Response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RelocationSimulationResult'
-        '400':
-          description: 잘못된 요청
-
-  /api/v1/simulation/climate:
+                $ref: '#/components/schemas/RelocationSimulationResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/simulation/climate:
     post:
-      tags: [Simulation]
-      summary: 기후 시뮬레이션
-      description: >
-        SSP 시나리오에 따른 미래 기후 변화를 시뮬레이션합니다.
-        여러 사업장을 동시에 비교할 수 있습니다.
-      security:
-        - apiKeyAuth: []
+      tags:
+      - Simulation
+      summary: Run Climate Simulation
+      description: Spring Boot API 호환 - 기후 시뮬레이션
+      operationId: run_climate_simulation_api_simulation_climate_post
+      parameters:
+      - name: X-API-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-Api-Key
       requestBody:
         required: true
         content:
@@ -1593,214 +438,993 @@ paths:
               $ref: '#/components/schemas/ClimateSimulationRequest'
       responses:
         '200':
-          description: 시뮬레이션 결과
+          description: Successful Response
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ClimateSimulationResponse'
-        '400':
-          description: 잘못된 요청
-
-  # ==========================================
-  # Reports Endpoints
-  # ==========================================
-
-  /api/v1/reports/generate:
-    post:
-      tags: [Reports]
-      summary: 리포트 생성 시작
-      description: >
-        LLM을 사용하여 사업장 리스크 분석 리포트를 생성합니다.
-        분석 데이터를 기반으로 LLM이 자동으로 텍스트를 작성합니다.
-        비동기로 처리되며 reportId를 반환합니다.
-      security:
-        - apiKeyAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ReportGenerationRequest'
-      responses:
-        '202':
-          description: 리포트 생성 작업이 시작됨
+        '422':
+          description: Validation Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ReportGenerationStatus'
-        '400':
-          description: 잘못된 요청
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          description: 사업장 또는 분석 결과를 찾을 수 없음
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /api/v1/reports/{reportId}/status:
-    get:
-      tags: [Reports]
-      summary: 리포트 생성 상태 조회
-      description: 리포트 생성 작업의 진행 상태를 조회합니다.
-      security:
-        - apiKeyAuth: []
-      parameters:
-        - in: path
-          name: reportId
-          required: true
-          schema:
-            type: string
-            format: uuid
-          description: 리포트 ID
-      responses:
-        '200':
-          description: 리포트 생성 상태
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ReportGenerationStatus'
-        '404':
-          description: 리포트를 찾을 수 없음
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /api/v1/reports/{reportId}/content:
-    get:
-      tags: [Reports]
-      summary: 리포트 컨텐츠 조회
-      description: >
-        LLM이 생성한 리포트 컨텐츠를 JSON 형태로 반환합니다.
-        Spring Boot는 이 데이터를 사용하여 PDF/Excel로 변환할 수 있습니다.
-      security:
-        - apiKeyAuth: []
-      parameters:
-        - in: path
-          name: reportId
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '200':
-          description: 리포트 컨텐츠
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ReportContent'
-        '404':
-          description: 리포트를 찾을 수 없음 또는 아직 생성 중
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /api/v1/reports/{reportId}/download:
-    get:
-      tags: [Reports]
-      summary: 리포트 파일 다운로드
-      description: >
-        생성된 리포트 파일을 다운로드합니다.
-        FastAPI가 PDF/DOCX를 직접 생성하는 경우 사용합니다.
-      security:
-        - apiKeyAuth: []
-      parameters:
-        - in: path
-          name: reportId
-          required: true
-          schema:
-            type: string
-            format: uuid
-        - in: query
-          name: format
-          schema:
-            type: string
-            enum: [pdf, docx, json]
-            default: pdf
-          description: 다운로드 형식
-      responses:
-        '200':
-          description: 리포트 파일 또는 다운로드 URL
-          content:
-            application/pdf:
-              schema:
-                type: string
-                format: binary
-            application/vnd.openxmlformats-officedocument.wordprocessingml.document:
-              schema:
-                type: string
-                format: binary
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ReportDownloadInfo'
-        '404':
-          description: 리포트를 찾을 수 없음
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  # ==========================================
-  # Meta Endpoints
-  # ==========================================
-
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/meta/hazards:
     get:
-      tags: [Meta]
-      summary: 지원하는 기후 리스크(위험요인) 목록
-      description: AI Agent가 분석 가능한 기후 위험요인 목록을 반환합니다.
-      security:
-        - apiKeyAuth: []
+      tags:
+      - Meta
+      summary: Get Hazards
+      description: 지원하는 기후 리스크(위험요인) 목록
+      operationId: get_hazards_api_v1_meta_hazards_get
       parameters:
-        - in: query
-          name: category
-          schema:
-            type: string
-            enum: [temperature, water, wind, other]
-          description: 카테고리별 필터링
+      - name: category
+        in: query
+        required: false
+        schema:
+          type: string
+          nullable: true
+          title: Category
+      - name: X-API-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-Api-Key
       responses:
         '200':
-          description: 위험요인 목록
+          description: Successful Response
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/HazardType'
-
-  /api/v1/health:
-    get:
-      tags: [Meta]
-      summary: 헬스체크
-      description: API 서버 및 AI Agent 상태를 확인합니다.
-      responses:
-        '200':
-          description: 정상 작동 중
+                  $ref: '#/components/schemas/HazardTypeInfo'
+                title: Response Get Hazards Api V1 Meta Hazards Get
+        '422':
+          description: Validation Error
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: healthy
-                  version:
-                    type: string
-                    example: 1.0.0
-                  agentStatus:
-                    type: string
-                    enum: [ready, busy, error]
-                  activeJobs:
-                    type: integer
-                    description: 현재 실행 중인 작업 수
-                  timestamp:
-                    type: string
-                    format: date-time
-
-security:
-  - apiKeyAuth: []
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/health:
+    get:
+      tags:
+      - Meta
+      summary: Health Check
+      description: 헬스체크
+      operationId: health_check_api_v1_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheckResponse'
+  /:
+    get:
+      summary: Root
+      operationId: root__get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+components:
+  schemas:
+    AnalysisJobStatus:
+      properties:
+        jobId:
+          type: string
+          format: uuid
+          title: Jobid
+        siteId:
+          type: string
+          format: uuid
+          title: Siteid
+        status:
+          type: string
+          title: Status
+        progress:
+          type: integer
+          maximum: 100
+          minimum: 0
+          title: Progress
+        currentNode:
+          type: string
+          nullable: true
+          title: Currentnode
+        currentHazard:
+          type: string
+          nullable: true
+          title: Currenthazard
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+          title: Startedat
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+          title: Completedat
+        estimatedCompletionTime:
+          type: string
+          format: date-time
+          nullable: true
+          title: Estimatedcompletiontime
+        error:
+          additionalProperties: true
+          type: object
+          nullable: true
+          title: Error
+      type: object
+      required:
+      - jobId
+      - siteId
+      - status
+      - progress
+      title: AnalysisJobStatus
+    AnalysisOptions:
+      properties:
+        includeFinancialImpact:
+          type: boolean
+          title: Includefinancialimpact
+          default: true
+        includeVulnerability:
+          type: boolean
+          title: Includevulnerability
+          default: true
+        includePastEvents:
+          type: boolean
+          title: Includepastevents
+          default: true
+        sspScenarios:
+          items:
+            $ref: '#/components/schemas/SSPScenario'
+          type: array
+          title: Sspscenarios
+          default:
+          - SSP2-4.5
+          - SSP5-8.5
+      type: object
+      title: AnalysisOptions
+    AnalysisTotalResponse:
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          title: Siteid
+          description: 사업장 ID
+        siteName:
+          type: string
+          title: Sitename
+          description: 사업장 이름
+        physicalRisks:
+          items:
+            $ref: '#/components/schemas/PhysicalRiskBarItem'
+          type: array
+          title: Physicalrisks
+          description: 9대 물리적 리스크 분석 결과
+      type: object
+      required:
+      - siteId
+      - siteName
+      - physicalRisks
+      title: AnalysisTotalResponse
+      description: Spring Boot API 호환 - 사업장 상세 분석 결과
+    ClimateSimulationRequest:
+      properties:
+        scenario:
+          $ref: '#/components/schemas/SSPScenario'
+          description: SSP 시나리오
+        hazardType:
+          type: string
+          title: Hazardtype
+          description: 위험 유형
+        siteIds:
+          items:
+            type: string
+            format: uuid
+          type: array
+          title: Siteids
+          description: 시뮬레이션 대상 사업장 ID 목록
+        startYear:
+          type: integer
+          title: Startyear
+          description: 시작 연도
+      type: object
+      required:
+      - scenario
+      - hazardType
+      - siteIds
+      - startYear
+      title: ClimateSimulationRequest
+      description: Spring Boot API 호환 - 기후 시뮬레이션 요청
+    ClimateSimulationResponse:
+      properties:
+        scenario:
+          $ref: '#/components/schemas/SSPScenario'
+          description: SSP 시나리오
+        riskType:
+          type: string
+          title: Risktype
+          description: 리스크 유형
+        yearlyData:
+          items:
+            $ref: '#/components/schemas/YearlyData'
+          type: array
+          title: Yearlydata
+          description: 연도별 시뮬레이션 데이터
+      type: object
+      required:
+      - scenario
+      - riskType
+      - yearlyData
+      title: ClimateSimulationResponse
+      description: Spring Boot API 호환 - 기후 시뮬레이션 결과
+    CreateReportRequest:
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          nullable: true
+          title: Siteid
+          description: 사업장 ID (null이면 전체 사업장 리포트)
+      type: object
+      title: CreateReportRequest
+      description: Spring Boot API 호환 - 리포트 생성 요청
+    DisasterEvent:
+      properties:
+        disasterType:
+          type: string
+          title: Disastertype
+          description: 재난 유형
+        year:
+          type: integer
+          title: Year
+          description: 발생 연도
+        warningDays:
+          type: integer
+          title: Warningdays
+          description: 주의 일수
+        severeDays:
+          type: integer
+          title: Severedays
+          description: 심각 일수
+        overallStatus:
+          type: string
+          enum:
+          - 경미
+          - 주의
+          - 심각
+          title: Overallstatus
+          description: 통합 상태
+      type: object
+      required:
+      - disasterType
+      - year
+      - warningDays
+      - severeDays
+      - overallStatus
+      title: DisasterEvent
+      description: 재난 이벤트
+    FinancialImpactResponse:
+      properties:
+        scenarios:
+          items:
+            $ref: '#/components/schemas/SSPScenarioImpact'
+          type: array
+          title: Scenarios
+          description: SSP 시나리오별 재무 영향 목록 (4개 시나리오)
+      type: object
+      required:
+      - scenarios
+      title: FinancialImpactResponse
+      description: Spring Boot API 호환 - 시나리오별 재무 영향 분석
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    HazardType:
+      type: string
+      enum:
+      - 태풍
+      - 내륙침수
+      - 해안침수
+      - 도시침수
+      - 가뭄
+      - 산불
+      - 폭염
+      - 한파
+      - 물부족
+      title: HazardType
+    HazardTypeInfo:
+      properties:
+        code:
+          type: string
+          title: Code
+        name:
+          type: string
+          title: Name
+        nameEn:
+          type: string
+          title: Nameen
+        category:
+          type: string
+          title: Category
+        description:
+          type: string
+          title: Description
+        availableMetrics:
+          items:
+            type: string
+          type: array
+          title: Availablemetrics
+          default: []
+      type: object
+      required:
+      - code
+      - name
+      - nameEn
+      - category
+      - description
+      title: HazardTypeInfo
+    HealthCheckResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+        version:
+          type: string
+          title: Version
+        agentStatus:
+          type: string
+          title: Agentstatus
+        activeJobs:
+          type: integer
+          title: Activejobs
+        timestamp:
+          type: string
+          format: date-time
+          title: Timestamp
+      type: object
+      required:
+      - status
+      - version
+      - agentStatus
+      - activeJobs
+      - timestamp
+      title: HealthCheckResponse
+    LocationData:
+      properties:
+        risks:
+          items:
+            $ref: '#/components/schemas/RiskData'
+          type: array
+          title: Risks
+          description: 리스크별 분석 결과
+      type: object
+      required:
+      - risks
+      title: LocationData
+      description: 위치별 리스크 데이터
+    LongTermAAL:
+      properties:
+        year2020s:
+          type: number
+          title: Year2020S
+        year2030s:
+          type: number
+          title: Year2030S
+        year2040s:
+          type: number
+          title: Year2040S
+        year2050s:
+          type: number
+          title: Year2050S
+      type: object
+      required:
+      - year2020s
+      - year2030s
+      - year2040s
+      - year2050s
+      title: LongTermAAL
+      description: 장기 AAL (연대별)
+    LongTermScore:
+      properties:
+        year2020s:
+          type: integer
+          maximum: 100
+          minimum: 0
+          title: Year2020S
+        year2030s:
+          type: integer
+          maximum: 100
+          minimum: 0
+          title: Year2030S
+        year2040s:
+          type: integer
+          maximum: 100
+          minimum: 0
+          title: Year2040S
+        year2050s:
+          type: integer
+          maximum: 100
+          minimum: 0
+          title: Year2050S
+      type: object
+      required:
+      - year2020s
+      - year2030s
+      - year2040s
+      - year2050s
+      title: LongTermScore
+      description: 장기 리스크 점수 (연대별)
+    MidTermAAL:
+      properties:
+        year2026:
+          type: number
+          title: Year2026
+        year2027:
+          type: number
+          title: Year2027
+        year2028:
+          type: number
+          title: Year2028
+        year2029:
+          type: number
+          title: Year2029
+        year2030:
+          type: number
+          title: Year2030
+      type: object
+      required:
+      - year2026
+      - year2027
+      - year2028
+      - year2029
+      - year2030
+      title: MidTermAAL
+      description: 중기 AAL (연도별)
+    MidTermScore:
+      properties:
+        year2026:
+          type: integer
+          maximum: 100
+          minimum: 0
+          title: Year2026
+        year2027:
+          type: integer
+          maximum: 100
+          minimum: 0
+          title: Year2027
+        year2028:
+          type: integer
+          maximum: 100
+          minimum: 0
+          title: Year2028
+        year2029:
+          type: integer
+          maximum: 100
+          minimum: 0
+          title: Year2029
+        year2030:
+          type: integer
+          maximum: 100
+          minimum: 0
+          title: Year2030
+      type: object
+      required:
+      - year2026
+      - year2027
+      - year2028
+      - year2029
+      - year2030
+      title: MidTermScore
+      description: 중기 리스크 점수 (연도별)
+    PastEventsResponse:
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          title: Siteid
+          description: 사업장 ID
+        siteName:
+          type: string
+          title: Sitename
+          description: 사업장 이름
+        disasters:
+          items:
+            $ref: '#/components/schemas/DisasterEvent'
+          type: array
+          title: Disasters
+          description: 재난별 이력
+      type: object
+      required:
+      - siteId
+      - siteName
+      - disasters
+      title: PastEventsResponse
+      description: Spring Boot API 호환 - 과거 재난 이력
+    PhysicalRiskBarItem:
+      properties:
+        riskType:
+          $ref: '#/components/schemas/HazardType'
+          description: 리스크 유형
+        riskScore:
+          type: integer
+          maximum: 100
+          minimum: 0
+          title: Riskscore
+          description: 리스크 점수 (0-100)
+        financialLossRate:
+          type: number
+          maximum: 1
+          minimum: 0
+          title: Financiallossrate
+          description: 재무 손실률 (AAL, 0.0-1.0)
+      type: object
+      required:
+      - riskType
+      - riskScore
+      - financialLossRate
+      title: PhysicalRiskBarItem
+      description: Spring Boot API 호환 - 물리적 리스크 점수
+    PhysicalRiskScoreResponse:
+      properties:
+        scenarios:
+          items:
+            $ref: '#/components/schemas/SSPScenarioScore'
+          type: array
+          title: Scenarios
+          description: SSP 시나리오별 리스크 점수 목록 (4개 시나리오)
+      type: object
+      required:
+      - scenarios
+      title: PhysicalRiskScoreResponse
+      description: Spring Boot API 호환 - 시나리오별 물리적 리스크 점수
+    Priority:
+      type: string
+      enum:
+      - low
+      - normal
+      - high
+      title: Priority
+    RelocationSimulationRequest:
+      properties:
+        currentSiteId:
+          type: string
+          format: uuid
+          title: Currentsiteid
+          description: 현재 사업장 ID
+        latitude:
+          type: number
+          title: Latitude
+          description: 이전될 위치의 위도
+        longitude:
+          type: number
+          title: Longitude
+          description: 이전될 위치의 경도
+        roadAddress:
+          type: string
+          nullable: true
+          title: Roadaddress
+          description: 이전될 위치의 도로명 주소
+        jibunAddress:
+          type: string
+          nullable: true
+          title: Jibunaddress
+          description: 이전될 위치의 지번 주소
+      type: object
+      required:
+      - currentSiteId
+      - latitude
+      - longitude
+      title: RelocationSimulationRequest
+      description: Spring Boot API 호환 - 사업장 이전 시뮬레이션 요청
+    RelocationSimulationResponse:
+      properties:
+        currentLocation:
+          $ref: '#/components/schemas/LocationData'
+        newLocation:
+          $ref: '#/components/schemas/LocationData'
+      type: object
+      required:
+      - currentLocation
+      - newLocation
+      title: RelocationSimulationResponse
+      description: Spring Boot API 호환 - 사업장 이전 시뮬레이션 결과
+    ReportPage:
+      properties:
+        pageNumber:
+          type: integer
+          title: Pagenumber
+          description: 페이지 번호
+        imageUrl:
+          type: string
+          title: Imageurl
+          description: 이미지 URL
+        title:
+          type: string
+          title: Title
+          description: 페이지 제목
+      type: object
+      required:
+      - pageNumber
+      - imageUrl
+      - title
+      title: ReportPage
+      description: 리포트 페이지
+    ReportPdfResponse:
+      properties:
+        downloadUrl:
+          type: string
+          title: Downloadurl
+          description: PDF 다운로드 URL
+        fileSize:
+          type: integer
+          title: Filesize
+          description: 파일 크기 (bytes)
+        expiresAt:
+          type: string
+          format: date-time
+          title: Expiresat
+          description: 만료 시간
+      type: object
+      required:
+      - downloadUrl
+      - fileSize
+      - expiresAt
+      title: ReportPdfResponse
+      description: Spring Boot API 호환 - PDF 리포트
+    ReportWebViewResponse:
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          nullable: true
+          title: Siteid
+          description: 사업장 ID (전체 리포트인 경우 null)
+        pages:
+          items:
+            $ref: '#/components/schemas/ReportPage'
+          type: array
+          title: Pages
+          description: 리포트 페이지 이미지 목록
+      type: object
+      required:
+      - pages
+      title: ReportWebViewResponse
+      description: Spring Boot API 호환 - 웹 리포트 뷰
+    RiskData:
+      properties:
+        riskType:
+          type: string
+          title: Risktype
+          description: 리스크 유형
+        riskScore:
+          type: integer
+          maximum: 100
+          minimum: 0
+          title: Riskscore
+          description: 리스크 점수 (0-100)
+        aal:
+          type: number
+          maximum: 1
+          minimum: 0
+          title: Aal
+          description: AAL (연평균 자산 손실률, 0.0-1.0)
+      type: object
+      required:
+      - riskType
+      - riskScore
+      - aal
+      title: RiskData
+      description: 리스크별 데이터
+    RiskVulnerability:
+      properties:
+        riskType:
+          type: string
+          title: Risktype
+          description: 리스크 유형
+        vulnerabilityScore:
+          type: integer
+          maximum: 100
+          minimum: 0
+          title: Vulnerabilityscore
+          description: 취약성 점수 (0-100)
+      type: object
+      required:
+      - riskType
+      - vulnerabilityScore
+      title: RiskVulnerability
+      description: 리스크별 취약성
+    SSPScenario:
+      type: string
+      enum:
+      - SSP1-2.6
+      - SSP2-4.5
+      - SSP3-7.0
+      - SSP5-8.5
+      title: SSPScenario
+    SSPScenarioImpact:
+      properties:
+        scenario:
+          $ref: '#/components/schemas/SSPScenario'
+        riskType:
+          $ref: '#/components/schemas/HazardType'
+          description: 리스크 종류
+        shortTerm:
+          $ref: '#/components/schemas/ShortTermAAL'
+        midTerm:
+          $ref: '#/components/schemas/MidTermAAL'
+        longTerm:
+          $ref: '#/components/schemas/LongTermAAL'
+      type: object
+      required:
+      - scenario
+      - riskType
+      - shortTerm
+      - midTerm
+      - longTerm
+      title: SSPScenarioImpact
+      description: SSP 시나리오별 재무 영향
+    SSPScenarioScore:
+      properties:
+        scenario:
+          $ref: '#/components/schemas/SSPScenario'
+        riskType:
+          $ref: '#/components/schemas/HazardType'
+          description: 리스크 종류
+        shortTerm:
+          $ref: '#/components/schemas/ShortTermScore'
+        midTerm:
+          $ref: '#/components/schemas/MidTermScore'
+        longTerm:
+          $ref: '#/components/schemas/LongTermScore'
+      type: object
+      required:
+      - scenario
+      - riskType
+      - shortTerm
+      - midTerm
+      - longTerm
+      title: SSPScenarioScore
+      description: SSP 시나리오별 리스크 점수
+    ShortTermAAL:
+      properties:
+        q1:
+          type: number
+          title: Q1
+          description: 1분기 AAL
+        q2:
+          type: number
+          title: Q2
+          description: 2분기 AAL
+        q3:
+          type: number
+          title: Q3
+          description: 3분기 AAL
+        q4:
+          type: number
+          title: Q4
+          description: 4분기 AAL
+      type: object
+      required:
+      - q1
+      - q2
+      - q3
+      - q4
+      title: ShortTermAAL
+      description: 단기 AAL (분기별)
+    ShortTermScore:
+      properties:
+        q1:
+          type: integer
+          maximum: 100
+          minimum: 0
+          title: Q1
+          description: 1분기 점수
+        q2:
+          type: integer
+          maximum: 100
+          minimum: 0
+          title: Q2
+          description: 2분기 점수
+        q3:
+          type: integer
+          maximum: 100
+          minimum: 0
+          title: Q3
+          description: 3분기 점수
+        q4:
+          type: integer
+          maximum: 100
+          minimum: 0
+          title: Q4
+          description: 4분기 점수
+      type: object
+      required:
+      - q1
+      - q2
+      - q3
+      - q4
+      title: ShortTermScore
+      description: 단기 리스크 점수 (분기별)
+    SiteData:
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          title: Siteid
+          description: 사업장 ID
+        siteName:
+          type: string
+          title: Sitename
+          description: 사업장 이름
+        riskScore:
+          type: integer
+          maximum: 100
+          minimum: 0
+          title: Riskscore
+          description: 리스크 점수 (0-100)
+        localAverageTemperature:
+          type: number
+          title: Localaveragetemperature
+          description: 사업장 위치 평균 기온 (°C)
+      type: object
+      required:
+      - siteId
+      - siteName
+      - riskScore
+      - localAverageTemperature
+      title: SiteData
+      description: 사업장 데이터
+    SiteInfo:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        name:
+          type: string
+          title: Name
+        address:
+          type: string
+          nullable: true
+          title: Address
+        city:
+          type: string
+          nullable: true
+          title: City
+        latitude:
+          type: number
+          title: Latitude
+        longitude:
+          type: number
+          title: Longitude
+        industry:
+          type: string
+          title: Industry
+        buildingAge:
+          type: integer
+          nullable: true
+          title: Buildingage
+        buildingType:
+          type: string
+          nullable: true
+          title: Buildingtype
+        seismicDesign:
+          type: boolean
+          title: Seismicdesign
+          default: false
+        floorArea:
+          type: number
+          nullable: true
+          title: Floorarea
+        assetValue:
+          type: number
+          nullable: true
+          title: Assetvalue
+        employeeCount:
+          type: integer
+          nullable: true
+          title: Employeecount
+      type: object
+      required:
+      - id
+      - name
+      - latitude
+      - longitude
+      - industry
+      title: SiteInfo
+    StartAnalysisRequest:
+      properties:
+        site:
+          $ref: '#/components/schemas/SiteInfo'
+        hazardTypes:
+          items:
+            $ref: '#/components/schemas/HazardType'
+          type: array
+          nullable: true
+          title: Hazardtypes
+        priority:
+          $ref: '#/components/schemas/Priority'
+          default: normal
+        options:
+          allOf:
+          - $ref: '#/components/schemas/AnalysisOptions'
+          nullable: true
+      type: object
+      required:
+      - site
+      title: StartAnalysisRequest
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+    VulnerabilityResponse:
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          title: Siteid
+          description: 사업장 ID
+        vulnerabilities:
+          items:
+            $ref: '#/components/schemas/RiskVulnerability'
+          type: array
+          title: Vulnerabilities
+          description: 리스크별 취약성 점수
+      type: object
+      required:
+      - siteId
+      - vulnerabilities
+      title: VulnerabilityResponse
+      description: Spring Boot API 호환 - 취약성 분석
+    YearlyData:
+      properties:
+        year:
+          type: integer
+          title: Year
+          description: 연도
+        nationalAverageTemperature:
+          type: number
+          title: Nationalaveragetemperature
+          description: 전국 평균 기온 (°C)
+        sites:
+          items:
+            $ref: '#/components/schemas/SiteData'
+          type: array
+          title: Sites
+          description: 사업장별 데이터
+      type: object
+      required:
+      - year
+      - nationalAverageTemperature
+      - sites
+      title: YearlyData
+      description: 연도별 데이터

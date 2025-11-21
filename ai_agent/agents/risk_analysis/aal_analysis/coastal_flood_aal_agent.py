@@ -1,11 +1,12 @@
 '''
 파일명: coastal_flood_aal_agent.py
-최종 수정일: 2025-11-20
-버전: v9
-파일 개요: 해수면 상승 리스크 AAL 분석 Agent (AAL_final_logic_v9 기반)
+최종 수정일: 2025-11-21
+버전: v2
+파일 개요: 해수면 상승 리스크 AAL 분석 Agent (AAL_final_logic_v2 기반)
 변경 이력:
 	- 2025-11-11: v00 - 초기 생성
 	- 2025-11-20: v9 - AAL_final_logic_v9.md 로직 적용
+	- 2025-11-21: v2 - AAL_final_logic_v2.md 로직 적용
 		* 강도지표: X_slr(t,j) = max inundation_depth(t,τ,j)
 		* inundation_depth = max(zos/100 - ground_level, 0)
 		* bin: [0), [0~0.3m), [0.3~1.0m), [≥1.0m)
@@ -18,7 +19,7 @@ from .base_aal_analysis_agent import BaseAALAnalysisAgent
 
 class CoastalFloodAALAgent(BaseAALAnalysisAgent):
 	"""
-	해수면 상승 리스크 AAL 분석 Agent (v9)
+	해수면 상승 리스크 AAL 분석 Agent (v2)
 
 	사용 데이터: CMIP6 zos (해수면 높이, cm)
 	강도지표: X_slr(t,j) = max over τ in year t [ inundation_depth(t,τ,j) ]
@@ -27,7 +28,7 @@ class CoastalFloodAALAgent(BaseAALAnalysisAgent):
 
 	def __init__(self):
 		"""
-		CoastalFloodAALAgent 초기화 (v9)
+		CoastalFloodAALAgent 초기화 (v2)
 
 		bin 구간 (침수 깊이):
 			- bin1: 0 m (침수 없음)

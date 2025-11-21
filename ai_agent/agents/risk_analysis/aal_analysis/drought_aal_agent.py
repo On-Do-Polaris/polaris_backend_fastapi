@@ -1,14 +1,16 @@
 '''
 파일명: drought_aal_agent.py
-최종 수정일: 2025-11-20
-버전: v9
-파일 개요: 가뭄 리스크 AAL 분석 Agent (AAL_final_logic_v9 기반)
+최종 수정일: 2025-11-21
+버전: v2
+파일 개요: 가뭄 리스크 AAL 분석 Agent (AAL_final_logic_v2 기반)
 변경 이력:
 	- 2025-11-11: v00 - 초기 생성
 	- 2025-11-20: v9 - AAL_final_logic_v9.md 로직 적용
-		* 강도지표: X_drought(t) = min SPEI12(t,k) (연중 최소값)
+	- 2025-11-21: v2 - AAL_final_logic_v2.md 로직 적용
+		* 강도지표: X_drought(t,m) = SPEI12(t,m) (월별)
 		* bin: (>-1), [-1~-1.5), [-1.5~-2.0), (≤-2.0)
 		* DR_intensity: [0.00, 0.02, 0.07, 0.20]
+		* 월 기반 발생확률: P_drought[i] = (해당 bin에 속한 월 수) / (총 월 수)
 '''
 from typing import Dict, Any
 import numpy as np
@@ -17,15 +19,16 @@ from .base_aal_analysis_agent import BaseAALAnalysisAgent
 
 class DroughtAALAgent(BaseAALAnalysisAgent):
 	"""
-	가뭄 리스크 AAL 분석 Agent (v9)
+	가뭄 리스크 AAL 분석 Agent (v2)
 
 	사용 데이터: KMA SPEI12 (Standardized Precipitation-Evapotranspiration Index 12개월)
-	강도지표: X_drought(t) = min over month k in year t [ SPEI12(t, k) ]
+	강도지표: X_drought(t,m) = SPEI12(t,m) (월별)
+	월 기반 발생확률: P_drought[i] = (해당 bin에 속한 월 수) / (총 월 수)
 	"""
 
 	def __init__(self):
 		"""
-		DroughtAALAgent 초기화 (v9)
+		DroughtAALAgent 초기화 (v2)
 
 		bin 구간:
 			- bin1: SPEI12 > -1 (정상~약한 가뭄)
@@ -38,6 +41,10 @@ class DroughtAALAgent(BaseAALAnalysisAgent):
 			- bin2: 2%
 			- bin3: 7%
 			- bin4: 20%
+
+		참고:
+			- 월 기반 발생확률 사용
+			- P_drought[i] = (해당 bin에 속한 월 수) / (총 월 수)
 		"""
 		bins = [
 			(-1, float('inf')),   # SPEI12 > -1
@@ -64,8 +71,8 @@ class DroughtAALAgent(BaseAALAnalysisAgent):
 
 	def calculate_intensity_indicator(self, collected_data: Dict[str, Any]) -> np.ndarray:
 		"""
-		가뭄 강도지표 X_drought(t) 계산
-		X_drought(t) = min over month k in year t [ SPEI12(t, k) ]
+		가뭄 강도지표 X_drought(t,m) 계산
+		X_drought(t,m) = SPEI12(t,m) (월별)
 
 		Args:
 			collected_data: 수집된 기후 데이터
@@ -73,7 +80,7 @@ class DroughtAALAgent(BaseAALAnalysisAgent):
 					각 원소는 {'year': int, 'months': [spei12_values]}
 
 		Returns:
-			연도별 최소 SPEI12 값 배열
+			월별 SPEI12 값 배열 (전체 월을 평탄화하여 반환)
 		"""
 		climate_data = collected_data.get('climate_data', {})
 		spei12_data = climate_data.get('spei12_monthly', [])
@@ -82,22 +89,20 @@ class DroughtAALAgent(BaseAALAnalysisAgent):
 			self.logger.warning("SPEI12 월별 데이터가 없습니다. 기본값 0으로 설정합니다.")
 			return np.array([0.0])
 
-		yearly_min_spei12 = []
+		all_monthly_spei12 = []
 
 		for year_data in spei12_data:
 			year = year_data.get('year')
 			monthly_values = year_data.get('months', [])
 
 			if not monthly_values:
-				yearly_min_spei12.append(0.0)
 				continue
 
-			# 연도별 최소 SPEI12 값 (가장 건조한 달)
-			min_spei12 = min(monthly_values)
-			yearly_min_spei12.append(min_spei12)
+			# 모든 월별 SPEI12 값 수집
+			all_monthly_spei12.extend(monthly_values)
 
-		spei12_array = np.array(yearly_min_spei12, dtype=float)
-		self.logger.info(f"SPEI12 데이터: {len(spei12_array)}개 연도, 범위: {spei12_array.min():.2f} ~ {spei12_array.max():.2f}")
+		spei12_array = np.array(all_monthly_spei12, dtype=float)
+		self.logger.info(f"SPEI12 데이터: {len(spei12_array)}개 월, 범위: {spei12_array.min():.2f} ~ {spei12_array.max():.2f}")
 
 		return spei12_array
 

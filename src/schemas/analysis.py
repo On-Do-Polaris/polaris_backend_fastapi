@@ -3,7 +3,7 @@ from typing import Optional
 from uuid import UUID
 from datetime import datetime
 
-from .common import SiteInfo, HazardType, TimeScale, RiskLevel, Priority, SSPScenario
+from .common import SiteInfo, HazardType, RiskLevel, Priority, SSPScenario
 
 
 # Request Schemas
@@ -48,12 +48,10 @@ class AnalysisJobStatus(BaseModel):
 
 
 class PhysicalRiskBarItem(BaseModel):
-    hazard_type: HazardType = Field(..., alias="hazardType")
-    score: int = Field(ge=0, le=100)
-    hazard_score: float = Field(ge=0, le=1, alias="hazardScore")
-    exposure_score: float = Field(ge=0, le=1, alias="exposureScore")
-    vulnerability_score: float = Field(ge=0, le=1, alias="vulnerabilityScore")
-    risk_calculation_method: str = Field("H×E×V", alias="riskCalculationMethod")
+    """Spring Boot API 호환 - 물리적 리스크 점수"""
+    risk_type: HazardType = Field(..., alias="riskType", description="리스크 유형")
+    risk_score: int = Field(ge=0, le=100, alias="riskScore", description="리스크 점수 (0-100)")
+    financial_loss_rate: float = Field(ge=0, le=1, alias="financialLossRate", description="재무 손실률 (AAL, 0.0-1.0)")
 
     class Config:
         populate_by_name = True
@@ -75,143 +73,163 @@ class AnalysisOverviewResponse(BaseModel):
         populate_by_name = True
 
 
+class ShortTermScore(BaseModel):
+    """단기 리스크 점수 (분기별)"""
+    q1: int = Field(ge=0, le=100, description="1분기 점수")
+    q2: int = Field(ge=0, le=100, description="2분기 점수")
+    q3: int = Field(ge=0, le=100, description="3분기 점수")
+    q4: int = Field(ge=0, le=100, description="4분기 점수")
+
+    class Config:
+        populate_by_name = True
+
+
+class MidTermScore(BaseModel):
+    """중기 리스크 점수 (연도별)"""
+    year2026: int = Field(ge=0, le=100, alias="year2026")
+    year2027: int = Field(ge=0, le=100, alias="year2027")
+    year2028: int = Field(ge=0, le=100, alias="year2028")
+    year2029: int = Field(ge=0, le=100, alias="year2029")
+    year2030: int = Field(ge=0, le=100, alias="year2030")
+
+    class Config:
+        populate_by_name = True
+
+
+class LongTermScore(BaseModel):
+    """장기 리스크 점수 (연대별)"""
+    year2020s: int = Field(ge=0, le=100, alias="year2020s")
+    year2030s: int = Field(ge=0, le=100, alias="year2030s")
+    year2040s: int = Field(ge=0, le=100, alias="year2040s")
+    year2050s: int = Field(ge=0, le=100, alias="year2050s")
+
+    class Config:
+        populate_by_name = True
+
+
+class SSPScenarioScore(BaseModel):
+    """SSP 시나리오별 리스크 점수"""
+    scenario: SSPScenario
+    risk_type: HazardType = Field(..., alias="riskType", description="리스크 종류")
+    short_term: ShortTermScore = Field(..., alias="shortTerm")
+    mid_term: MidTermScore = Field(..., alias="midTerm")
+    long_term: LongTermScore = Field(..., alias="longTerm")
+
+    class Config:
+        populate_by_name = True
+
+
 class PhysicalRiskScoreResponse(BaseModel):
-    site_id: UUID = Field(..., alias="siteId")
-    analyzed_at: datetime = Field(..., alias="analyzedAt")
-    hazard_type: Optional[HazardType] = Field(None, alias="hazardType")
-    physical_risk_scores: list[PhysicalRiskBarItem] = Field(..., alias="physicalRiskScores")
+    """Spring Boot API 호환 - 시나리오별 물리적 리스크 점수"""
+    scenarios: list[SSPScenarioScore] = Field(..., description="SSP 시나리오별 리스크 점수 목록 (4개 시나리오)")
 
     class Config:
         populate_by_name = True
 
 
-# Past Events
-class PastEventSummary(BaseModel):
-    total_events: int = Field(..., alias="totalEvents")
-    severe_events: int = Field(..., alias="severeEvents")
-    avg_warning_days: float = Field(..., alias="avgWarningDays")
-    avg_severe_days: float = Field(..., alias="avgSevereDays")
-    most_frequent_hazard: str = Field(..., alias="mostFrequentHazard")
-    year_range: dict = Field(..., alias="yearRange")
-
-    class Config:
-        populate_by_name = True
-
-
-class PastEventItem(BaseModel):
-    year: int
-    month: int
-    hazard_type: HazardType = Field(..., alias="hazardType")
-    warning_days: int = Field(..., alias="warningDays")
-    severe_days: int = Field(..., alias="severeDays")
-    max_intensity: float = Field(..., alias="maxIntensity")
-    severity_level: str = Field(..., alias="severityLevel")
-    description: Optional[str] = None
+# Past Events - Spring Boot API 호환
+class DisasterEvent(BaseModel):
+    """재난 이벤트"""
+    disaster_type: str = Field(..., alias="disasterType", description="재난 유형")
+    year: int = Field(..., description="발생 연도")
+    warning_days: int = Field(..., alias="warningDays", description="주의 일수")
+    severe_days: int = Field(..., alias="severeDays", description="심각 일수")
+    overall_status: str = Field(..., alias="overallStatus", description="통합 상태", enum=["경미", "주의", "심각"])
 
     class Config:
         populate_by_name = True
 
 
 class PastEventsResponse(BaseModel):
-    site_id: UUID = Field(..., alias="siteId")
-    summary: PastEventSummary
-    events: list[PastEventItem]
+    """Spring Boot API 호환 - 과거 재난 이력"""
+    site_id: UUID = Field(..., alias="siteId", description="사업장 ID")
+    site_name: str = Field(..., alias="siteName", description="사업장 이름")
+    disasters: list[DisasterEvent] = Field(..., description="재난별 이력")
 
     class Config:
         populate_by_name = True
 
 
-# SSP Projection
-class SSPProjectionPoint(BaseModel):
-    decade: str
-    year: int
-    physical_risk_score: int = Field(ge=0, le=100, alias="physicalRiskScore")
-    aal: float = Field(ge=0, le=1)
-    annual_expected_loss: float = Field(..., alias="annualExpectedLoss")
-    intensity: Optional[float] = None
-    frequency: Optional[float] = None
+# Financial Impact - Spring Boot API 호환
+class ShortTermAAL(BaseModel):
+    """단기 AAL (분기별)"""
+    q1: float = Field(..., description="1분기 AAL")
+    q2: float = Field(..., description="2분기 AAL")
+    q3: float = Field(..., description="3분기 AAL")
+    q4: float = Field(..., description="4분기 AAL")
 
     class Config:
         populate_by_name = True
 
 
-class SSPScenarioProjection(BaseModel):
+class MidTermAAL(BaseModel):
+    """중기 AAL (연도별)"""
+    year2026: float = Field(..., alias="year2026")
+    year2027: float = Field(..., alias="year2027")
+    year2028: float = Field(..., alias="year2028")
+    year2029: float = Field(..., alias="year2029")
+    year2030: float = Field(..., alias="year2030")
+
+    class Config:
+        populate_by_name = True
+
+
+class LongTermAAL(BaseModel):
+    """장기 AAL (연대별)"""
+    year2020s: float = Field(..., alias="year2020s")
+    year2030s: float = Field(..., alias="year2030s")
+    year2040s: float = Field(..., alias="year2040s")
+    year2050s: float = Field(..., alias="year2050s")
+
+    class Config:
+        populate_by_name = True
+
+
+class SSPScenarioImpact(BaseModel):
+    """SSP 시나리오별 재무 영향"""
     scenario: SSPScenario
-    scenario_description: str = Field(..., alias="scenarioDescription")
-    points: list[SSPProjectionPoint]
-
-    class Config:
-        populate_by_name = True
-
-
-class SSPProjectionResponse(BaseModel):
-    site_id: UUID = Field(..., alias="siteId")
-    hazard_type: HazardType = Field(..., alias="hazardType")
-    time_scale: TimeScale = Field(..., alias="timeScale")
-    projections: list[SSPScenarioProjection]
-    adaptation_actions: list[dict] = Field([], alias="adaptationActions")
-    confidence_level: str = Field("medium", alias="confidenceLevel")
-
-    class Config:
-        populate_by_name = True
-
-
-# Financial Impact
-class FinancialImpactItem(BaseModel):
-    hazard_type: HazardType = Field(..., alias="hazardType")
-    aal: float = Field(ge=0, le=1)
-    annual_expected_loss: float = Field(..., alias="annualExpectedLoss")
+    risk_type: HazardType = Field(..., alias="riskType", description="리스크 종류")
+    short_term: ShortTermAAL = Field(..., alias="shortTerm")
+    mid_term: MidTermAAL = Field(..., alias="midTerm")
+    long_term: LongTermAAL = Field(..., alias="longTerm")
 
     class Config:
         populate_by_name = True
 
 
 class FinancialImpactResponse(BaseModel):
-    site_id: UUID = Field(..., alias="siteId")
-    analyzed_at: datetime = Field(..., alias="analyzedAt")
-    hazard_type: Optional[HazardType] = Field(None, alias="hazardType")
-    asset_value: float = Field(..., alias="assetValue")
-    financial_impacts: list[FinancialImpactItem] = Field(..., alias="financialImpacts")
+    """Spring Boot API 호환 - 시나리오별 재무 영향 분석"""
+    scenarios: list[SSPScenarioImpact] = Field(..., description="SSP 시나리오별 재무 영향 목록 (4개 시나리오)")
 
     class Config:
         populate_by_name = True
 
 
-# Vulnerability
-class VulnerabilityItem(BaseModel):
-    hazard_type: HazardType = Field(..., alias="hazardType")
-    score: int = Field(ge=0, le=100)
-    level: RiskLevel
-    factors: dict
-    improvement_actions: list[str] = Field([], alias="improvementActions")
+# Vulnerability - Spring Boot API 호환
+class RiskVulnerability(BaseModel):
+    """리스크별 취약성"""
+    risk_type: str = Field(..., alias="riskType", description="리스크 유형")
+    vulnerability_score: int = Field(ge=0, le=100, alias="vulnerabilityScore", description="취약성 점수 (0-100)")
 
     class Config:
         populate_by_name = True
 
 
 class VulnerabilityResponse(BaseModel):
-    site_id: UUID = Field(..., alias="siteId")
-    total_score: int = Field(ge=0, le=100, alias="totalScore")
-    overall_level: RiskLevel = Field(..., alias="overallLevel")
-    site_info: dict = Field(..., alias="siteInfo")
-    details: list[VulnerabilityItem]
-    priority_actions: list[dict] = Field([], alias="priorityActions")
+    """Spring Boot API 호환 - 취약성 분석"""
+    site_id: UUID = Field(..., alias="siteId", description="사업장 ID")
+    vulnerabilities: list[RiskVulnerability] = Field(..., description="리스크별 취약성 점수")
 
     class Config:
         populate_by_name = True
 
 
-# Total Analysis
+# Total Analysis - Spring Boot API 호환
 class AnalysisTotalResponse(BaseModel):
-    site_id: UUID = Field(..., alias="siteId")
-    hazard_type: HazardType = Field(..., alias="hazardType")
-    overview: AnalysisOverviewResponse
-    past_events: PastEventsResponse = Field(..., alias="pastEvents")
-    ssp_projection: SSPProjectionResponse = Field(..., alias="sspProjection")
-    financial_impact: FinancialImpactResponse = Field(..., alias="financialImpact")
-    vulnerability: VulnerabilityResponse
-    executive_summary: str = Field(..., alias="executiveSummary")
-    generated_at: datetime = Field(..., alias="generatedAt")
+    """Spring Boot API 호환 - 사업장 상세 분석 결과"""
+    site_id: UUID = Field(..., alias="siteId", description="사업장 ID")
+    site_name: str = Field(..., alias="siteName", description="사업장 이름")
+    physical_risks: list[PhysicalRiskBarItem] = Field(..., alias="physicalRisks", description="9대 물리적 리스크 분석 결과")
 
     class Config:
         populate_by_name = True

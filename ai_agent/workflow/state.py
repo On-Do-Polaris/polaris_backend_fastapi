@@ -1,10 +1,11 @@
 '''
 파일명: state.py
-최종 수정일: 2025-11-11
-버전: v01
+최종 수정일: 2025-11-21
+버전: v02
 파일 개요: LangGraph 워크플로우 상태 정의 (계층적 Super Agent 구조용)
 변경 이력:
 	- 2025-11-11: v01 - Super Agent 계층적 구조로 전면 개편
+	- 2025-11-21: v02 - Scratch Space 기반 데이터 관리 적용
 '''
 from typing import TypedDict, Dict, Any, List, Optional
 from typing_extensions import Annotated
@@ -22,8 +23,9 @@ class SuperAgentState(TypedDict, total=False):
 	asset_info: Dict[str, Any]  # 사업장 노출 자산 정보
 	analysis_params: Dict[str, Any]  # 분석 파라미터 (시간 범위, 시나리오)
 
-	# Step 1: 데이터 수집
-	collected_data: Optional[Dict[str, Any]]  # 수집된 기후 데이터
+	# Step 1: 데이터 수집 (Scratch Space 기반)
+	scratch_session_id: str  # Scratch Space 세션 ID (데이터 참조용)
+	climate_summary: Optional[Dict[str, Any]]  # 기후 데이터 요약 통계 (작은 크기)
 	data_collection_status: str  # 데이터 수집 상태
 
 	# Step 2: 취약성 분석
@@ -84,7 +86,8 @@ class PhysicalRiskScoreState(TypedDict, total=False):
 	각 리스크별로 H x E x V 기반 종합 점수 계산
 	"""
 	risk_type: str  # 리스크 타입 (extreme_heat, extreme_cold, wildfire, drought, water_stress, sea_level_rise, river_flood, urban_flood, typhoon)
-	collected_data: Dict[str, Any]  # 수집된 기후 데이터
+	scratch_session_id: str  # Scratch Space 세션 ID (필요시 원본 데이터 로드)
+	climate_summary: Dict[str, Any]  # 기후 데이터 요약 (요약 통계만 사용)
 	vulnerability_analysis: Dict[str, Any]  # 취약성 분석 결과
 	asset_info: Dict[str, Any]  # 사업장 노출 자산 정보
 
@@ -105,7 +108,8 @@ class AALAnalysisState(TypedDict, total=False):
 	P(H) x 손상률 기반 AAL 계산
 	"""
 	risk_type: str  # 리스크 타입
-	collected_data: Dict[str, Any]  # 수집된 기후 데이터
+	scratch_session_id: str  # Scratch Space 세션 ID (원본 데이터 로드용)
+	climate_summary: Dict[str, Any]  # 기후 데이터 요약
 	physical_risk_score: float  # 물리적 리스크 점수 (선행 계산 결과)
 	asset_info: Dict[str, Any]  # 사업장 노출 자산 정보
 

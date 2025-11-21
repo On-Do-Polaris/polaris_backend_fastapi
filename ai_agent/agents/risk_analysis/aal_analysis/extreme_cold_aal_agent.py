@@ -1,11 +1,12 @@
 '''
 파일명: extreme_cold_aal_agent.py
-최종 수정일: 2025-11-20
-버전: v9
-파일 개요: 극심한 한파 리스크 AAL 분석 Agent (AAL_final_logic_v9 기반)
+최종 수정일: 2025-11-21
+버전: v2
+파일 개요: 극심한 한파 리스크 AAL 분석 Agent (AAL_final_logic_v2 기반)
 변경 이력:
 	- 2025-11-11: v00 - 초기 생성
 	- 2025-11-20: v9 - AAL_final_logic_v9.md 로직 적용
+	- 2025-11-21: v2 - AAL_final_logic_v2.md 로직 적용
 		* 강도지표: X_cold(t) = CSDI(t) (Cold Spell Duration Index)
 		* bin: [0~3), [3~7), [7~15), [15~)
 		* DR_intensity: [0.0005, 0.0020, 0.0060, 0.0150]
@@ -18,7 +19,7 @@ from .base_aal_analysis_agent import BaseAALAnalysisAgent
 
 class ExtremeColdAALAgent(BaseAALAnalysisAgent):
 	"""
-	극심한 한파 리스크 AAL 분석 Agent (v9)
+	극심한 한파 리스크 AAL 분석 Agent (v2)
 
 	사용 데이터: KMA 연간 극값 지수 CSDI (Cold Spell Duration Index)
 	강도지표: X_cold(t) = CSDI(t)
@@ -27,7 +28,7 @@ class ExtremeColdAALAgent(BaseAALAnalysisAgent):
 
 	def __init__(self):
 		"""
-		ExtremeColdAALAgent 초기화 (v9)
+		ExtremeColdAALAgent 초기화 (v2)
 
 		bin 구간:
 			- bin1: 0 <= CSDI < 3 (낮음)

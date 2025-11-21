@@ -73,13 +73,13 @@ class Config:
 
 		# ===== 기후 리스크 설정 (9개 리스크) =====
 		self.CLIMATE_RISKS = {
-			'high_temperature': {
+			'extreme_heat': {
 				'enabled': True,
 				'name': '극심한 고온',
 				'threshold_extreme': 35.0,  # Celsius
 				'threshold_heatwave': 33.0
 			},
-			'cold_wave': {
+			'extreme_cold': {
 				'enabled': True,
 				'name': '극심한 한파',
 				'threshold_extreme': -15.0,  # Celsius
@@ -96,16 +96,16 @@ class Config:
 				'threshold_precipitation_deficit': 0.3,  # 30% below normal
 				'threshold_dry_spell_days': 30
 			},
-			'water_scarcity': {
+			'water_stress': {
 				'enabled': True,
 				'name': '물부족'
 			},
-			'coastal_flood': {
+			'sea_level_rise': {
 				'enabled': True,
 				'name': '해수면 상승',
 				'extreme_rainfall_threshold': 100  # mm/day
 			},
-			'inland_flood': {
+			'river_flood': {
 				'enabled': True,
 				'name': '하천 홍수',
 				'extreme_rainfall_threshold': 150  # mm/day

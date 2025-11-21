@@ -166,7 +166,7 @@ class SimulationService:
                 ),
                 climateFactorComparison={
                     "typhoon": {"base": 78, "candidate": 35, "diff": -43},
-                    "inland_flood": {"base": 55, "candidate": 30, "diff": -25},
+                    "river_flood": {"base": 55, "candidate": 30, "diff": -25},
                     "drought": {"base": 25, "candidate": 45, "diff": 20},
                 },
                 pros=[

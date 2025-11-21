@@ -1,5 +1,5 @@
 '''
-파일명: high_temperature_aal_agent.py
+파일명: extreme_heat_aal_agent.py
 최종 수정일: 2025-11-20
 버전: v9
 파일 개요: 극심한 고온 리스크 AAL 분석 Agent (AAL_final_logic_v9 기반)
@@ -16,7 +16,7 @@ import numpy as np
 from .base_aal_analysis_agent import BaseAALAnalysisAgent
 
 
-class HighTemperatureAALAgent(BaseAALAnalysisAgent):
+class ExtremeHeatAALAgent(BaseAALAnalysisAgent):
 	"""
 	극심한 고온 리스크 AAL 분석 Agent (v9)
 
@@ -27,7 +27,7 @@ class HighTemperatureAALAgent(BaseAALAnalysisAgent):
 
 	def __init__(self):
 		"""
-		HighTemperatureAALAgent 초기화 (v9)
+		ExtremeHeatAALAgent 초기화 (v9)
 
 		bin 구간:
 			- bin1: 0 <= WSDI < 3 (낮음)

@@ -1,5 +1,5 @@
 '''
-파일명: coastal_flood_aal_agent.py
+파일명: sea_level_rise_aal_agent.py
 최종 수정일: 2025-11-20
 버전: v9
 파일 개요: 해수면 상승 리스크 AAL 분석 Agent (AAL_final_logic_v9 기반)
@@ -16,7 +16,7 @@ import numpy as np
 from .base_aal_analysis_agent import BaseAALAnalysisAgent
 
 
-class CoastalFloodAALAgent(BaseAALAnalysisAgent):
+class SeaLevelRiseAALAgent(BaseAALAnalysisAgent):
 	"""
 	해수면 상승 리스크 AAL 분석 Agent (v9)
 
@@ -27,7 +27,7 @@ class CoastalFloodAALAgent(BaseAALAnalysisAgent):
 
 	def __init__(self):
 		"""
-		CoastalFloodAALAgent 초기화 (v9)
+		SeaLevelRiseAALAgent 초기화 (v9)
 
 		bin 구간 (침수 깊이):
 			- bin1: 0 m (침수 없음)

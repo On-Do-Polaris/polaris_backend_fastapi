@@ -1,17 +1,18 @@
 '''
-파일명: high_temperature_score_agent.py
-최종 수정일: 2025-11-13
-버전: v02
+파일명: extreme_heat_score_agent.py
+최종 수정일: 2025-11-21
+버전: v03
 파일 개요: 극심한 고온 리스크 물리적 종합 점수 산출 Agent
 변경 이력:
 	- 2025-11-11: v01 - AAL×자산가치 방식으로 변경 (H×E×V 제거)
 	- 2025-11-13: v02 - H×E×V 방식으로 복원
+	- 2025-11-21: v03 - 리스크 명칭 통일 (high_temperature → extreme_heat)
 '''
 from typing import Dict, Any
 from .base_physical_risk_score_agent import BasePhysicalRiskScoreAgent
 
 
-class HighTemperatureScoreAgent(BasePhysicalRiskScoreAgent):
+class ExtremeHeatScoreAgent(BasePhysicalRiskScoreAgent):
 	"""
 	극심한 고온 리스크 물리적 종합 점수 산출 Agent
 	H (Hazard) × E (Exposure) × V (Vulnerability) 기반 리스크 점수 계산
@@ -19,7 +20,7 @@ class HighTemperatureScoreAgent(BasePhysicalRiskScoreAgent):
 
 	def __init__(self):
 		"""
-		HighTemperatureScoreAgent 초기화
+		ExtremeHeatScoreAgent 초기화
 		"""
 		super().__init__(risk_type='극심한 고온')
 

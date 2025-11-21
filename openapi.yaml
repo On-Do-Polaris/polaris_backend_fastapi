@@ -1,4 +1,4 @@
-openapi: 3.0.3
+openapi: 3.1.0
 info:
   title: SKAX Physical Risk AI Agent API
   description: "\n    사업장 기후 물리적 리스크 AI Agent 분석 시스템 API\n\n    Spring Boot 서버로부터\
@@ -108,8 +108,9 @@ paths:
         in: query
         required: false
         schema:
-          type: string
-          nullable: true
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Hazardtype
       - name: X-API-Key
         in: header
@@ -461,8 +462,14 @@ paths:
         in: query
         required: false
         schema:
-          type: string
-          nullable: true
+          anyOf:
+          - type: string
+          - type: 'null'
+          enum:
+          - temperature
+          - water
+          - wind
+          - other
           title: Category
       - name: X-API-Key
         in: header
@@ -531,32 +538,38 @@ components:
           minimum: 0
           title: Progress
         currentNode:
-          type: string
-          nullable: true
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Currentnode
         currentHazard:
-          type: string
-          nullable: true
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Currenthazard
         startedAt:
-          type: string
-          format: date-time
-          nullable: true
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
           title: Startedat
         completedAt:
-          type: string
-          format: date-time
-          nullable: true
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
           title: Completedat
         estimatedCompletionTime:
-          type: string
-          format: date-time
-          nullable: true
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
           title: Estimatedcompletiontime
         error:
-          additionalProperties: true
-          type: object
-          nullable: true
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
           title: Error
       type: object
       required:
@@ -666,9 +679,10 @@ components:
     CreateReportRequest:
       properties:
         siteId:
-          type: string
-          format: uuid
-          nullable: true
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
           title: Siteid
           description: 사업장 ID (null이면 전체 사업장 리포트)
       type: object
@@ -1012,13 +1026,15 @@ components:
           title: Longitude
           description: 이전될 위치의 경도
         roadAddress:
-          type: string
-          nullable: true
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Roadaddress
           description: 이전될 위치의 도로명 주소
         jibunAddress:
-          type: string
-          nullable: true
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Jibunaddress
           description: 이전될 위치의 지번 주소
       type: object
@@ -1086,9 +1102,10 @@ components:
     ReportWebViewResponse:
       properties:
         siteId:
-          type: string
-          format: uuid
-          nullable: true
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
           title: Siteid
           description: 사업장 ID (전체 리포트인 경우 null)
         pages:
@@ -1296,12 +1313,14 @@ components:
           type: string
           title: Name
         address:
-          type: string
-          nullable: true
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Address
         city:
-          type: string
-          nullable: true
+          anyOf:
+          - type: string
+          - type: 'null'
           title: City
         latitude:
           type: number
@@ -1313,28 +1332,33 @@ components:
           type: string
           title: Industry
         buildingAge:
-          type: integer
-          nullable: true
+          anyOf:
+          - type: integer
+          - type: 'null'
           title: Buildingage
         buildingType:
-          type: string
-          nullable: true
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Buildingtype
         seismicDesign:
           type: boolean
           title: Seismicdesign
           default: false
         floorArea:
-          type: number
-          nullable: true
+          anyOf:
+          - type: number
+          - type: 'null'
           title: Floorarea
         assetValue:
-          type: number
-          nullable: true
+          anyOf:
+          - type: number
+          - type: 'null'
           title: Assetvalue
         employeeCount:
-          type: integer
-          nullable: true
+          anyOf:
+          - type: integer
+          - type: 'null'
           title: Employeecount
       type: object
       required:
@@ -1349,18 +1373,19 @@ components:
         site:
           $ref: '#/components/schemas/SiteInfo'
         hazardTypes:
-          items:
-            $ref: '#/components/schemas/HazardType'
-          type: array
-          nullable: true
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/HazardType'
+            type: array
+          - type: 'null'
           title: Hazardtypes
         priority:
           $ref: '#/components/schemas/Priority'
           default: normal
         options:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/AnalysisOptions'
-          nullable: true
+          - type: 'null'
       type: object
       required:
       - site

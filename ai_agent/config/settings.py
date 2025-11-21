@@ -199,6 +199,15 @@ class Config:
 			'cache_backend': 'memory'  # 'memory', 'file'
 		}
 
+		# ===== Scratch Space 설정 (TTL 기반 임시 데이터 저장) =====
+		self.SCRATCH_SPACE = {
+			'base_path': os.getenv('SCRATCH_BASE_PATH', './scratch'),
+			'default_ttl_hours': int(os.getenv('SCRATCH_TTL_HOURS', '4')),  # 기본 TTL: 4시간
+			'auto_cleanup_enabled': os.getenv('SCRATCH_AUTO_CLEANUP', 'True').lower() == 'true',
+			'cleanup_interval_hours': int(os.getenv('SCRATCH_CLEANUP_INTERVAL', '1')),  # 정리 간격: 1시간
+			'max_size_mb': int(os.getenv('SCRATCH_MAX_SIZE_MB', '10240')),  # 최대 크기: 10GB
+		}
+
 		# ===== LangSmith 트레이싱 설정 =====
 		self.LANGSMITH_CONFIG = {
 			'enabled': os.getenv('LANGSMITH_ENABLED', 'False').lower() == 'true',

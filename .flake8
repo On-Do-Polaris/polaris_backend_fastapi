@@ -1,0 +1,23 @@
+[flake8]
+# 제외할 디렉토리 및 파일
+exclude =
+    .venv,
+    venv,
+    __pycache__,
+    .git,
+    .pytest_cache,
+    *.egg-info,
+    build,
+    dist,
+    .eggs
+
+# Black과 호환되는 라인 길이
+max-line-length = 88
+
+# Black과 충돌하는 규칙 무시
+# E203: whitespace before ':'
+# W503: line break before binary operator
+extend-ignore = E203, W503
+
+# 복잡도 제한 (선택사항)
+max-complexity = 10

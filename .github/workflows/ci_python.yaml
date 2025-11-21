@@ -31,7 +31,7 @@ jobs:
         continue-on-error: true
 
       - name: 코드 스타일 검사 (Flake8)
-        run: uv run flake8 . --exit-zero || echo "Flake8 check skipped"
+        run: uv run flake8 src ai_agent --exit-zero || echo "Flake8 check skipped"
         continue-on-error: true
 
       - name: 단위 테스트 실행 (pytest)

@@ -71,6 +71,9 @@ dependencies = [
     # Utilities
     "tenacity==9.1.2",
     "tavily-python==0.7.12",
+
+    # Scheduling (AIops Workflow)
+    "apscheduler>=3.10.4",
 ]
 
 [project.optional-dependencies]

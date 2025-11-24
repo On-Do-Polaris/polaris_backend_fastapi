@@ -1,11 +1,12 @@
 '''
 파일명: data_collection_agent.py
-최종 수정일: 2025-11-22
-버전: v02
+최종 수정일: 2025-11-24
+버전: v03
 파일 개요: 기후 데이터 수집 에이전트 (PostgreSQL → Scratch 저장)
 변경 이력:
 	- 2025-11-11: v01 - Super Agent 구조에 맞게 업데이트, 9개 리스크 대응
 	- 2025-11-22: v02 - PostgreSQL 연동 및 Scratch 저장 구현
+	- 2025-11-24: v03 - ERD 기반 데이터베이스 스키마 반영
 '''
 from typing import Dict, Any, Optional
 import logging
@@ -103,72 +104,41 @@ class DataCollectionAgent:
 		기후 데이터 수집 (PostgreSQL에서 조회)
 
 		Args:
-			location: 위치 정보 (latitude, longitude)
-			params: 분석 파라미터 (start_year, end_year)
+			location: 위치 정보 (latitude, longitude, admin_code)
+			params: 분석 파라미터 (start_year, end_year, scenario_id)
 
 		Returns:
 			기후 데이터 딕셔너리
 		"""
 		latitude = location['latitude']
 		longitude = location['longitude']
+		admin_code = location.get('admin_code')
 		start_year = params.get('start_year', 2000)
 		end_year = params.get('end_year', 2023)
+		scenario_id = params.get('scenario_id', 2)  # Default: SSP2-4.5
 
 		self.logger.info(f"Fetching climate data for ({latitude}, {longitude}) from {start_year} to {end_year}")
 
-		# PostgreSQL에서 데이터 조회
-		climate_data = self.db_manager.fetch_climate_data(
+		# PostgreSQL에서 종합 데이터 조회 (ERD 기반)
+		all_data = self.db_manager.collect_all_climate_data(
 			latitude=latitude,
 			longitude=longitude,
 			start_year=start_year,
-			end_year=end_year
+			end_year=end_year,
+			scenario_id=scenario_id,
+			admin_code=admin_code
 		)
 
-		# 데이터 분류 및 가공
-		temperature_data = self._extract_temperature_data(climate_data['records'])
-		precipitation_data = self._extract_precipitation_data(climate_data['records'])
-		sea_level_data = self._extract_sea_level_data(climate_data['records'])
-		wind_data = self._extract_wind_data(climate_data['records'])
-
 		return {
-			'location': climate_data['location'],
-			'period': climate_data['period'],
-			'total_records': climate_data['total_records'],
-			'temperature_data': temperature_data,
-			'precipitation_data': precipitation_data,
-			'sea_level_data': sea_level_data,
-			'wind_data': wind_data
-		}
-
-	def _extract_temperature_data(self, records: list) -> Dict:
-		"""기온 데이터 추출"""
-		return {
-			'daily_max_temp': [r.get('temperature_max') for r in records],
-			'daily_min_temp': [r.get('temperature_min') for r in records],
-			'daily_avg_temp': [r.get('temperature_avg') for r in records],
-			'dates': [r.get('date') for r in records]
-		}
-
-	def _extract_precipitation_data(self, records: list) -> Dict:
-		"""강수량 데이터 추출"""
-		return {
-			'daily_precipitation': [r.get('precipitation_daily') for r in records],
-			'monthly_precipitation': [r.get('precipitation_monthly') for r in records],
-			'dates': [r.get('date') for r in records]
-		}
-
-	def _extract_sea_level_data(self, records: list) -> Dict:
-		"""해수면 데이터 추출"""
-		return {
-			'sea_level': [r.get('sea_level') for r in records if r.get('sea_level')],
-			'dates': [r.get('date') for r in records if r.get('sea_level')]
-		}
-
-	def _extract_wind_data(self, records: list) -> Dict:
-		"""풍속 데이터 추출"""
-		return {
-			'wind_speed': [r.get('wind_speed') for r in records if r.get('wind_speed')],
-			'dates': [r.get('date') for r in records if r.get('wind_speed')]
+			'location': all_data['location'],
+			'period': all_data['period'],
+			'scenario_id': all_data['scenario_id'],
+			'grid_info': all_data.get('grid'),
+			'admin_info': all_data.get('admin'),
+			'monthly_data': all_data.get('monthly_data', {}),
+			'daily_data': all_data.get('daily_data', {}),
+			'yearly_data': all_data.get('yearly_data', {}),
+			'sea_level_data': all_data.get('sea_level_data', [])
 		}
 
 	def _collect_geographic_data(self, location: Dict) -> Dict:
@@ -176,32 +146,43 @@ class DataCollectionAgent:
 		지리 정보 데이터 수집 (PostgreSQL에서 조회)
 
 		Args:
-			location: 위치 정보
+			location: 위치 정보 (latitude, longitude, site_id)
 
 		Returns:
 			지리 데이터 딕셔너리
 		"""
 		latitude = location['latitude']
 		longitude = location['longitude']
+		site_id = location.get('site_id')
 
 		self.logger.info(f"Fetching geographic data for ({latitude}, {longitude})")
 
-		# PostgreSQL에서 지리 데이터 조회
-		geo_data = self.db_manager.fetch_geographic_data(
-			latitude=latitude,
-			longitude=longitude
+		result = {
+			'location': location
+		}
+
+		# Spatial Cache에서 토지피복 분석 데이터 조회
+		if site_id:
+			landcover = self.db_manager.fetch_spatial_landcover(site_id)
+			if landcover:
+				result['landcover_analysis'] = landcover
+
+			# DEM 분석 데이터 조회
+			dem = self.db_manager.fetch_spatial_dem(site_id)
+			if dem:
+				result['dem_analysis'] = dem
+
+		# 주변 인프라 정보 조회
+		result['nearby_hospitals'] = self.db_manager.fetch_nearby_hospitals(
+			latitude, longitude, radius_km=5.0
 		)
 
-		return {
-			'location': location,
-			'elevation': geo_data.get('elevation'),
-			'slope': geo_data.get('slope'),
-			'land_cover': geo_data.get('land_cover'),
-			'vegetation_index': geo_data.get('vegetation_index'),
-			'proximity_to_water': geo_data.get('proximity_to_water'),
-			'soil_type': geo_data.get('soil_type'),
-			'drainage_class': geo_data.get('drainage_class')
-		}
+		# 행정구역 정보
+		admin_code = location.get('admin_code')
+		if admin_code:
+			result['shelters'] = self.db_manager.fetch_nearby_shelters(admin_code)
+
+		return result
 
 	def _collect_historical_events(self, location: Dict, params: Dict) -> Dict:
 		"""
@@ -218,12 +199,12 @@ class DataCollectionAgent:
 		longitude = location['longitude']
 		start_year = params.get('start_year', 2000)
 		end_year = params.get('end_year', 2023)
-		radius_km = params.get('search_radius_km', 50)
+		radius_km = params.get('search_radius_km', 100)
 
-		self.logger.info(f"Fetching historical events within {radius_km}km of ({latitude}, {longitude})")
+		self.logger.info(f"Fetching historical typhoon events within {radius_km}km of ({latitude}, {longitude})")
 
-		# PostgreSQL에서 역사적 재해 사건 조회
-		events = self.db_manager.fetch_historical_events(
+		# PostgreSQL에서 태풍 이력 조회 (ERD 기반)
+		typhoon_events = self.db_manager.fetch_typhoon_history(
 			latitude=latitude,
 			longitude=longitude,
 			radius_km=radius_km,
@@ -231,31 +212,12 @@ class DataCollectionAgent:
 			end_year=end_year
 		)
 
-		# 이벤트 타입별 분류
-		events_by_type = {
-			'heatwaves': [],
-			'coldwaves': [],
-			'droughts': [],
-			'floods': [],
-			'wildfires': [],
-			'typhoons': [],
-			'other': []
-		}
-
-		for event in events:
-			event_type = event.get('event_type', 'other')
-			if event_type in events_by_type:
-				events_by_type[event_type].append(event)
-			else:
-				events_by_type['other'].append(event)
-
 		return {
 			'location': location,
 			'search_radius_km': radius_km,
 			'period': {'start_year': start_year, 'end_year': end_year},
-			'total_events': len(events),
-			'events_by_type': events_by_type,
-			'all_events': events
+			'total_typhoon_events': len(typhoon_events),
+			'typhoon_events': typhoon_events
 		}
 
 	def _collect_ssp_scenario_data(self, location: Dict, params: Dict) -> Dict:
@@ -271,24 +233,30 @@ class DataCollectionAgent:
 		"""
 		latitude = location['latitude']
 		longitude = location['longitude']
+		admin_code = location.get('admin_code')
 		start_year = params.get('future_start_year', 2025)
 		end_year = params.get('future_end_year', 2100)
-		scenarios = params.get('ssp_scenarios', ['ssp1-2.6', 'ssp2-4.5', 'ssp3-7.0', 'ssp5-8.5'])
+		scenario_ids = params.get('scenario_ids', [1, 2, 3, 4])  # 1=SSP1-2.6, 2=SSP2-4.5, 3=SSP3-7.0, 4=SSP5-8.5
 
 		self.logger.info(f"Fetching SSP scenario data for ({latitude}, {longitude})")
 
-		# 각 시나리오별 데이터 조회
+		# 각 시나리오별 데이터 조회 (ERD 기반)
 		ssp_data = {}
 
-		for scenario in scenarios:
-			scenario_data = self.db_manager.fetch_ssp_scenario_data(
+		for scenario_id in scenario_ids:
+			scenario_name = f"SSP{scenario_id}"
+
+			# 종합 기후 데이터 수집 (각 시나리오별)
+			scenario_data = self.db_manager.collect_all_climate_data(
 				latitude=latitude,
 				longitude=longitude,
-				scenario=scenario,
 				start_year=start_year,
-				end_year=end_year
+				end_year=end_year,
+				scenario_id=scenario_id,
+				admin_code=admin_code
 			)
-			ssp_data[scenario] = scenario_data
+
+			ssp_data[scenario_name] = scenario_data
 
 		return {
 			'location': location,

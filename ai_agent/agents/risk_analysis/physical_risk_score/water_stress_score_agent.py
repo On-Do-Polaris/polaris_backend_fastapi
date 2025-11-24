@@ -14,14 +14,14 @@ from .base_physical_risk_score_agent import BasePhysicalRiskScoreAgent
 class WaterStressScoreAgent(BasePhysicalRiskScoreAgent):
 	"""
 	물 부족 리스크 물리적 종합 점수 산출 Agent
-	H (Hazard) × E (Exposure) × V (Vulnerability) 기반 리스크 점수 계산
+	(H + E + V) / 3 평균 기반 리스크 점수 계산
 	"""
 
 	def __init__(self):
 		"""
 		WaterStressScoreAgent 초기화
 		"""
-		super().__init__(risk_type='물부족')
+		super().__init__(risk_type='water_stress')
 
 	def calculate_hazard(self, collected_data: Dict[str, Any]) -> float:
 		"""
@@ -44,45 +44,55 @@ class WaterStressScoreAgent(BasePhysicalRiskScoreAgent):
 
 		return round(hazard_score, 4)
 
-	def calculate_exposure(self, asset_info: Dict[str, Any]) -> float:
+	def calculate_exposure(self, collected_data: Dict[str, Any]) -> float:
 		"""
-		물 부족 Exposure 점수 계산
-		자산 가치 및 노출 정도 평가
+		수자원 스트레스 Exposure 점수 계산 (용수 의존도, 가뭄과 유사)
 
 		Args:
-			asset_info: 사업장 자산 정보
+			collected_data: 수집된 환경 데이터
 
 		Returns:
 			Exposure 점수 (0.0 ~ 1.0)
 		"""
-		total_asset_value = asset_info.get('total_asset_value', 0)
+		exposure_data = collected_data.get('exposure', {})
+		building = exposure_data.get('building', {})
 
-		# 자산 가치 기반 노출도 (10억원 단위)
-		exposure_score = min(total_asset_value / 100_000_000_000, 1.0)
-		exposure_score = max(exposure_score, 0.1)
+		# 건물 용도에 따른 용수 의존도
+		main_purpose = building.get('main_purpose', '단독주택')
+
+		water_dependency_scores = {
+			'공장': 0.95,
+			'숙박시설': 0.85,
+			'업무시설': 0.65,
+			'상업시설': 0.55,
+			'단독주택': 0.45,
+			'아파트': 0.35,
+		}
+
+		exposure_score = 0.5  # 기본값
+		for purpose_key, score in water_dependency_scores.items():
+			if purpose_key in main_purpose:
+				exposure_score = score
+				break
 
 		return round(exposure_score, 4)
 
 	def calculate_vulnerability(
 		self,
 		vulnerability_analysis: Dict[str, Any],
-		asset_info: Dict[str, Any]
+		collected_data: Dict[str, Any]
 	) -> float:
 		"""
-		물 부족 Vulnerability 점수 계산
-		건물 및 시설 취약성 평가
+		수자원 스트레스 Vulnerability 점수 계산
 
 		Args:
-			vulnerability_analysis: 취약성 분석 결과
-			asset_info: 사업장 자산 정보
+			vulnerability_analysis: VulnerabilityAnalysisAgent의 계산 결과
+			collected_data: 수집된 데이터 (미사용)
 
 		Returns:
 			Vulnerability 점수 (0.0 ~ 1.0)
 		"""
-		# 건물 연식
-		building_age = vulnerability_analysis.get('building_age', 10)
-
-		# 건물 연식 기반 취약성
-		age_vulnerability = 0.2 + min(building_age / 100, 0.5)
-
-		return round(min(age_vulnerability, 1.0), 4)
+		water_vuln = vulnerability_analysis.get('water_stress', {})
+		vuln_score = water_vuln.get('score', 35)
+		normalized_score = vuln_score / 100.0
+		return round(normalized_score, 4)

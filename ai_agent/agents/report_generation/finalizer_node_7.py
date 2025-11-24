@@ -1,37 +1,27 @@
 # finalizer_node_7.py
 """
 파일명: finalizer_node_7.py
-버전: v03
+버전: v04
 최종 수정일: 2025-11-24
 
 개요:
-    - LangGraph 멀티에이전트 파이프라인 최종 단계 Finalizer Node
-    - RefinerAgent에서 전달받은 refined_markdown / refined_json 저장
-    - RAG/Research Agent 기반 citations_final 저장
-    - Markdown / JSON / PDF 파일 생성
-    - DB 또는 로컬 로그 저장
-    - 반복 파이프라인 대응 및 export_formats 선택 가능
+    - LangGraph 기반 멀티에이전트 파이프라인의 마지막 단계 Finalizer Node
+    - Validation/Refiner 단계를 통과한 "최종 Markdown / JSON / Citations"를 받아
+      파일 저장 + PDF 변환 + DB 로그 + 최종 산출물 패키징 수행
+    - 실패 시에도 경로/로그를 남기도록 설계된 안정형 Node
 
 주요 기능:
-    1. Markdown, JSON, PDF 최종 저장
-    2. citations 최종 파일 저장
-    3. DB 또는 fallback 로컬 로그 저장
-    4. 파일명, 버전, 시설 기반 구조화된 저장
-    5. 예외 처리 및 상태(status) 명확화
+    1. Markdown, JSON, PDF, Citations JSON 최종 저장
+    2. metadata 기반 구조 폴더 자동 생성
+    3. DB 또는 로컬 JSON 로그 저장 (fallback 지원)
+    4. export_formats=["md","json","pdf"] 제어
+    5. 전처리/예외 처리 일원화로 안정성 개선
 
 변경 이력:
-    - v01 (2025-11-14): 초안 작성
-        * Markdown/JSON 저장 skeleton
-        * citations 저장 구조 반영
-    - v02 (2025-11-21): async 루프 반영 전
-        * PDF 생성 및 fallback 로직 추가
-        * DB 연결 및 로컬 로그 fallback 구조 추가
-        * export_formats 지원
-    - v03 (2025-11-24, 최신):
-        * metadata 기반 파일명/디렉토리 구조 개선
-        * DB 저장 시 inserted_primary_key 추출
-        * 최종 Output 경로 및 citations JSON 포함
-        * 예외 처리 강화, 상태(status) 명확화
+    - v01 (2025-11-14): 저장 스켈레톤 작성
+    - v02 (2025-11-21): DB + PDF 변환 추가
+    - v03 (2025-11-24): metadata 기반 파일명 구조 개선
+    - v04 (2025-11-24): 안정성/예외 처리/경로 구조 개선 및 운영 버전 완성
 """
 
 from typing import Dict, Any, List, Optional
@@ -51,26 +41,24 @@ if not logger.handlers:
     logger.addHandler(ch)
 
 
-# ----------------------------
-# 기본 저장 경로
-# ----------------------------
+# =========================================
+# 환경 설정
+# =========================================
 OUTPUT_DIR = os.environ.get("REPORT_OUTPUT_DIR", "report_outputs")
 DB_CONNECTION_URI = os.environ.get("REPORT_DB_URI", "")
 
 
-# ----------------------------
-# Pydantic I/O Schemas
-# ----------------------------
+# =========================================
+# Pydantic Schemas
+# =========================================
 class FinalizerInput(BaseModel):
-    """
-    RefinerAgent → FinalizerNode 입력 구조
-    """
+    """RefinerAgent → FinalizerNode 입력"""
     refined_markdown: str
     refined_json: Dict[str, Any]
     citations_final: List[str]
     validation_result: Dict[str, Any]
     metadata: Dict[str, Any]
-    export_formats: Optional[List[str]] = ["json", "md", "pdf"]
+    export_formats: Optional[List[str]] = ["md", "json", "pdf"]
 
 
 class FinalizerOutput(BaseModel):
@@ -82,9 +70,9 @@ class FinalizerOutput(BaseModel):
     details: Dict[str, Any] = {}
 
 
-# ----------------------------
+# =========================================
 # Helper functions
-# ----------------------------
+# =========================================
 def ensure_dir(path: str):
     os.makedirs(path, exist_ok=True)
 
@@ -100,43 +88,42 @@ def safe_write_json(path: str, obj: Any):
 
 
 def try_generate_pdf_from_markdown(md_path: str, pdf_path: str) -> bool:
+    """
+    pandoc 또는 xelatex가 있을 경우 PDF 생성 시도.
+    둘 다 없어도 장애가 발생하지 않고 False 반환.
+    """
     pandoc = shutil.which("pandoc")
-    if pandoc:
+    if not pandoc:
+        logger.info("Pandoc not found → PDF 생성 건너뜀.")
+        return False
+
+    for args in [
+        [pandoc, md_path, "-o", pdf_path],
+        [pandoc, md_path, "-o", pdf_path, "--pdf-engine=xelatex"]
+    ]:
         try:
-            subprocess.run([pandoc, md_path, "-o", pdf_path],
-                           check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            logger.info("PDF generated with pandoc.")
+            subprocess.run(args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            logger.info(f"PDF 생성 성공: {' '.join(args)}")
             return True
         except Exception:
-            pass
-        try:
-            subprocess.run([pandoc, md_path, "-o", pdf_path, "--pdf-engine=xelatex"],
-                           check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            logger.info("PDF generated with pandoc + xelatex.")
-            return True
-        except Exception:
-            pass
-    logger.info("PDF generation skipped (no tool available).")
+            continue
+
+    logger.warning("PDF 변환 실패 → PDF 스킵.")
     return False
 
 
 def save_db_log(metadata: Dict[str, Any], paths: Dict[str, Optional[str]], validation: Dict[str, Any]):
+    """
+    DB 연결 실패 시 자동 fallback → 로컬 logs 디렉토리에 JSON 저장.
+    """
     if not DB_CONNECTION_URI:
-        fallback_dir = os.path.join(OUTPUT_DIR, "logs")
-        ensure_dir(fallback_dir)
-        stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-        log_path = os.path.join(fallback_dir, f"log_{metadata.get('report_name','report')}_{stamp}.json")
-        safe_write_json(log_path, {
-            "metadata": metadata,
-            "paths": paths,
-            "validation": validation,
-            "created_at": datetime.utcnow().isoformat()
-        })
-        return None
+        return _save_local_log(metadata, paths, validation)
+
     try:
         from sqlalchemy import create_engine, Table, Column, Integer, String, MetaData, Text, DateTime
         engine = create_engine(DB_CONNECTION_URI)
         meta = MetaData()
+
         logs = Table(
             "report_generation_logs", meta,
             Column("id", Integer, primary_key=True),
@@ -147,9 +134,12 @@ def save_db_log(metadata: Dict[str, Any], paths: Dict[str, Optional[str]], valid
             Column("json_path", String(1024)),
             Column("pdf_path", String(1024)),
             Column("validation_json", Text),
-            Column("created_at", DateTime)
+            Column("created_at", DateTime),
         )
+
         meta.create_all(engine)
+        conn = engine.connect()
+
         ins = logs.insert().values(
             report_name=metadata.get("report_name"),
             version=metadata.get("version"),
@@ -160,38 +150,68 @@ def save_db_log(metadata: Dict[str, Any], paths: Dict[str, Optional[str]], valid
             validation_json=json.dumps(validation, ensure_ascii=False),
             created_at=datetime.utcnow()
         )
-        conn = engine.connect()
         result = conn.execute(ins)
         conn.close()
+
         return int(result.inserted_primary_key[0])
-    except:
-        return None
+
+    except Exception:
+        logger.warning("DB 저장 실패 → 로컬 로그로 fallback.")
+        return _save_local_log(metadata, paths, validation)
 
 
-# ----------------------------
-# FinalizerNode main class
-# ----------------------------
+def _save_local_log(metadata, paths, validation):
+    fallback_dir = os.path.join(OUTPUT_DIR, "logs")
+    ensure_dir(fallback_dir)
+
+    stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    filename = f"log_{metadata.get('report_name','report')}_{stamp}.json"
+    log_path = os.path.join(fallback_dir, filename)
+
+    safe_write_json(log_path, {
+        "metadata": metadata,
+        "paths": paths,
+        "validation": validation,
+        "created_at": datetime.utcnow().isoformat()
+    })
+
+    logger.info(f"로컬 로그 저장: {log_path}")
+    return None
+
+
+# =========================================
+# FinalizerNode
+# =========================================
 class FinalizerNode:
     def __init__(self):
         ensure_dir(OUTPUT_DIR)
         logger.info("FinalizerNode initialized.")
 
     def run(self, input_data: FinalizerInput) -> FinalizerOutput:
-        logger.info("FinalizerNode started.")
+        logger.info("FinalizerNode 실행 시작.")
+
         try:
+            # -------------------------
+            # 파일명 및 디렉토리 구조 생성
+            # -------------------------
             stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
             report_name = input_data.metadata.get("report_name", f"report_{stamp}")
             version = input_data.metadata.get("version", "v0")
             facility = input_data.metadata.get("facility", "unknown")
+
             base_name = f"{facility}_physical_risk_{version}_{stamp}"
             out_dir = os.path.join(OUTPUT_DIR, base_name)
             ensure_dir(out_dir)
 
-            # Save Markdown
+            # -------------------------
+            # 1) Markdown 저장
+            # -------------------------
             md_path = os.path.join(out_dir, f"{base_name}.md")
             safe_write_text(md_path, input_data.refined_markdown)
 
-            # Save JSON
+            # -------------------------
+            # 2) JSON 저장
+            # -------------------------
             json_path = os.path.join(out_dir, f"{base_name}.json")
             final_payload = {
                 "metadata": input_data.metadata,
@@ -202,22 +222,30 @@ class FinalizerNode:
             }
             safe_write_json(json_path, final_payload)
 
-            # PDF
+            # -------------------------
+            # 3) PDF 생성
+            # -------------------------
             pdf_path = None
-            if "pdf" in input_data.export_formats:
+            if "pdf" in (input_data.export_formats or []):
                 pdf_path = os.path.join(out_dir, f"{base_name}.pdf")
-                pdf_created = try_generate_pdf_from_markdown(md_path, pdf_path)
-                if not pdf_created:
+                if not try_generate_pdf_from_markdown(md_path, pdf_path):
                     pdf_path = None
 
-            # citations JSON
+            # -------------------------
+            # 4) citations JSON 저장
+            # -------------------------
             citations_path = os.path.join(out_dir, f"{base_name}_citations.json")
             safe_write_json(citations_path, {"citations": input_data.citations_final})
 
-            # DB log
+            # -------------------------
+            # 5) DB / 로컬 로그
+            # -------------------------
             paths = {"md": md_path, "json": json_path, "pdf": pdf_path}
             db_id = save_db_log(input_data.metadata, paths, input_data.validation_result)
 
+            # -------------------------
+            # 최종 Output
+            # -------------------------
             return FinalizerOutput(
                 md_path=md_path,
                 json_path=json_path,
@@ -232,8 +260,9 @@ class FinalizerNode:
                     "db_log_id": db_id
                 }
             )
+
         except Exception as e:
-            logger.exception("FinalizerNode failed.")
+            logger.exception("FinalizerNode 실패.")
             return FinalizerOutput(
                 status="failed",
                 details={"error": str(e)}

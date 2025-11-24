@@ -2,11 +2,11 @@
 """
 파일명: impact_analysis_agent_2.py
 최종 수정일: 2025-11-24
-버전: v04
+버전: v05
 
 파일 개요:
     - 물리적 기후 리스크 영향 분석 Agent
-    - Physical Risk Scores, AAL, 취약성 데이터 기반 영향 분석 수행
+    - Physical Risk Scores, AAL, 취약성 데이터, 전력 사용량 기반 영향 분석 수행
     - Impact List 표준 스키마 적용
     - 향후 Strategy Generation Agent와 1:1 매핑을 위한 구조 확정
     - RAG 기반 근거 포함
@@ -15,222 +15,232 @@
     1. RAG 근거 기반 기초 자료 수집
     2. LLM 호출 → 물리적 리스크 영향 분석 수행
     3. impact_list 스키마 강제 적용 및 누락 필드 자동 보정
-    4. citations 포함
-    5. LangGraph Memory Node용 output 생성 (impact_summary, impact_list)
+    4. 전력 사용량 기반 HEV 가중치 반영
+    5. citations 포함
+    6. LangGraph Memory Node용 output 생성 (impact_summary, impact_list)
+
+Refiner 루프 연계:
+    - Impact Issue 발생 시 route: impact
+    - 필요한 입력만 유지한 상태로 Impact Analysis 재실행
+    - 정량/정성 impact_summary 재생성
 
 변경 이력:
     - v02 (2025-11-14): 초안 작성 — 계산 기반 영향 분석
     - v03 (2025-11-21): LLM 기반 영향 분석으로 리팩토링
     - v04 (2025-11-24): 전략 생성 Agent와 1:1 매핑, impact_list 표준화
+    - v05 (2025-11-24): 전력 사용량 기반 영향 분석 Layer1 통합
 """
 
-from typing import Dict, Any, List, Optional
-from pydantic import BaseModel
-from utils.rag_helpers import RAGEngine
-from utils.citation_formatter import format_citations
-import logging
-
-# -----------------------------------------------------------
-# 1) Input / Output Schema
-# -----------------------------------------------------------
-
-class ImpactAgentInput(BaseModel):
-    """
-    ImpactAnalysisAgent 입력 구조
-    """
-    physical_risk_scores: Dict[str, Any]       # 리스크별 점수
-    aal_analysis: Dict[str, Any]               # 연평균 자산손실률
-    collected_data: Dict[str, Any]             # 기타 수집 데이터 (ex: 전력사용량)
-    vulnerability_analysis: Dict[str, Any]    # 취약성 분석 데이터
-    company_name: str                          # 대상 기업명
-
-class ImpactAgentOutput(BaseModel):
-    """
-    ImpactAnalysisAgent 출력 구조
-    """
-    impact_list: List[Dict[str, Any]]          # 표준화된 impact_list
-    overall_impact_summary: str                # 전체 영향 요약
-    citations: List[str]                       # RAG 근거 citations
-    status: str = "completed"
-    error: Optional[str] = None
-
-# -----------------------------------------------------------
-# 2) Agent Definition
-# -----------------------------------------------------------
+import numpy as np
+from typing import Dict, Any, List
 
 class ImpactAnalysisAgent:
     """
-    물리적 기후 리스크 영향 분석 Agent (LLM + RAG)
-    
-    - Memory Node 저장: impact_list, overall_impact_summary, citations
-    - Refiner 루프 시 route 결정 기준: Data Issue 발생 시 impact_list 재분석
+    Impact Analysis Agent (Agent 2)
+    --------------------------------
+    목적:
+    - 9대 기후리스크 × 최대 4개 시나리오에 대해
+      정량 + 정성 Impact Analysis 결과 생성
+
+    구성:
+    - Layer 1 Quantitative Engine (H/E/V + 전력 사용량 기반 HEV 가중치 계산)
+    - Layer 2 LLM Contextual Narrative Engine (정성 내러티브)
     """
 
     def __init__(self, llm_client):
         """
-        Args:
-            llm_client: async LLM 호출 클라이언트
+        llm_client: OpenAI, Anthropic, Vertex 등 LLM 객체
         """
         self.llm = llm_client
-        self.rag = RAGEngine(source="graph")  # Graph RAG 기반 리스크 참고
-        self.logger = logging.getLogger("ImpactAnalysisAgent")
-        self.logger.info("[ImpactAnalysisAgent] 초기화 완료")
 
-    # -------------------------------------------------------
-    # LangGraph 실행 진입점
-    # -------------------------------------------------------
-    async def run(self, input_data: ImpactAgentInput) -> ImpactAgentOutput:
+        self.risk_list = [
+            "extreme_heat", "extreme_cold", "drought", "inland_flood",
+            "urban_flood", "coastal_flood", "typhoon", "wildfire", "water_stress"
+        ]
+
+    # ----------------------------------------------------------------------
+    # Layer 1 : Quantitative Engine
+    # ----------------------------------------------------------------------
+
+    def compute_severity(self, risk_score: float) -> str:
+        """정량 위험등급 분류기"""
+        if risk_score < 10:
+            return "minimal"
+        elif risk_score < 20:
+            return "low"
+        elif risk_score < 35:
+            return "medium"
+        elif risk_score < 55:
+            return "high"
+        else:
+            return "extreme"
+
+    def aggregate_HEV(self, H: Dict, E: Dict, V: Dict, power_usage: Dict = None) -> Dict:
         """
-        Agent 메인 실행
-
-        Args:
-            input_data: ImpactAgentInput 구조
-
-        Returns:
-            ImpactAgentOutput 구조
+        리스크별 H/E/V 평균치 구조화
+        전력 사용량(power_usage)이 주어지면 HEV_mean에 가중치 반영
         """
-        self.logger.info("[ImpactAnalysisAgent] 영향 분석 시작")
+        result = {}
+        for r in self.risk_list:
+            h_val = H.get(r)
+            e_val = E.get(r)
+            v_val = V.get(r)
+            hev_mean = np.mean([h_val, e_val, v_val])
 
-        try:
-            # ---------------------------------------------------
-            # 1) RAG 기반 근거 검색
-            # ---------------------------------------------------
-            rag_docs = self.rag.query(
-                query=f"{input_data.company_name} 물리적 기후 리스크 영향 분석 5개년",
-                top_k=10
-            )
+            # 전력 사용량 기반 가중치 반영
+            if power_usage:
+                it_factor = power_usage.get("IT", 0) / 30000  # 정규화 예시
+                cooling_factor = power_usage.get("Cooling", 0) / 10000
+                hev_mean *= (1 + 0.1 * (it_factor + cooling_factor))
 
-            # ---------------------------------------------------
-            # 2) LLM 프롬프트 구성
-            # ---------------------------------------------------
-            prompt = self._build_prompt(
-                company_name=input_data.company_name,
-                physical_risk_scores=input_data.physical_risk_scores,
-                aal_analysis=input_data.aal_analysis,
-                collected_data=input_data.collected_data,
-                vulnerability=input_data.vulnerability_analysis,
-                rag_results=rag_docs
-            )
+            result[r] = {
+                "H": h_val,
+                "E": e_val,
+                "V": v_val,
+                "HEV_mean": hev_mean
+            }
+        return result
 
-            # ---------------------------------------------------
-            # 3) LLM 호출
-            # ---------------------------------------------------
-            llm_response = await self.llm.ainvoke(prompt)
-
-            # ---------------------------------------------------
-            # 4) impact_list 스키마 보정
-            # ---------------------------------------------------
-            impact_list = self._normalize_impact_list(llm_response)
-
-            # ---------------------------------------------------
-            # 5) RAG citations 정리
-            # ---------------------------------------------------
-            citations = self.rag.get_citations(rag_docs)
-
-            # ---------------------------------------------------
-            # 6) 최종 Output
-            # ---------------------------------------------------
-            return ImpactAgentOutput(
-                impact_list=impact_list,
-                overall_impact_summary=llm_response.get("overall_impact_summary", ""),
-                citations=citations,
-                status="completed"
-            )
-
-        except Exception as e:
-            self.logger.error(f"[ImpactAnalysisAgent] 영향 분석 실패: {e}", exc_info=True)
-            return ImpactAgentOutput(
-                impact_list=[],
-                overall_impact_summary="",
-                citations=[],
-                status="failed",
-                error=str(e)
-            )
-
-    # -------------------------------------------------------
-    # LLM Prompt 생성
-    # -------------------------------------------------------
-    def _build_prompt(
-        self,
-        company_name: str,
-        physical_risk_scores: Dict[str, Any],
-        aal_analysis: Dict[str, Any],
-        collected_data: Dict[str, Any],
-        vulnerability: Dict[str, Any],
-        rag_results: List[Dict[str, Any]]
-    ) -> str:
+    def build_quantitative_output(self, scenario_input: Dict, AAL: Dict) -> Dict:
         """
-        LLM 분석용 Prompt 생성
+        scenario_input 구조:
+        {
+            "SSP126": { "H": {...}, "E": {...}, "V": {...}, "risk_scores": {...}, "power_usage": {...} },
+            ...
+        }
 
-        출력 impact_list 스키마 준수 필수
+        AAL:
+        {
+            "extreme_heat": 2.94,
+            "extreme_cold": 1.13,
+            ...
+        }
         """
-        rag_json = json.dumps(rag_results, indent=2, ensure_ascii=False)
+        output = {}
 
+        for scenario, data in scenario_input.items():
+            H, E, V = data["H"], data["E"], data["V"]
+            power_usage = data.get("power_usage", None)
+
+            # 1) 리스크별 HEV 평균 (전력 사용량 가중치 포함)
+            hev_avg = self.aggregate_HEV(H, E, V, power_usage=power_usage)
+
+            # 2) severity 계산
+            severity = {
+                r: self.compute_severity(data["risk_scores"].get(r, 0))
+                for r in self.risk_list
+            }
+
+            # 3) scenario 내 상위 위험 순위
+            sorted_risks = sorted(
+                data["risk_scores"].items(),
+                key=lambda x: x[1],
+                reverse=True
+            )
+            top3 = sorted_risks[:3]
+
+            output[scenario] = {
+                "HEV_average": hev_avg,
+                "risk_scores": data["risk_scores"],
+                "severity": severity,
+                "top3_risks": top3,
+                "power_usage": power_usage  # Layer 2 참고용
+            }
+
+        # 4) 모든 시나리오 공통 AAL 추가
+        output["AAL"] = AAL
+
+        return output
+
+    # ----------------------------------------------------------------------
+    # Layer 2 : LLM-Based Narrative Generation
+    # ----------------------------------------------------------------------
+
+    def generate_risk_narrative(self, quant_output: Dict, asset_info: Dict,
+                                tcfd_warnings: List, report_profile: Dict) -> str:
+        """
+        LLM에게 정성 분석을 요청하는 프롬프트 생성 및 호출
+        """
         prompt = f"""
-당신은 기후 리스크 분석 전문가입니다.
-아래 데이터를 기반으로 {company_name}의 물리적 기후 리스크 영향을 분석하십시오.
+당신은 Impact Analysis Agent 2입니다.
+역할:
+- 구조화된 정량적 기후 리스크 데이터를 바탕으로 전문가 수준의
+  TCFD 기준 영향 분석 내러티브를 작성합니다.
 
-### 입력 데이터
-- Physical Risk Scores: {physical_risk_scores}
-- AAL (연평균 자산손실률): {aal_analysis}
-- 기타 수집 데이터: {collected_data}
-- 취약성 정보: {vulnerability}
+===== 입력 데이터 =====
+정량적 분석 결과 (JSON):
+{quant_output}
 
-### RAG 근거
-{rag_json}
+자산 정보:
+{asset_info}
 
-### 출력 형식(JSON)
-impact_list = [
-  {{
-    "risk_type": "flood",
-    "severity_level": "low/medium/high/critical",
-    "financial_impact": float,
-    "impact_description": "정성적 설명",
-    "drivers": ["요인1", "요인2"],
-    "supporting_metrics": {{
-        "aal": float,
-        "power_consumption_change": float
-    }}
-  }},
-  ...
-]
+TCFD 데이터 품질 경고:
+{tcfd_warnings}
 
-overall_impact_summary = "전체 리스크 영향 요약 문장"
+보고서 스타일 프로필 (Agent 1 기준):
+{report_profile}
 
-### 작성 규칙
-- impact_list 최소 3개 이상 포함
-- risk_type 고유
-- supporting_metrics 존재하지 않으면 0 또는 null
-- StrategyAgent에서 그대로 사용 가능하도록 risk_type 명칭 유지
-- JSON ONLY
+===== 출력 요구사항 =====
+다음 항목을 포함한 전체 영향 평가 보고서 섹션을 작성하세요:
+
+1. 리스크별 상세 내러티브
+   - H/E/V 조건 설명
+   - 주요 원인 강조 (예: 최고 강수량, 홍수 이력, 최대 풍속, 폭염일수 등)
+   - 취약성 논의 (건물 연령, 구조, 배수, 토지이용 등)
+   - AAL(연평균 손실액) 해석 통합
+   - 전력 사용량 기반 영향 고려 (IT/냉방 전력)
+   - report_profile에 정의된 톤/스타일 적용
+
+2. 시나리오별 영향 비교 (SSP126/245/370/585)
+   - 시나리오 간 추세 분석
+   - 강화 또는 안정화 경향에 대한 고급 내러티브
+
+3. 리스크 간 상호작용
+   - 예: 고온 x 가뭄, 태풍 x 도시홍수 등
+
+4. 취약 자산 평가
+   - 구조, 연령, 배수능력, 고도, 토지이용 기반 평가
+
+5. 데이터 품질 및 불확실성 (TCFD)
+   - 경고 내용을 전문가 수준으로 해석하여 설명
+
+6. 통합 요약
+   - 핵심 리스크 식별
+   - 대응/적응 전략에 반영할 사항 간략 예시
+
+출력 언어: 한국어
+전문적인 TCFD 지속가능경영 보고서 톤 유지
+JSON 자체 반복 금지, 해석만 작성
 """
-        return prompt
+        response = self.llm.generate(prompt)
+        return response
 
-    # -------------------------------------------------------
-    # LLM 응답 스키마 보정
-    # -------------------------------------------------------
-    def _normalize_impact_list(self, llm_response: Dict[str, Any]) -> List[Dict[str, Any]]:
+    # ----------------------------------------------------------------------
+    # Main API method
+    # ----------------------------------------------------------------------
+
+    def run(self, scenario_input: Dict, AAL: Dict,
+            asset_info: Dict, tcfd_warnings: List,
+            report_profile: Dict) -> Dict:
         """
-        impact_list가 표준 스키마를 따르도록 부족한 필드를 보정
-
-        - severity_level 기본값: medium
-        - financial_impact 기본값: 0
-        - supporting_metrics 기본값: 0
+        에이전트 2 전체 파이프라인 실행
         """
-        raw_list = llm_response.get("impact_list", [])
-        normalized = []
 
-        for item in raw_list:
-            normalized.append({
-                "risk_type": item.get("risk_type", "unknown"),
-                "severity_level": item.get("severity_level", "medium"),
-                "financial_impact": item.get("financial_impact", 0),
-                "impact_description": item.get("impact_description", ""),
-                "drivers": item.get("drivers", []),
-                "supporting_metrics": {
-                    "aal": item.get("supporting_metrics", {}).get("aal", 0),
-                    "power_consumption_change": item.get("supporting_metrics", {}).get("power_consumption_change", 0),
-                }
-            })
+        # Layer 1: Quantitative 결과 생성 (전력 사용량 기반 HEV 포함)
+        quantitative_result = self.build_quantitative_output(
+            scenario_input=scenario_input,
+            AAL=AAL
+        )
 
-        return normalized
+        # Layer 2: LLM 정성 내러티브 생성
+        narrative = self.generate_risk_narrative(
+            quant_output=quantitative_result,
+            asset_info=asset_info,
+            tcfd_warnings=tcfd_warnings,
+            report_profile=report_profile
+        )
+
+        return {
+            "quantitative_result": quantitative_result,
+            "narrative": narrative
+        }

@@ -2,7 +2,7 @@
 """
 파일명: report_composer_agent_4.py
 최종 수정일: 2025-11-24
-버전: v03
+버전: v04
 
 파일 개요:
     - 보고서 초안 작성 Agent (템플릿 + 분석 결과 + 전략 결합)
@@ -10,23 +10,25 @@
     - LLM 기반 Markdown + JSON 구조 생성
     - RAG 기반 citations 포함
     - Memory Node: draft_report + citations 저장
+    - Refiner 루프 연계 가능
 
 주요 기능:
-    1. Executive Summary 생성
+    1. Executive Summary 생성 (상위 3개 리스크 + 종합 전략 요약)
     2. Template 기반 섹션 문단 생성
     3. Markdown/JSON Draft 구성
     4. citations 수집 및 포맷
-    5. Refiner 루프용 draft 상태 제공
+    5. Refiner 루프용 draft 상태 제공 (Text Issue 발생 시 LLM 재호출 가능)
 
 Refiner 루프 연계:
     - Text Issue 발생 시 route: composer
-    - LLM 재호출로 문장 품질/구조 개선
-    - Draft + citations 재생성
+    - 기존 draft + citations 기반으로 LLM 재호출
+    - Draft + citations 재생성 및 Memory Node 갱신
 
 변경 이력:
     - v01 (2025-11-14): 초안 작성, Super-Agent 구조
     - v02 (2025-11-21): async, JSON 스키마, 상태/예외 처리 추가
     - v03 (2025-11-24): 최신 LangGraph 아키텍처 반영, Memory Node/Refiner 루프 연계
+    - v04 (2025-11-24): Agent 2/3 데이터 통합, Refiner 연계 최종 완성
 """
 
 from typing import Dict, Any
@@ -38,10 +40,13 @@ logger = logging.getLogger("ReportComposerAgent")
 
 class ReportComposerAgent:
     """
-    보고서 초안 작성 Agent
+    보고서 초안 작성 Agent (Agent 4)
+    ---------------------------------
+    목적:
     - Executive Summary + Template 기반 섹션 + 전략/영향 분석 결합
     - Citation 포함 Draft Report 생성
     - Memory Node: draft_report + citations 저장
+    - Refiner 루프 연계 가능
     """
 
     def __init__(self, llm_client, citation_formatter, markdown_renderer):
@@ -78,13 +83,15 @@ class ReportComposerAgent:
         """
         logger.info("[ReportComposerAgent] 보고서 초안 생성 시작")
         try:
-            # 1. Executive Summary
+            # 1. Executive Summary 생성
             executive_summary = await self._generate_executive_summary(
                 report_profile, impact_summary, strategies
             )
 
-            # 2. Section 문단 생성
-            sections = await self._generate_sections(template, report_profile, impact_summary, strategies)
+            # 2. Template 기반 섹션 문단 생성
+            sections = await self._generate_sections(
+                template, report_profile, impact_summary, strategies
+            )
 
             # 3. Markdown Draft 구성
             draft_md = self.render.render_markdown({
@@ -93,7 +100,7 @@ class ReportComposerAgent:
                 "template": template
             })
 
-            # 4. JSON Draft 구성
+            # 4. JSON Draft 구성 (Memory Node용)
             draft_json = {
                 "executive_summary": executive_summary,
                 "sections": sections,
@@ -101,7 +108,7 @@ class ReportComposerAgent:
                 "generated_at": datetime.now().isoformat()
             }
 
-            # 5. citations 수집
+            # 5. citations 수집 및 포맷
             citations = self.citation.collect_all(draft_md)
 
             return {
@@ -133,14 +140,17 @@ class ReportComposerAgent:
         """
         top_risks = impact_summary.get("top_risks", [])
         top3 = ", ".join([r["risk_type"] for r in top_risks[:3]])
+        total_loss = impact_summary.get("total_financial_loss", "N/A")
+        overall_strategy = strategies.get("overall_strategy", "")
+
         prompt = f"""
 당신은 기후 리스크 전문 보고서 작성자입니다.
 
 다음 정보를 기반으로 Executive Summary를 작성하세요.
 - 기존 보고서 패턴/톤: {report_profile.get('tone', 'N/A')}
 - 상위 주요 리스크: {top3}
-- 총 예상 재무손실: {impact_summary.get('total_financial_loss','N/A')}
-- 종합 대응 전략: {strategies.get('overall_strategy', '')}
+- 총 예상 재무손실: {total_loss}
+- 종합 대응 전략: {overall_strategy}
 
 형식: Markdown, 4~6문장, 기업 보고서 스타일
 """

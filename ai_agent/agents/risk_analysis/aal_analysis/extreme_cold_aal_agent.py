@@ -1,92 +1,24 @@
 '''
 파일명: extreme_cold_aal_agent.py
 최종 수정일: 2025-11-21
-버전: v2
-파일 개요: 극심한 한파 리스크 AAL 분석 Agent (AAL_final_logic_v2 기반)
+버전: v10
+파일 개요: 극심한 한파 리스크 AAL 분석 Agent
 변경 이력:
-	- 2025-11-11: v00 - 초기 생성
-	- 2025-11-20: v9 - AAL_final_logic_v9.md 로직 적용
-	- 2025-11-21: v2 - AAL_final_logic_v2.md 로직 적용
-		* 강도지표: X_cold(t) = CSDI(t) (Cold Spell Duration Index)
-		* bin: [0~3), [3~7), [7~15), [15~)
-		* DR_intensity: [0.0005, 0.0020, 0.0060, 0.0150]
-		* 취약성 스케일: s_min=0.7, s_max=1.3
+	- 2025-11-21: v10 - V 스케일링과 최종 AAL 계산만 수행
+		* P(H) 및 기본 손상률 계산 제거
+		* 외부에서 입력받은 데이터로 AAL 계산
 '''
-from typing import Dict, Any
-import numpy as np
 from .base_aal_analysis_agent import BaseAALAnalysisAgent
 
 
 class ExtremeColdAALAgent(BaseAALAnalysisAgent):
 	"""
-	극심한 한파 리스크 AAL 분석 Agent (v2)
-
-	사용 데이터: KMA 연간 극값 지수 CSDI (Cold Spell Duration Index)
-	강도지표: X_cold(t) = CSDI(t)
-	의미: 평년 기준 하위 분위수 이하 저온이 연속적으로 지속된 기간의 연간 합
+	극심한 한파 리스크 AAL 분석 Agent
+	V 스케일링과 최종 AAL 계산만 수행
 	"""
 
 	def __init__(self):
-		"""
-		ExtremeColdAALAgent 초기화 (v2)
-
-		bin 구간:
-			- bin1: 0 <= CSDI < 3 (낮음)
-			- bin2: 3 <= CSDI < 7 (중간)
-			- bin3: 7 <= CSDI < 15 (높음)
-			- bin4: CSDI >= 15 (매우 높음)
-
-		기본 손상률 (DR_intensity):
-			- bin1: 0.05%
-			- bin2: 0.20%
-			- bin3: 0.60%
-			- bin4: 1.50%
-		"""
-		bins = [
-			(0, 3),
-			(3, 7),
-			(7, 15),
-			(15, float('inf'))
-		]
-
-		dr_intensity = [
-			0.0005,  # 0.05%
-			0.0020,  # 0.20%
-			0.0060,  # 0.60%
-			0.0150   # 1.50%
-		]
-
 		super().__init__(
 			risk_type='극심한 한파',
-			bins=bins,
-			dr_intensity=dr_intensity,
-			s_min=0.7,
-			s_max=1.3,
 			insurance_rate=0.0
 		)
-
-	def calculate_intensity_indicator(self, collected_data: Dict[str, Any]) -> np.ndarray:
-		"""
-		극심한 한파 강도지표 X_cold(t) 계산
-		X_cold(t) = CSDI(t)
-
-		Args:
-			collected_data: 수집된 기후 데이터
-				- csdi: 연도별 CSDI 값 리스트 또는 배열
-
-		Returns:
-			연도별 CSDI 값 배열
-		"""
-		climate_data = collected_data.get('climate_data', {})
-		csdi_data = climate_data.get('csdi', [])
-
-		if not csdi_data:
-			self.logger.warning("CSDI 데이터가 없습니다. 기본값 0으로 설정합니다.")
-			csdi_data = [0]
-
-		# numpy 배열로 변환
-		csdi_array = np.array(csdi_data, dtype=float)
-
-		self.logger.info(f"CSDI 데이터: {len(csdi_array)}개 연도, 범위: {csdi_array.min():.2f} ~ {csdi_array.max():.2f}")
-
-		return csdi_array

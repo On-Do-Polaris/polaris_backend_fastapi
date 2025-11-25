@@ -15,14 +15,14 @@ from .base_physical_risk_score_agent import BasePhysicalRiskScoreAgent
 class ExtremeHeatScoreAgent(BasePhysicalRiskScoreAgent):
 	"""
 	극심한 고온 리스크 물리적 종합 점수 산출 Agent
-	H (Hazard) × E (Exposure) × V (Vulnerability) 기반 리스크 점수 계산
+	(H + E + V) / 3 평균 기반 리스크 점수 계산
 	"""
 
 	def __init__(self):
 		"""
 		ExtremeHeatScoreAgent 초기화
 		"""
-		super().__init__(risk_type='극심한 고온')
+		super().__init__(risk_type='extreme_heat')
 
 	def calculate_hazard(self, collected_data: Dict[str, Any]) -> float:
 		"""
@@ -54,55 +54,67 @@ class ExtremeHeatScoreAgent(BasePhysicalRiskScoreAgent):
 
 		return round(min(hazard_score, 1.0), 4)
 
-	def calculate_exposure(self, asset_info: Dict[str, Any]) -> float:
+	def calculate_exposure(self, collected_data: Dict[str, Any]) -> float:
 		"""
-		극심한 고온 Exposure 점수 계산
-		자산 가치 및 노출 정도 평가
+		극심한 고온 Exposure 점수 계산 (도시 열섬 효과 기반)
+
+		근거: extreme_heat.md
+		E = 0.5 × 불투수면비율 + 0.3 × 녹지부족 + 0.15 × 저지대 + 0.05 × 수역부족
 
 		Args:
-			asset_info: 사업장 자산 정보
+			collected_data: 수집된 환경 데이터
 
 		Returns:
 			Exposure 점수 (0.0 ~ 1.0)
 		"""
-		total_asset_value = asset_info.get('total_asset_value', 0)
+		exposure_data = collected_data.get('exposure', {})
+		heat_exp = exposure_data.get('heat_exposure', {})
+		location = exposure_data.get('location', {})
 
-		# 자산 가치 기반 노출도 (10억원 단위)
-		# 10억원 = 0.1, 100억원 = 1.0
-		exposure_score = min(total_asset_value / 100_000_000_000, 1.0)
+		# 도시 열섬 강도에 따른 기본 점수
+		uhi_scores = {
+			'high': 0.8,
+			'medium': 0.5,
+			'low': 0.2,
+		}
+		uhi_intensity = heat_exp.get('urban_heat_island', 'medium')
+		base_score = uhi_scores.get(uhi_intensity, 0.5)
 
-		# 최소 노출도 0.1 보장
-		exposure_score = max(exposure_score, 0.1)
+		# 녹지 접근성 보정
+		if heat_exp.get('green_space_nearby', False):
+			base_score *= 0.8  # 20% 감소
 
+		# 고도 보정 (저지대일수록 열 축적)
+		elevation_m = location.get('elevation_m', 50)
+		if elevation_m < 50:
+			base_score *= 1.2  # 20% 증가
+		elif elevation_m > 200:
+			base_score *= 0.9  # 10% 감소
+
+		exposure_score = min(base_score, 1.0)
 		return round(exposure_score, 4)
 
 	def calculate_vulnerability(
 		self,
 		vulnerability_analysis: Dict[str, Any],
-		asset_info: Dict[str, Any]
+		collected_data: Dict[str, Any]
 	) -> float:
 		"""
 		극심한 고온 Vulnerability 점수 계산
-		건물 및 시설 취약성 평가
+		VulnerabilityAnalysisAgent에서 계산된 extreme_heat 취약성 사용
 
 		Args:
-			vulnerability_analysis: 취약성 분석 결과
-			asset_info: 사업장 자산 정보
+			vulnerability_analysis: VulnerabilityAnalysisAgent의 계산 결과
+			collected_data: 수집된 데이터 (미사용, 호환성 유지)
 
 		Returns:
-			Vulnerability 점수 (0.0 ~ 1.0)
+			Vulnerability 점수 (0.0 ~ 1.0, 0-100 스케일을 0-1로 정규화)
 		"""
-		# 건물 연식
-		building_age = vulnerability_analysis.get('building_age', 10)
+		# VulnerabilityAnalysisAgent의 extreme_heat 결과 사용
+		heat_vuln = vulnerability_analysis.get('extreme_heat', {})
+		vuln_score = heat_vuln.get('score', 50)  # 0-100 스케일
 
-		# 냉방 시스템 유무 (가정)
-		has_cooling_system = asset_info.get('has_cooling_system', True)
+		# 0-1 스케일로 정규화
+		normalized_score = vuln_score / 100.0
 
-		# 건물 연식 기반 취약성 (0-50년 → 0.2-0.7)
-		age_vulnerability = 0.2 + min(building_age / 100, 0.5)
-
-		# 냉방 시스템 보정
-		if has_cooling_system:
-			age_vulnerability *= 0.7  # 30% 감소
-
-		return round(min(age_vulnerability, 1.0), 4)
+		return round(normalized_score, 4)

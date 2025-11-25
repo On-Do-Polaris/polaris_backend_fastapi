@@ -1,195 +1,192 @@
 '''
 파일명: data_collection_agent.py
-최종 수정일: 2025-11-11
-버전: v01
-파일 개요: 기후 데이터 수집 에이전트 (기상, 지리, 역사적 데이터, SSP 시나리오)
+최종 수정일: 2025-11-24
+버전: v03
+파일 개요: 기후 데이터 수집 에이전트 (PostgreSQL → Scratch 저장)
 변경 이력:
 	- 2025-11-11: v01 - Super Agent 구조에 맞게 업데이트, 9개 리스크 대응
+	- 2025-11-22: v02 - PostgreSQL 연동 및 Scratch 저장 구현
+	- 2025-11-24: v03 - ERD 기반 데이터베이스 스키마 반영
 '''
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+import logging
+from ai_agent.utils.database import DatabaseManager
+from ai_agent.utils.scratch_manager import ScratchSpaceManager
 
 
 class DataCollectionAgent:
 	"""
 	기후 데이터 수집 에이전트
-	다양한 기후 관련 데이터를 수집하고 통합
+	PostgreSQL에서 데이터를 조회하고 Scratch Space에 TTL 기반으로 저장
+
 	- 기상 데이터 (온도, 강수량, 풍속)
 	- 지리 데이터
 	- 역사적 기후 데이터
 	- SSP 시나리오 데이터
 	"""
 
-	def __init__(self, config):
+	def __init__(self, config=None):
 		"""
 		데이터 수집 에이전트 초기화
 
 		Args:
-			config: 설정 객체
+			config: 설정 객체 (선택)
 		"""
-		self.config = config
-		self._initialize_data_sources()
+		self.config = config or {}
+		self.logger = logging.getLogger(__name__)
 
-	def _initialize_data_sources(self):
-		"""
-		데이터 소스 초기화
-		API 연결 및 데이터베이스 설정
-		"""
-		# TODO: 데이터 소스 연결 설정
-		self.climate_data_api = None
-		self.geographic_data_api = None
-		self.historical_data_db = None
-		pass
+		# 데이터베이스 및 Scratch Space 초기화
+		self.db_manager = DatabaseManager()
+		self.scratch_manager = ScratchSpaceManager(
+			base_path=self.config.get('scratch_path', './scratch'),
+			default_ttl_hours=self.config.get('ttl_hours', 4)
+		)
 
-	def collect(self, target_location: Dict, analysis_params: Dict) -> Dict[str, Any]:
+	def collect(
+		self,
+		target_location: Dict,
+		analysis_params: Dict,
+		session_id: Optional[str] = None
+	) -> Dict[str, Any]:
 		"""
-		타겟 위치에 대한 모든 필요 데이터 수집
+		타겟 위치에 대한 모든 필요 데이터 수집 및 Scratch에 저장
 
 		Args:
-			target_location: 분석 대상 위치 정보 (위도, 경도, 이름)
-			analysis_params: 분석 파라미터 (시간 범위, 분석 기간)
+			target_location: 분석 대상 위치 정보 (latitude, longitude, name)
+			analysis_params: 분석 파라미터 (start_year, end_year, ssp_scenarios)
+			session_id: Scratch 세션 ID (없으면 자동 생성)
 
 		Returns:
-			수집된 데이터 딕셔너리 (모든 기후 관련 데이터 포함)
+			수집 결과 딕셔너리 (session_id 및 저장된 파일 경로 포함)
 		"""
-		collected_data = {
+		# 1. Scratch 세션 생성
+		if session_id is None:
+			session_id = self.scratch_manager.create_session(
+				ttl_hours=self.config.get('ttl_hours', 4),
+				metadata={
+					'location': target_location,
+					'analysis_params': analysis_params,
+					'agent': 'DataCollectionAgent'
+				}
+			)
+
+		self.logger.info(f"Starting data collection for session: {session_id}")
+
+		# 2. 기후 데이터 수집
+		climate_data = self._collect_climate_data(target_location, analysis_params)
+		self.scratch_manager.save_data(session_id, 'climate_data.json', climate_data, format='json')
+
+		# 3. 지리 데이터 수집
+		geographic_data = self._collect_geographic_data(target_location)
+		self.scratch_manager.save_data(session_id, 'geographic_data.json', geographic_data, format='json')
+
+		# 4. 역사적 재해 사건 수집
+		historical_events = self._collect_historical_events(target_location, analysis_params)
+		self.scratch_manager.save_data(session_id, 'historical_events.json', historical_events, format='json')
+
+		# 5. SSP 시나리오 데이터 수집
+		ssp_data = self._collect_ssp_scenario_data(target_location, analysis_params)
+		self.scratch_manager.save_data(session_id, 'ssp_scenarios.json', ssp_data, format='json')
+
+		# 수집 완료
+		self.logger.info(f"Data collection completed for session: {session_id}")
+
+		return {
+			'status': 'success',
+			'session_id': session_id,
 			'location': target_location,
-			'temperature_data': self._collect_temperature_data(target_location, analysis_params),
-			'precipitation_data': self._collect_precipitation_data(target_location, analysis_params),
-			'sea_level_data': self._collect_sea_level_data(target_location, analysis_params),
-			'wind_data': self._collect_wind_data(target_location, analysis_params),
-			'geographic_data': self._collect_geographic_data(target_location),
-			'ssp_scenario_data': self._collect_ssp_scenario_data(target_location, analysis_params),
-			'historical_events': self._collect_historical_events(target_location, analysis_params)
+			'files': self.scratch_manager.list_files(session_id),
+			'message': f'Data collected and saved to scratch space (TTL: {self.config.get("ttl_hours", 4)}h)'
 		}
 
-		return collected_data
-
-	def _collect_temperature_data(self, location: Dict, params: Dict) -> Dict:
+	def _collect_climate_data(self, location: Dict, params: Dict) -> Dict:
 		"""
-		기온 데이터 수집 (고온, 한파 분석용)
+		기후 데이터 수집 (PostgreSQL에서 조회)
 
 		Args:
-			location: 위치 정보
-			params: 분석 파라미터
+			location: 위치 정보 (latitude, longitude, admin_code)
+			params: 분석 파라미터 (start_year, end_year, scenario_id)
 
 		Returns:
-			기온 데이터 딕셔너리
+			기후 데이터 딕셔너리
 		"""
-		# TODO: 실제 데이터 수집 로직 구현
+		latitude = location['latitude']
+		longitude = location['longitude']
+		admin_code = location.get('admin_code')
+		start_year = params.get('start_year', 2000)
+		end_year = params.get('end_year', 2023)
+		scenario_id = params.get('scenario_id', 2)  # Default: SSP2-4.5
+
+		self.logger.info(f"Fetching climate data for ({latitude}, {longitude}) from {start_year} to {end_year}")
+
+		# PostgreSQL에서 종합 데이터 조회 (ERD 기반)
+		all_data = self.db_manager.collect_all_climate_data(
+			latitude=latitude,
+			longitude=longitude,
+			start_year=start_year,
+			end_year=end_year,
+			scenario_id=scenario_id,
+			admin_code=admin_code
+		)
+
 		return {
-			'daily_max_temp': [],
-			'daily_min_temp': [],
-			'daily_avg_temp': [],
-			'heatwave_days': [],
-			'coldwave_days': []
-		}
-
-	def _collect_precipitation_data(self, location: Dict, params: Dict) -> Dict:
-		"""
-		강수량 데이터 수집 (가뭄, 홍수 분석용)
-
-		Args:
-			location: 위치 정보
-			params: 분석 파라미터
-
-		Returns:
-			강수량 데이터 딕셔너리
-		"""
-		# TODO: 실제 데이터 수집 로직 구현
-		return {
-			'daily_precipitation': [],
-			'monthly_precipitation': [],
-			'extreme_rainfall_events': [],
-			'dry_spell_days': []
-		}
-
-	def _collect_sea_level_data(self, location: Dict, params: Dict) -> Dict:
-		"""
-		해수면 높이 데이터 수집
-
-		Args:
-			location: 위치 정보
-			params: 분석 파라미터
-
-		Returns:
-			해수면 데이터 딕셔너리
-		"""
-		# TODO: 실제 데이터 수집 로직 구현
-		return {
-			'current_sea_level': 0.0,
-			'projected_sea_level': [],
-			'coastal_distance': 0.0
-		}
-
-	def _collect_wind_data(self, location: Dict, params: Dict) -> Dict:
-		"""
-		풍속 데이터 수집 (태풍 분석용)
-
-		Args:
-			location: 위치 정보
-			params: 분석 파라미터
-
-		Returns:
-			풍속 데이터 딕셔너리
-		"""
-		# TODO: 실제 데이터 수집 로직 구현
-		return {
-			'wind_speed': [],
-			'typhoon_tracks': [],
-			'historical_typhoons': []
+			'location': all_data['location'],
+			'period': all_data['period'],
+			'scenario_id': all_data['scenario_id'],
+			'grid_info': all_data.get('grid'),
+			'admin_info': all_data.get('admin'),
+			'monthly_data': all_data.get('monthly_data', {}),
+			'daily_data': all_data.get('daily_data', {}),
+			'yearly_data': all_data.get('yearly_data', {}),
+			'sea_level_data': all_data.get('sea_level_data', [])
 		}
 
 	def _collect_geographic_data(self, location: Dict) -> Dict:
 		"""
-		지리 정보 데이터 수집
+		지리 정보 데이터 수집 (PostgreSQL에서 조회)
 
 		Args:
-			location: 위치 정보
+			location: 위치 정보 (latitude, longitude, site_id)
 
 		Returns:
 			지리 데이터 딕셔너리
 		"""
-		# TODO: 실제 데이터 수집 로직 구현
-		return {
-			'elevation': 0.0,
-			'slope': 0.0,
-			'land_cover': '',
-			'vegetation_index': 0.0,
-			'proximity_to_water': 0.0
+		latitude = location['latitude']
+		longitude = location['longitude']
+		site_id = location.get('site_id')
+
+		self.logger.info(f"Fetching geographic data for ({latitude}, {longitude})")
+
+		result = {
+			'location': location
 		}
 
-	def _collect_ssp_scenario_data(self, location: Dict, params: Dict) -> Dict:
-		"""
-		SSP 시나리오 데이터 수집 (4개 시나리오)
+		# Spatial Cache에서 토지피복 분석 데이터 조회
+		if site_id:
+			landcover = self.db_manager.fetch_spatial_landcover(site_id)
+			if landcover:
+				result['landcover_analysis'] = landcover
 
-		Args:
-			location: 위치 정보
-			params: 분석 파라미터
+			# DEM 분석 데이터 조회
+			dem = self.db_manager.fetch_spatial_dem(site_id)
+			if dem:
+				result['dem_analysis'] = dem
 
-		Returns:
-			SSP 시나리오 데이터 딕셔너리
-		"""
-		# TODO: 실제 데이터 수집 로직 구현
-		scenarios = {
-			'ssp1-2.6': {},
-			'ssp2-4.5': {},
-			'ssp3-7.0': {},
-			'ssp5-8.5': {}
-		}
+		# 주변 인프라 정보 조회
+		result['nearby_hospitals'] = self.db_manager.fetch_nearby_hospitals(
+			latitude, longitude, radius_km=5.0
+		)
 
-		for scenario in scenarios:
-			scenarios[scenario] = {
-				'temperature_projection': [],
-				'precipitation_projection': [],
-				'sea_level_projection': [],
-				'extreme_events_frequency': []
-			}
+		# 행정구역 정보
+		admin_code = location.get('admin_code')
+		if admin_code:
+			result['shelters'] = self.db_manager.fetch_nearby_shelters(admin_code)
 
-		return scenarios
+		return result
 
 	def _collect_historical_events(self, location: Dict, params: Dict) -> Dict:
 		"""
-		역사적 재해 사건 데이터 수집
+		역사적 재해 사건 데이터 수집 (PostgreSQL에서 조회)
 
 		Args:
 			location: 위치 정보
@@ -198,12 +195,71 @@ class DataCollectionAgent:
 		Returns:
 			역사적 재해 데이터 딕셔너리
 		"""
-		# TODO: 실제 데이터 수집 로직 구현
+		latitude = location['latitude']
+		longitude = location['longitude']
+		start_year = params.get('start_year', 2000)
+		end_year = params.get('end_year', 2023)
+		radius_km = params.get('search_radius_km', 100)
+
+		self.logger.info(f"Fetching historical typhoon events within {radius_km}km of ({latitude}, {longitude})")
+
+		# PostgreSQL에서 태풍 이력 조회 (ERD 기반)
+		typhoon_events = self.db_manager.fetch_typhoon_history(
+			latitude=latitude,
+			longitude=longitude,
+			radius_km=radius_km,
+			start_year=start_year,
+			end_year=end_year
+		)
+
 		return {
-			'heatwaves': [],
-			'coldwaves': [],
-			'droughts': [],
-			'floods': [],
-			'wildfires': [],
-			'typhoons': []
+			'location': location,
+			'search_radius_km': radius_km,
+			'period': {'start_year': start_year, 'end_year': end_year},
+			'total_typhoon_events': len(typhoon_events),
+			'typhoon_events': typhoon_events
+		}
+
+	def _collect_ssp_scenario_data(self, location: Dict, params: Dict) -> Dict:
+		"""
+		SSP 시나리오 데이터 수집 (PostgreSQL에서 조회)
+
+		Args:
+			location: 위치 정보
+			params: 분석 파라미터
+
+		Returns:
+			SSP 시나리오 데이터 딕셔너리
+		"""
+		latitude = location['latitude']
+		longitude = location['longitude']
+		admin_code = location.get('admin_code')
+		start_year = params.get('future_start_year', 2025)
+		end_year = params.get('future_end_year', 2100)
+		scenario_ids = params.get('scenario_ids', [1, 2, 3, 4])  # 1=SSP1-2.6, 2=SSP2-4.5, 3=SSP3-7.0, 4=SSP5-8.5
+
+		self.logger.info(f"Fetching SSP scenario data for ({latitude}, {longitude})")
+
+		# 각 시나리오별 데이터 조회 (ERD 기반)
+		ssp_data = {}
+
+		for scenario_id in scenario_ids:
+			scenario_name = f"SSP{scenario_id}"
+
+			# 종합 기후 데이터 수집 (각 시나리오별)
+			scenario_data = self.db_manager.collect_all_climate_data(
+				latitude=latitude,
+				longitude=longitude,
+				start_year=start_year,
+				end_year=end_year,
+				scenario_id=scenario_id,
+				admin_code=admin_code
+			)
+
+			ssp_data[scenario_name] = scenario_data
+
+		return {
+			'location': location,
+			'period': {'start_year': start_year, 'end_year': end_year},
+			'scenarios': ssp_data
 		}

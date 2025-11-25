@@ -22,38 +22,56 @@ from .nodes import (
 	strategy_generation_node,
 	report_generation_node,
 	validation_node,
+	refiner_node,
 	finalization_node
 )
 
 
 def should_retry_validation(state: SuperAgentState) -> str:
 	"""
-	검증 재시도 판단 함수
-	검증 실패 시 이슈 유형에 따라 분기 결정
+	검증 재시도 판단 함수 (Refiner Loop 포함)
+	검증 실패 시 먼저 Refiner로 자동 보완 시도, 이후 재실행 결정
 
 	Args:
 		state: 현재 워크플로우 상태
 
 	Returns:
-		다음 노드 이름 ('impact_analysis', 'strategy_generation', 또는 'finalization')
+		다음 노드 이름 ('refiner', 'impact_analysis', 'strategy_generation', 'finalization')
 	"""
 	validation_status = state.get('validation_status')
 	retry_count = state.get('retry_count', 0)
+	refiner_loop_count = state.get('refiner_loop_count', 0)
 	validation_result = state.get('validation_result', {})
 
-	# 검증 통과 또는 재시도 횟수 초과
+	# 검증 통과
 	if validation_status == 'passed':
 		print("[조건부 분기] 검증 통과 -> 최종화")
 		return 'finalization'
 
+	# Refiner Loop 횟수 확인
+	if refiner_loop_count >= 3:
+		print(f"[조건부 분기] Refiner Loop 횟수 초과 ({refiner_loop_count}/3) -> 최종화")
+		return 'finalization'
+
+	# 재시도 횟수 확인
 	if retry_count >= 3:
-		print("[조건부 분기] 재시도 횟수 초과 (3/3) -> 최종화")
+		print(f"[조건부 분기] 재시도 횟수 초과 ({retry_count}/3) -> 최종화")
 		return 'finalization'
 
 	# 검증 실패 - 이슈 유형 분석
 	issues_found = validation_result.get('issues_found', [])
 
-	# 영향 분석 관련 이슈 확인
+	# 텍스트/구조 관련 이슈 (Refiner로 자동 수정 가능)
+	refiner_fixable_issues = [
+		'text_quality',
+		'structure_incomplete',
+		'section_missing',
+		'formatting_error',
+		'tcfd_alignment',
+		'citation_missing'
+	]
+
+	# 영향 분석 관련 이슈 (재실행 필요)
 	impact_related_issues = [
 		'impact_analysis_missing',
 		'impact_data_inconsistent',
@@ -61,7 +79,7 @@ def should_retry_validation(state: SuperAgentState) -> str:
 		'risk_impact_mismatch'
 	]
 
-	# 전략 관련 이슈 확인
+	# 전략 관련 이슈 (재실행 필요)
 	strategy_related_issues = [
 		'strategy_missing',
 		'strategy_incomplete',
@@ -70,6 +88,12 @@ def should_retry_validation(state: SuperAgentState) -> str:
 	]
 
 	# 이슈 분류
+	has_refiner_issues = any(
+		issue.get('type') in refiner_fixable_issues or
+		any(keyword in issue.get('type', '').lower() for keyword in ['text', 'structure', 'format', 'tcfd', 'citation'])
+		for issue in issues_found
+	)
+
 	has_impact_issues = any(
 		issue.get('type') in impact_related_issues or 'impact' in issue.get('type', '').lower()
 		for issue in issues_found
@@ -80,17 +104,20 @@ def should_retry_validation(state: SuperAgentState) -> str:
 		for issue in issues_found
 	)
 
-	# 분기 결정
-	if has_impact_issues and not has_strategy_issues:
+	# 분기 결정 (우선순위: Refiner > Impact > Strategy)
+	if has_refiner_issues and refiner_loop_count < 3:
+		print(f"[조건부 분기] 검증 실패 (텍스트/구조 이슈) -> Refiner 자동 보완 (Loop {refiner_loop_count + 1}/3)")
+		return 'refiner'
+	elif has_impact_issues and not has_strategy_issues:
 		print(f"[조건부 분기] 검증 실패 (영향 분석 이슈) -> 영향 분석 재실행 (재시도 {retry_count + 1}/3)")
 		return 'impact_analysis'
 	elif has_strategy_issues or (has_impact_issues and has_strategy_issues):
 		print(f"[조건부 분기] 검증 실패 (전략 이슈) -> 대응 전략 재생성 (재시도 {retry_count + 1}/3)")
 		return 'strategy_generation'
 	else:
-		# 기타 이슈는 전략 재생성으로
-		print(f"[조건부 분기] 검증 실패 (일반 이슈) -> 대응 전략 재생성 (재시도 {retry_count + 1}/3)")
-		return 'strategy_generation'
+		# 기타 이슈는 Refiner로
+		print(f"[조건부 분기] 검증 실패 (일반 이슈) -> Refiner 자동 보완 (Loop {refiner_loop_count + 1}/3)")
+		return 'refiner'
 
 
 def create_workflow_graph(config):
@@ -120,6 +147,7 @@ def create_workflow_graph(config):
 	workflow.add_node('strategy_generation', lambda state: strategy_generation_node(state, config))
 	workflow.add_node('report_generation', lambda state: report_generation_node(state, config))
 	workflow.add_node('validation', lambda state: validation_node(state, config))
+	workflow.add_node('refiner', lambda state: refiner_node(state, config))
 	workflow.add_node('finalization', lambda state: finalization_node(state, config))
 
 	# ========== 엣지 추가 (워크플로우 흐름) ==========
@@ -157,16 +185,20 @@ def create_workflow_graph(config):
 	# 10. 리포트 생성 -> 검증
 	workflow.add_edge('report_generation', 'validation')
 
-	# 11. 검증 -> 조건부 분기 (이슈 유형에 따라 분기)
+	# 11. 검증 -> 조건부 분기 (Refiner Loop 포함)
 	workflow.add_conditional_edges(
 		'validation',
 		should_retry_validation,
 		{
+			'refiner': 'refiner',  # 텍스트/구조 이슈 -> Refiner 자동 보완
 			'impact_analysis': 'impact_analysis',  # 영향 분석 이슈 -> 영향 분석 재실행
 			'strategy_generation': 'strategy_generation',  # 전략 이슈 -> 전략 재생성
 			'finalization': 'finalization'  # 검증 통과 또는 재시도 초과 -> 최종화
 		}
 	)
+
+	# 11a. Refiner -> 검증 (재검증 루프)
+	workflow.add_edge('refiner', 'validation')
 
 	# 12. 최종화 -> 종료
 	workflow.add_edge('finalization', END)

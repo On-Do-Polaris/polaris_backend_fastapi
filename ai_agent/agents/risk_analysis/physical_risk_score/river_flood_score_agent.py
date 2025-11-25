@@ -14,14 +14,14 @@ from .base_physical_risk_score_agent import BasePhysicalRiskScoreAgent
 class RiverFloodScoreAgent(BasePhysicalRiskScoreAgent):
 	"""
 	내륙 홍수 리스크 물리적 종합 점수 산출 Agent
-	H (Hazard) × E (Exposure) × V (Vulnerability) 기반 리스크 점수 계산
+	(H + E + V) / 3 평균 기반 리스크 점수 계산
 	"""
 
 	def __init__(self):
 		"""
 		RiverFloodScoreAgent 초기화
 		"""
-		super().__init__(risk_type='하천 홍수')
+		super().__init__(risk_type='river_flood')
 
 	def calculate_hazard(self, collected_data: Dict[str, Any]) -> float:
 		"""
@@ -44,45 +44,73 @@ class RiverFloodScoreAgent(BasePhysicalRiskScoreAgent):
 
 		return round(hazard_score, 4)
 
-	def calculate_exposure(self, asset_info: Dict[str, Any]) -> float:
+	def calculate_exposure(self, collected_data: Dict[str, Any]) -> float:
 		"""
-		내륙 홍수 Exposure 점수 계산
-		자산 가치 및 노출 정도 평가
+		내륙 홍수 Exposure 점수 계산 (하천 거리 + 저지대 기반)
+
+		근거: inland_flood_risk.md
+		E = 0.4 × 하천거리 + 0.35 × 침수이력 + 0.25 × 저지대여부
 
 		Args:
-			asset_info: 사업장 자산 정보
+			collected_data: 수집된 환경 데이터
 
 		Returns:
 			Exposure 점수 (0.0 ~ 1.0)
 		"""
-		total_asset_value = asset_info.get('total_asset_value', 0)
+		exposure_data = collected_data.get('exposure', {})
+		flood_exp = exposure_data.get('flood_exposure', {})
+		location = exposure_data.get('location', {})
 
-		# 자산 가치 기반 노출도 (10억원 단위)
-		exposure_score = min(total_asset_value / 100_000_000_000, 1.0)
-		exposure_score = max(exposure_score, 0.1)
+		# 하천까지 거리
+		distance_to_river_m = flood_exp.get('distance_to_river_m', 1000)
 
-		return round(exposure_score, 4)
+		# 거리 기반 점수 (100m 이내: 1.0, 2km 이상: 0.0)
+		if distance_to_river_m <= 100:
+			distance_score = 1.0
+		elif distance_to_river_m >= 2000:
+			distance_score = 0.0
+		else:
+			distance_score = 1.0 - ((distance_to_river_m - 100) / 1900)
+
+		# 홍수 위험 구역 여부
+		in_flood_zone = flood_exp.get('in_flood_zone', False)
+		flood_zone_score = 1.0 if in_flood_zone else 0.3
+
+		# 고도 (저지대일수록 위험)
+		elevation_m = location.get('elevation_m', 50)
+		if elevation_m < 10:
+			elevation_score = 1.0
+		elif elevation_m < 50:
+			elevation_score = 0.6
+		else:
+			elevation_score = 0.2
+
+		# 가중 평균
+		exposure_score = (distance_score * 0.5) + (flood_zone_score * 0.3) + (elevation_score * 0.2)
+
+		return round(min(exposure_score, 1.0), 4)
 
 	def calculate_vulnerability(
 		self,
 		vulnerability_analysis: Dict[str, Any],
-		asset_info: Dict[str, Any]
+		collected_data: Dict[str, Any]
 	) -> float:
 		"""
 		내륙 홍수 Vulnerability 점수 계산
-		건물 및 시설 취약성 평가
+		VulnerabilityAnalysisAgent에서 계산된 inland_flood 취약성 사용
 
 		Args:
-			vulnerability_analysis: 취약성 분석 결과
-			asset_info: 사업장 자산 정보
+			vulnerability_analysis: VulnerabilityAnalysisAgent의 계산 결과
+			collected_data: 수집된 데이터 (미사용, 호환성 유지)
 
 		Returns:
 			Vulnerability 점수 (0.0 ~ 1.0)
 		"""
-		# 건물 연식
-		building_age = vulnerability_analysis.get('building_age', 10)
+		# VulnerabilityAnalysisAgent의 inland_flood 결과 사용
+		flood_vuln = vulnerability_analysis.get('inland_flood', {})
+		vuln_score = flood_vuln.get('score', 40)  # 0-100 스케일
 
-		# 건물 연식 기반 취약성
-		age_vulnerability = 0.2 + min(building_age / 100, 0.5)
+		# 0-1 스케일로 정규화
+		normalized_score = vuln_score / 100.0
 
-		return round(min(age_vulnerability, 1.0), 4)
+		return round(normalized_score, 4)

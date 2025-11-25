@@ -20,7 +20,5 @@ class ExtremeColdAALAgent(BaseAALAnalysisAgent):
 	def __init__(self):
 		super().__init__(
 			risk_type='극심한 한파',
-			s_min=0.7,
-			s_max=1.3,
 			insurance_rate=0.0
 		)

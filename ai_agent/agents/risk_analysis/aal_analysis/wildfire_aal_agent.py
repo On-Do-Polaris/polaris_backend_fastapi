@@ -20,7 +20,5 @@ class WildfireAALAgent(BaseAALAnalysisAgent):
 	def __init__(self):
 		super().__init__(
 			risk_type='산불',
-			s_min=0.7,
-			s_max=1.3,
 			insurance_rate=0.0
 		)

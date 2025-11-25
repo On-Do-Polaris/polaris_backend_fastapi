@@ -21,8 +21,9 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "*"  # 쉼표로 구분된 도메인 목록 또는 "*"
     # 예시: "http://localhost:3000,https://polaris.example.com"
 
-    # Database (PostgreSQL)
-    DATABASE_URL: Optional[str] = "postgresql+asyncpg://user:password@localhost:5432/polaris"
+    # Database (PostgreSQL Datawarehouse)
+    # Default: Local development datawarehouse
+    DATABASE_URL: Optional[str] = "postgresql://skala_dw_user:1234@localhost:5433/skala_datawarehouse"
     DATABASE_POOL_SIZE: int = 5
     DATABASE_MAX_OVERFLOW: int = 10
 
@@ -42,11 +43,12 @@ class Settings(BaseSettings):
             return ["*"]
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
-        extra = "ignore"  # 정의되지 않은 환경변수 무시
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "case_sensitive": True,
+        "extra": "ignore"  # 정의되지 않은 환경변수 무시
+    }
 
 
 settings = Settings()

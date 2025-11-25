@@ -1,12 +1,13 @@
 '''
 파일명: nodes.py
-최종 수정일: 2025-11-21
-버전: v03
+최종 수정일: 2025-11-25
+버전: v04
 파일 개요: LangGraph 워크플로우 노드 함수 정의 (Super Agent 계층적 구조용)
 변경 이력:
 	- 2025-11-11: v01 - Super Agent 계층적 구조로 전면 개편, 10개 주요 노드 재구성
 	- 2025-11-11: v02 - 노드 순서 변경 (Node 3: AAL 분석, Node 4: 물리적 리스크 점수 100점 스케일)
 	- 2025-11-21: v03 - Scratch Space 기반 데이터 관리 적용
+	- 2025-11-25: v04 - LangSmith 트레이싱 데코레이터 추가
 '''
 from typing import Dict, Any
 import numpy as np
@@ -15,6 +16,16 @@ from .state import SuperAgentState
 from ..utils.llm_client import LLMClient
 from ..utils.rag_engine import RAGEngine
 from ..utils.scratch_manager import ScratchSpaceManager
+
+# LangSmith traceable 임포트
+try:
+	from langsmith import traceable
+except ImportError:
+	# LangSmith 미설치 시 no-op 데코레이터
+	def traceable(*args, **kwargs):
+		def decorator(func):
+			return func
+		return decorator
 
 from ..agents import (
 	DataCollectionAgent,
@@ -51,6 +62,7 @@ scratch_manager = ScratchSpaceManager(base_path="./scratch", default_ttl_hours=4
 
 
 # ========== Node 1: 데이터 수집 (Scratch Space 기반) ==========
+@traceable(name="data_collection_node", tags=["workflow", "node", "data-collection"])
 def data_collection_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	데이터 수집 노드 (Scratch Space 기반)
@@ -127,6 +139,7 @@ def data_collection_node(state: SuperAgentState, config: Any) -> Dict:
 
 
 # ========== Node 2: 취약성 분석 ==========
+@traceable(name="vulnerability_analysis_node", tags=["workflow", "node", "vulnerability"])
 def vulnerability_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	취약성 분석 노드
@@ -178,6 +191,7 @@ def vulnerability_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 
 
 # ========== Node 3: 연평균 재무 손실률 분석 (9개 Sub Agent 병렬 실행) ==========
+@traceable(name="aal_analysis_node", tags=["workflow", "node", "aal", "parallel"])
 def aal_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	연평균 재무 손실률 (AAL) 분석 노드
@@ -239,6 +253,7 @@ def aal_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 
 
 # ========== Node 3a: 물리적 리스크 종합 점수 산출 (9개 Sub Agent H×E×V 기반) ==========
+@traceable(name="physical_risk_score_node", tags=["workflow", "node", "physical-risk", "parallel"])
 def physical_risk_score_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	물리적 리스크 종합 점수 산출 노드 (병렬 실행)
@@ -309,6 +324,7 @@ def physical_risk_score_node(state: SuperAgentState, config: Any) -> Dict:
 
 
 # ========== Node 4: 리스크 통합 (물리적 리스크 + AAL 결과 통합) ==========
+@traceable(name="risk_integration_node", tags=["workflow", "node", "integration"])
 def risk_integration_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	리스크 통합 노드
@@ -363,6 +379,7 @@ def risk_integration_node(state: SuperAgentState, config: Any) -> Dict:
 
 
 # ========== Node 5: 기존 보고서 참고 및 템플릿 형성 (ReportAnalysisAgent) ==========
+@traceable(name="report_template_node", tags=["workflow", "node", "report", "template"])
 def report_template_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	기존 보고서 참고 및 템플릿 형성 노드
@@ -428,6 +445,7 @@ def report_template_node(state: SuperAgentState, config: Any) -> Dict:
 
 
 # ========== Node 6: 영향 분석 (ImpactAnalysisAgent) ==========
+@traceable(name="impact_analysis_node", tags=["workflow", "node", "impact", "llm"])
 def impact_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	리스크 영향 분석 노드
@@ -477,6 +495,7 @@ def impact_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 
 
 # ========== Node 7: 대응 전략 생성 (StrategyGenerationAgent) ==========
+@traceable(name="strategy_generation_node", tags=["workflow", "node", "strategy", "llm", "rag"])
 def strategy_generation_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	대응 전략 생성 노드
@@ -530,6 +549,7 @@ def strategy_generation_node(state: SuperAgentState, config: Any) -> Dict:
 
 
 # ========== Node 8: 리포트 생성 (ReportComposerAgent) ==========
+@traceable(name="report_generation_node", tags=["workflow", "node", "report", "composer"])
 def report_generation_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	리포트 생성 노드
@@ -575,6 +595,7 @@ def report_generation_node(state: SuperAgentState, config: Any) -> Dict:
 
 
 # ========== Node 9: 검증 ==========
+@traceable(name="validation_node", tags=["workflow", "node", "validation"])
 def validation_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	검증 노드
@@ -630,6 +651,7 @@ def validation_node(state: SuperAgentState, config: Any) -> Dict:
 
 
 # ========== Node 9a: Refiner (검증 실패 시 자동 보완) ==========
+@traceable(name="refiner_node", tags=["workflow", "node", "refiner", "llm"])
 def refiner_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	Refiner 노드
@@ -711,6 +733,7 @@ def refiner_node(state: SuperAgentState, config: Any) -> Dict:
 
 
 # ========== Node 10: 최종 리포트 산출 (FinalizerNode) ==========
+@traceable(name="finalization_node", tags=["workflow", "node", "finalization"])
 def finalization_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	최종 리포트 산출 노드

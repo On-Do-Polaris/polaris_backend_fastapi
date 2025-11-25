@@ -4,7 +4,8 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.116.1-009688.svg)](https://fastapi.tiangolo.com/)
-[![LangGraph](https://img.shields.io/badge/LangGraph-1.0.1-FF6F00.svg)](https://langchain-ai.github.io/langgraph/)
+[![LangChain](https://img.shields.io/badge/LangChain-1.1.0-00A67E.svg)](https://langchain.com/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-1.0.3-FF6F00.svg)](https://langchain-ai.github.io/langgraph/)
 
 ## 📋 목차
 
@@ -506,6 +507,40 @@ docker run -d \
 
 ---
 
+## 📝 변경 이력 (Changelog)
+
+### v1.1.0 (2025-11-25)
+
+#### 🔄 AAL Agent v11 아키텍처 마이그레이션
+- **AALCalculatorService 신규 구현**: DB 기반 base_aal 계산 로직 분리
+- **AAL Agent 책임 분리**: vulnerability scaling만 수행하도록 변경
+- **워크플로우 노드 업데이트**:
+  - `vulnerability_analysis_node`: vulnerability_score 추출 (0-100 스케일)
+  - `aal_analysis_node`: v11 시그니처 적용 (`analyze_aal(base_aal, vulnerability_score)`)
+  - `risk_integration_node`: 출력 필드명 수정 (`final_aal_percentage`)
+- **State 정의 업데이트**: AALAnalysisState v11 반영
+- **계산 공식**: `AAL = base_aal × F_vuln × (1-IR)`
+
+#### 📦 의존성 업그레이드
+- `langchain`: 0.3.27 → **1.1.0**
+- `langchain-core`: 0.3.79 → **1.1.0**
+- `langchain-openai`: 0.3.35 → **1.1.0**
+- `langchain-text-splitters`: 0.3.11 → **1.0.0**
+- `langgraph`: 1.0.1 → **1.0.3**
+- `langgraph-prebuilt`: 1.0.1 → **1.0.5**
+
+#### 📚 문서 추가
+- [AAL_V11_MIGRATION_SUMMARY.md](docs/AAL_V11_MIGRATION_SUMMARY.md): 전체 마이그레이션 요약
+- [AAL_AGENT_INCONSISTENCY_ANALYSIS.md](docs/AAL_AGENT_INCONSISTENCY_ANALYSIS.md): 불일치 분석
+- [LANGSMITH_MONITORING_GUIDE.md](docs/LANGSMITH_MONITORING_GUIDE.md): 모니터링 가이드
+- [LANGSMITH_INTEGRATION_SUMMARY.md](docs/LANGSMITH_INTEGRATION_SUMMARY.md): LangSmith 통합 요약
+
+#### ⚠️ Breaking Changes
+- AAL Agent 메서드 시그니처 변경: 기존 v10 호출 코드 호환 불가
+- AALAnalysisState 필드 완전 재구성
+
+---
+
 ## 라이선스
 
 이 프로젝트는 비공개 프로젝트입니다.
@@ -518,4 +553,4 @@ docker run -d \
 
 ---
 
-**Built with ❤️ using FastAPI, LangGraph, and OpenAI**
+**Built with ❤️ using FastAPI, LangChain, LangGraph, and OpenAI**

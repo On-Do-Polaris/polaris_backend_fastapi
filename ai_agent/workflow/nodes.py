@@ -1,13 +1,14 @@
 '''
 파일명: nodes.py
 최종 수정일: 2025-11-25
-버전: v04
+버전: v05
 파일 개요: LangGraph 워크플로우 노드 함수 정의 (Super Agent 계층적 구조용)
 변경 이력:
 	- 2025-11-11: v01 - Super Agent 계층적 구조로 전면 개편, 10개 주요 노드 재구성
 	- 2025-11-11: v02 - 노드 순서 변경 (Node 3: AAL 분석, Node 4: 물리적 리스크 점수 100점 스케일)
 	- 2025-11-21: v03 - Scratch Space 기반 데이터 관리 적용
 	- 2025-11-25: v04 - LangSmith 트레이싱 데코레이터 추가
+	- 2025-11-25: v05 - AAL Agent v11 아키텍처 적용 (AALCalculatorService + vulnerability scaling)
 '''
 from typing import Dict, Any
 import numpy as np
@@ -156,10 +157,37 @@ def vulnerability_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 
 	try:
 		agent = VulnerabilityAnalysisAgent()
-		vulnerability_result = agent.analyze_vulnerability(
-			state.get('building_info', {}),
-			state.get('target_location', {})
-		)
+
+		# Exposure 데이터 구성 (VulnerabilityAnalysisAgent가 요구하는 형식)
+		building_info = state.get('building_info', {})
+		target_location = state.get('target_location', {})
+
+		# 기본 exposure 구조 생성
+		exposure = {
+			'building': {
+				'building_age': building_info.get('building_age', 20),
+				'structure': building_info.get('structure', '철근콘크리트'),
+				'main_purpose': building_info.get('main_purpose', '업무시설'),
+				'floors_below': building_info.get('floors_below', 0),
+				'floors_above': building_info.get('floors_above', 5),
+				'has_piloti': building_info.get('has_piloti', False),
+			},
+			'infrastructure': {
+				'water_supply_available': building_info.get('water_supply_available', True),
+			},
+			'flood_exposure': {
+				'in_flood_zone': target_location.get('in_flood_zone', False),
+			},
+			'typhoon_exposure': {
+				'coastal_exposure': target_location.get('coastal_exposure', False),
+			},
+			'wildfire_exposure': {
+				'distance_to_forest_m': target_location.get('distance_to_forest_m', 1000),
+			}
+		}
+
+		# 취약성 계산 (9개 리스크별)
+		vulnerability_result = agent.calculate_vulnerability(exposure)
 
 		# 9개 리스크 선정
 		selected_risks = [
@@ -174,6 +202,20 @@ def vulnerability_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 			'typhoon'
 		]
 
+		# AAL Agent v11을 위한 vulnerability_score 추출 (0-100 스케일)
+		vulnerability_scores = {}
+		for risk_type in selected_risks:
+			risk_vuln = vulnerability_result.get(risk_type, {})
+			vulnerability_scores[f'{risk_type}_vulnerability_score'] = risk_vuln.get('score', 50.0)
+
+		# vulnerability_result에 scores 추가
+		vulnerability_result['vulnerability_scores'] = vulnerability_scores
+
+		print(f"  ✓ 취약성 분석 완료")
+		for risk_type in selected_risks:
+			score = vulnerability_scores.get(f'{risk_type}_vulnerability_score', 0)
+			print(f"    - {risk_type}: V_score={score:.2f}/100")
+
 		return {
 			'vulnerability_analysis': vulnerability_result,
 			'vulnerability_status': 'completed',
@@ -184,6 +226,8 @@ def vulnerability_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 
 	except Exception as e:
 		print(f"[Node 2] 오류: {str(e)}")
+		import traceback
+		traceback.print_exc()
 		return {
 			'vulnerability_status': 'failed',
 			'errors': [f'취약성 분석 오류: {str(e)}']
@@ -194,8 +238,12 @@ def vulnerability_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 @traceable(name="aal_analysis_node", tags=["workflow", "node", "aal", "parallel"])
 def aal_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
-	연평균 재무 손실률 (AAL) 분석 노드
-	9개 리스크별로 P(H) x 손상률 x (1-보험보전율) 기반 AAL(%) 계산 (병렬 실행)
+	연평균 재무 손실률 (AAL) 분석 노드 (v11 아키텍처)
+
+	v11 변경사항:
+	- AALCalculatorService로 base_aal 계산 (DB 기반 로직)
+	- AAL Agent는 vulnerability scaling만 수행
+	- 공식: AAL = base_aal × F_vuln × (1-IR)
 
 	Args:
 		state: 현재 워크플로우 상태
@@ -204,9 +252,11 @@ def aal_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 	Returns:
 		업데이트된 상태 딕셔너리
 	"""
-	print("[Node 3] 연평균 재무 손실률 (AAL) 분석 시작...")
+	print("[Node 3] 연평균 재무 손실률 (AAL) 분석 시작 (v11)...")
 
 	try:
+		from ai_agent.services import get_aal_calculator
+
 		# 9개 AAL Agent 인스턴스 생성
 		agents = {
 			'extreme_heat': ExtremeHeatAALAgent(),
@@ -223,29 +273,46 @@ def aal_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 		# Scratch Space에서 원본 데이터 로드
 		session_id = state.get('scratch_session_id')
 		collected_data = scratch_manager.load_data(session_id, "climate_raw.json", format="json")
-		asset_info = state.get('asset_info', {})
+
+		# Vulnerability 분석 결과에서 vulnerability_scores 추출
+		vulnerability_analysis = state.get('vulnerability_analysis', {})
+		vulnerability_scores = vulnerability_analysis.get('vulnerability_scores', {})
+
+		# AALCalculatorService 초기화
+		aal_calculator = get_aal_calculator()
 
 		aal_analysis = {}
 
-		# 각 리스크별로 AAL 계산 (physical_risk_score 없이 독립 계산)
+		# 각 리스크별로 AAL 계산 (v11 아키텍처)
 		for risk_type, agent in agents.items():
+			# Step 1: AALCalculatorService로 base_aal 계산
+			base_aal = aal_calculator.calculate_base_aal(collected_data, risk_type)
+
+			# Step 2: vulnerability_score 추출 (0-100 스케일)
+			vulnerability_score = vulnerability_scores.get(f'{risk_type}_vulnerability_score', 50.0)
+
+			# Step 3: AAL Agent v11로 최종 AAL 계산 (vulnerability scaling 적용)
 			result = agent.analyze_aal(
-				collected_data,
-				physical_risk_score=0.5,  # 더미 값 (실제로는 사용 안 함)
-				asset_info=asset_info
+				base_aal=base_aal,
+				vulnerability_score=vulnerability_score
 			)
+
 			aal_analysis[risk_type] = result
-			print(f"  - {risk_type}: AAL={result.get('aal_percentage', 0):.4f}%")
+
+			print(f"  - {risk_type}: base_aal={base_aal:.6f}, V_score={vulnerability_score:.2f}, "
+			      f"AAL={result.get('final_aal_percentage', 0):.4f}%")
 
 		return {
 			'aal_analysis': aal_analysis,
 			'aal_status': 'completed',
 			'current_step': 'physical_risk_score',
-			'logs': ['연평균 재무 손실률 (AAL) 분석 완료 (9개)']
+			'logs': ['연평균 재무 손실률 (AAL) 분석 완료 (v11, 9개 리스크)']
 		}
 
 	except Exception as e:
 		print(f"[Node 3] 오류: {str(e)}")
+		import traceback
+		traceback.print_exc()
 		return {
 			'aal_status': 'failed',
 			'errors': [f'AAL 분석 오류: {str(e)}']
@@ -355,12 +422,12 @@ def risk_integration_node(state: SuperAgentState, config: Any) -> Dict:
 				'aal_analysis': aal_data,
 				'combined_score': (
 					physical_data.get('physical_risk_score_100', 0) * 0.5 +
-					(aal_data.get('aal_percentage', 0) * 10) * 0.5  # AAL을 100점 스케일로 변환
+					(aal_data.get('final_aal_percentage', 0) * 10) * 0.5  # AAL을 100점 스케일로 변환
 				)
 			}
 
 			print(f"  - {risk_type}: 물리적={physical_data.get('physical_risk_score_100', 0):.2f}, "
-			      f"AAL={aal_data.get('aal_percentage', 0):.2f}%, "
+			      f"AAL={aal_data.get('final_aal_percentage', 0):.2f}%, "
 			      f"통합점수={integrated_risks[risk_type]['combined_score']:.2f}")
 
 		return {

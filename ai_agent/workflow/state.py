@@ -1,11 +1,12 @@
 '''
 파일명: state.py
-최종 수정일: 2025-11-21
-버전: v02
+최종 수정일: 2025-11-25
+버전: v03
 파일 개요: LangGraph 워크플로우 상태 정의 (계층적 Super Agent 구조용)
 변경 이력:
 	- 2025-11-11: v01 - Super Agent 계층적 구조로 전면 개편
 	- 2025-11-21: v02 - Scratch Space 기반 데이터 관리 적용
+	- 2025-11-25: v03 - AALAnalysisState를 v11 아키텍처에 맞게 업데이트
 '''
 from typing import TypedDict, Dict, Any, List, Optional
 from typing_extensions import Annotated
@@ -113,23 +114,28 @@ class PhysicalRiskScoreState(TypedDict, total=False):
 
 class AALAnalysisState(TypedDict, total=False):
 	"""
-	연평균 재무 손실률 분석 Sub Agent 상태
-	P(H) x 손상률 기반 AAL 계산
+	연평균 재무 손실률 분석 Sub Agent 상태 (v11)
+
+	v11 변경사항:
+	- AALCalculatorService로 base_aal 계산 (외부 서비스)
+	- AAL Agent는 vulnerability scaling만 수행
+	- 공식: AAL = base_aal × F_vuln × (1-IR)
 	"""
 	risk_type: str  # 리스크 타입
 	scratch_session_id: str  # Scratch Space 세션 ID (원본 데이터 로드용)
 	climate_summary: Dict[str, Any]  # 기후 데이터 요약
-	physical_risk_score: float  # 물리적 리스크 점수 (선행 계산 결과)
-	asset_info: Dict[str, Any]  # 사업장 노출 자산 정보
+	vulnerability_score: float  # 취약성 점수 (0-100 스케일)
 
-	# 계산 결과
-	hazard_probability: float  # P(H): 위험 발생 확률
-	damage_rate: float  # 손상률
-	aal: float  # AAL (연평균 재무 손실률)
-	financial_loss: float  # 연평균 재무 손실액 (AAL x 노출 자산)
+	# 계산 입력
+	base_aal: float  # 기본 AAL (AALCalculatorService가 계산)
 
-	# 상세 정보
-	calculation_details: Dict[str, Any]  # 계산 상세 내역
+	# 계산 결과 (v11)
+	vulnerability_scale: float  # F_vuln: 취약성 스케일 계수
+	insurance_rate: float  # 보험 보전율 IR
+	final_aal_percentage: float  # 최종 AAL (%)
+	risk_level: str  # 위험 수준 (Minimal, Low, Moderate, High, Critical)
+
+	# 상태
 	status: str  # 분석 상태
 
 

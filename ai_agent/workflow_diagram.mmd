@@ -15,6 +15,7 @@ graph TD;
 	strategy_generation(strategy_generation)
 	report_generation(report_generation)
 	validation(validation)
+	refiner(refiner)
 	finalization(finalization)
 	__end__([<p>__end__</p>]):::last
 	__start__ --> data_collection;
@@ -22,12 +23,14 @@ graph TD;
 	data_collection --> vulnerability_analysis;
 	impact_analysis --> strategy_generation;
 	physical_risk_score --> risk_integration;
+	refiner --> validation;
 	report_generation --> validation;
 	report_template --> impact_analysis;
 	risk_integration --> report_template;
 	strategy_generation --> report_generation;
 	validation -.-> finalization;
 	validation -.-> impact_analysis;
+	validation -.-> refiner;
 	validation -.-> strategy_generation;
 	vulnerability_analysis --> aal_analysis;
 	vulnerability_analysis --> physical_risk_score;

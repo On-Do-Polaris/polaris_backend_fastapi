@@ -28,10 +28,10 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# CORS 설정
+# CORS 설정 (환경변수로 허용 도메인 설정)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 프로덕션에서는 특정 도메인으로 제한
+    allow_origins=settings.get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

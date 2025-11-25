@@ -1,12 +1,16 @@
 '''
 파일명: llm_client.py
-최종 수정일: 2025-11-17
-버전: v01
-파일 개요: LLM 클라이언트 (OpenAI API 기반 + LangSmith 트레이싱)
+최종 수정일: 2025-11-25
+버전: v02
+파일 개요: LLM 클라이언트 (LangChain + OpenAI + LangSmith 트레이싱 통합)
+변경 이력:
+	- v01 (2025-11-17): 초기 버전 (Mock 구현)
+	- v02 (2025-11-25): LangChain ChatOpenAI 통합, LangSmith 트레이싱 적용
 '''
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 import logging
 import os
+import json
 from dotenv import load_dotenv
 
 # .env 파일 로드
@@ -14,23 +18,32 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# LangSmith 트레이싱 초기화
+# LangSmith 환경 변수 설정
 if os.getenv('LANGSMITH_ENABLED', 'false').lower() == 'true':
-	try:
-		from langchain_teddynote import logging as langsmith_logging
-		project_name = os.getenv('LANGSMITH_PROJECT', 'skax-physical-risk-dev')
-		langsmith_logging.langsmith(project_name)
-		logger.info(f"LangSmith tracing enabled for project: {project_name}")
-	except ImportError:
-		logger.warning("langchain-teddynote not installed. LangSmith tracing disabled.")
-	except Exception as e:
-		logger.warning(f"Failed to initialize LangSmith: {e}")
+	os.environ['LANGCHAIN_TRACING_V2'] = 'true'
+	os.environ['LANGCHAIN_PROJECT'] = os.getenv('LANGSMITH_PROJECT', 'skax-physical-risk-dev')
+	os.environ['LANGCHAIN_ENDPOINT'] = os.getenv('LANGSMITH_ENDPOINT', 'https://api.smith.langchain.com')
+	if os.getenv('LANGSMITH_API_KEY'):
+		os.environ['LANGCHAIN_API_KEY'] = os.getenv('LANGSMITH_API_KEY')
+	logger.info(f"LangSmith tracing enabled for project: {os.environ['LANGCHAIN_PROJECT']}")
+
+# LangChain 임포트
+try:
+	from langchain_openai import ChatOpenAI
+	from langchain_core.messages import HumanMessage, SystemMessage
+	from langsmith import traceable
+	LANGCHAIN_AVAILABLE = True
+except ImportError:
+	logger.warning("langchain-openai not installed. Using fallback mode.")
+	LANGCHAIN_AVAILABLE = False
+	traceable = lambda *args, **kwargs: lambda func: func  # No-op decorator
 
 
 class LLMClient:
 	"""
 	LLM 클라이언트
-	OpenAI API를 활용한 대응 전략 생성 및 자연어 처리
+	LangChain ChatOpenAI를 활용한 대응 전략 생성 및 자연어 처리
+	LangSmith 자동 트레이싱 지원
 	"""
 
 	def __init__(self, model: str = 'gpt-4', temperature: float = 0.7):
@@ -45,8 +58,99 @@ class LLMClient:
 		self.temperature = temperature
 		self.api_key = os.getenv('OPENAI_API_KEY', '')
 		self.logger = logger
-		self.logger.info(f"LLMClient 초기화 완료: {model}")
 
+		# LangChain ChatOpenAI 초기화
+		if LANGCHAIN_AVAILABLE and self.api_key:
+			self.llm = ChatOpenAI(
+				model=model,
+				temperature=temperature,
+				openai_api_key=self.api_key,
+				model_kwargs={
+					"response_format": {"type": "json_object"} if "gpt-4" in model or "gpt-3.5" in model else {}
+				}
+			)
+			self.logger.info(f"LLMClient 초기화 완료: {model} (LangChain + LangSmith)")
+		else:
+			self.llm = None
+			self.logger.warning(f"LLMClient 초기화 (Fallback 모드): LangChain 미설치 또는 API 키 없음")
+
+	@traceable(name="llm_invoke", tags=["llm", "invoke"])
+	def invoke(self, prompt: Union[str, List[Dict[str, str]]], **kwargs) -> str:
+		"""
+		LLM 동기 호출 (LangSmith 트레이싱)
+
+		Args:
+			prompt: 프롬프트 문자열 또는 메시지 리스트
+			**kwargs: 추가 파라미터
+
+		Returns:
+			LLM 응답 문자열
+		"""
+		if self.llm is None:
+			return self._fallback_invoke(prompt)
+
+		try:
+			if isinstance(prompt, str):
+				messages = [HumanMessage(content=prompt)]
+			elif isinstance(prompt, list):
+				messages = [
+					SystemMessage(content=msg["content"]) if msg.get("role") == "system"
+					else HumanMessage(content=msg["content"])
+					for msg in prompt
+				]
+			else:
+				messages = [HumanMessage(content=str(prompt))]
+
+			response = self.llm.invoke(messages)
+			return response.content
+
+		except Exception as e:
+			self.logger.error(f"LLM 호출 실패: {e}")
+			return self._fallback_invoke(prompt)
+
+	@traceable(name="llm_ainvoke", tags=["llm", "async"])
+	async def ainvoke(self, prompt: Union[str, List[Dict[str, str]]], **kwargs) -> str:
+		"""
+		LLM 비동기 호출 (LangSmith 트레이싱)
+
+		Args:
+			prompt: 프롬프트 문자열 또는 메시지 리스트
+			**kwargs: 추가 파라미터
+
+		Returns:
+			LLM 응답 문자열
+		"""
+		if self.llm is None:
+			return self._fallback_invoke(prompt)
+
+		try:
+			if isinstance(prompt, str):
+				messages = [HumanMessage(content=prompt)]
+			elif isinstance(prompt, list):
+				messages = [
+					SystemMessage(content=msg["content"]) if msg.get("role") == "system"
+					else HumanMessage(content=msg["content"])
+					for msg in prompt
+				]
+			else:
+				messages = [HumanMessage(content=str(prompt))]
+
+			response = await self.llm.ainvoke(messages)
+			return response.content
+
+		except Exception as e:
+			self.logger.error(f"LLM 비동기 호출 실패: {e}")
+			return self._fallback_invoke(prompt)
+
+	def _fallback_invoke(self, _prompt: Union[str, List]) -> str:
+		"""Fallback 응답 (LangChain 미설치 시)"""
+		self.logger.warning("Fallback 모드로 동작 중 - Mock 응답 반환")
+		return json.dumps({
+			"status": "fallback",
+			"message": "LangChain not available. Please install langchain-openai."
+		})
+
+	@traceable(name="generate_response_strategy", tags=["strategy", "generation"])
 	def generate_response_strategy(
 		self,
 		risk_analysis_results: Dict[str, Any],
@@ -77,15 +181,22 @@ class LLMClient:
 			# 프롬프트 구성
 			prompt = self._build_strategy_prompt(risk_analysis_results, report_template, context)
 
-			# LLM 호출 (실제 구현 시 OpenAI API 호출)
-			# response = openai.ChatCompletion.create(
-			#     model=self.model,
-			#     messages=[{"role": "user", "content": prompt}],
-			#     temperature=self.temperature
-			# )
-
-			# 임시 Mock 응답 (실제 구현 시 LLM 응답으로 대체)
-			strategy_result = self._generate_mock_strategy(risk_analysis_results)
+			# LLM 호출
+			if self.llm:
+				response_text = self.invoke(prompt)
+				try:
+					# JSON 응답 파싱 시도
+					strategy_result = json.loads(response_text)
+					strategy_result['status'] = 'completed'
+				except json.JSONDecodeError:
+					# JSON 파싱 실패 시 텍스트 응답 사용
+					strategy_result = {
+						'strategy': {'overview': response_text},
+						'status': 'completed'
+					}
+			else:
+				# Fallback: Mock 응답
+				strategy_result = self._generate_mock_strategy(risk_analysis_results)
 
 			self.logger.info("대응 전략 생성 완료")
 			return strategy_result

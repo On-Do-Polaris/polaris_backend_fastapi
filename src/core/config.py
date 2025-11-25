@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from typing import Optional
+from typing import Optional, List
 
 
 class Settings(BaseSettings):
@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     # API Key Authentication
     API_KEY: str = "your-secret-api-key"  # 환경변수로 설정
 
+    # CORS Settings (프론트엔드 허용 도메인)
+    CORS_ORIGINS: str = "*"  # 쉼표로 구분된 도메인 목록 또는 "*"
+    # 예시: "http://localhost:3000,https://polaris.example.com"
+
     # Database (PostgreSQL)
     DATABASE_URL: Optional[str] = "postgresql+asyncpg://user:password@localhost:5432/polaris"
     DATABASE_POOL_SIZE: int = 5
@@ -31,6 +35,12 @@ class Settings(BaseSettings):
 
     # Mock Data (개발/테스트용)
     USE_MOCK_DATA: bool = True  # False로 설정하면 실제 ai_agent 사용
+
+    def get_cors_origins(self) -> List[str]:
+        """CORS 허용 도메인 목록 반환"""
+        if self.CORS_ORIGINS == "*":
+            return ["*"]
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
     class Config:
         env_file = ".env"

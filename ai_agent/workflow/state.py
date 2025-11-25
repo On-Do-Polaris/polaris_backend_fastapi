@@ -22,6 +22,8 @@ class SuperAgentState(TypedDict, total=False):
 	building_info: Dict[str, Any]  # 건물 정보 (연식, 구조, 용도)
 	asset_info: Dict[str, Any]  # 사업장 노출 자산 정보
 	analysis_params: Dict[str, Any]  # 분석 파라미터 (시간 범위, 시나리오)
+	company_name: Optional[str]  # 회사명 (Report Analysis용)
+	past_reports: Optional[List[str]]  # 기존 보고서 텍스트 리스트 (Report Analysis용)
 
 	# Step 1: 데이터 수집 (Scratch Space 기반)
 	scratch_session_id: str  # Scratch Space 세션 ID (데이터 참조용)
@@ -66,9 +68,16 @@ class SuperAgentState(TypedDict, total=False):
 	validation_status: str  # 검증 상태 (passed, failed)
 	validation_feedback: Optional[List[str]]  # 검증 피드백 (미달 시 개선 사항)
 
+	# Step 10a: Refiner (검증 실패 시 자동 보완)
+	refined_report: Optional[Dict[str, Any]]  # Refiner가 개선한 보고서
+	refiner_status: str  # Refiner 상태
+	applied_fixes: Optional[List[str]]  # 적용된 수정사항 목록
+	refiner_loop_count: int  # Refiner Loop 실행 횟수
+
 	# Step 11: 최종 리포트
 	final_report: Optional[Dict[str, Any]]  # 최종 승인된 리포트
 	final_status: str  # 최종 상태
+	output_paths: Optional[Dict[str, str]]  # 최종 출력 파일 경로 (md, json, pdf)
 
 	# 에러 및 로그
 	errors: Annotated[List[str], operator.add]  # 에러 목록 (병합)

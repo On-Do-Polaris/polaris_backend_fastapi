@@ -14,14 +14,14 @@ from .base_physical_risk_score_agent import BasePhysicalRiskScoreAgent
 class ExtremeColdScoreAgent(BasePhysicalRiskScoreAgent):
 	"""
 	극심한 한파 리스크 물리적 종합 점수 산출 Agent
-	H (Hazard) × E (Exposure) × V (Vulnerability) 기반 리스크 점수 계산
+	(H + E + V) / 3 평균 기반 리스크 점수 계산
 	"""
 
 	def __init__(self):
 		"""
 		ExtremeColdScoreAgent 초기화
 		"""
-		super().__init__(risk_type='극심한 한파')
+		super().__init__(risk_type='extreme_cold')
 
 	def calculate_hazard(self, collected_data: Dict[str, Any]) -> float:
 		"""
@@ -44,45 +44,55 @@ class ExtremeColdScoreAgent(BasePhysicalRiskScoreAgent):
 
 		return round(hazard_score, 4)
 
-	def calculate_exposure(self, asset_info: Dict[str, Any]) -> float:
+	def calculate_exposure(self, collected_data: Dict[str, Any]) -> float:
 		"""
-		극심한 한파 Exposure 점수 계산
-		자산 가치 및 노출 정도 평가
+		극심한 한파 Exposure 점수 계산 (도시 열섬 효과 유사)
 
 		Args:
-			asset_info: 사업장 자산 정보
+			collected_data: 수집된 환경 데이터
 
 		Returns:
 			Exposure 점수 (0.0 ~ 1.0)
 		"""
-		total_asset_value = asset_info.get('total_asset_value', 0)
+		exposure_data = collected_data.get('exposure', {})
+		heat_exp = exposure_data.get('heat_exposure', {})
+		location = exposure_data.get('location', {})
 
-		# 자산 가치 기반 노출도 (10억원 단위)
-		exposure_score = min(total_asset_value / 100_000_000_000, 1.0)
-		exposure_score = max(exposure_score, 0.1)
+		# 도시 열섬 강도 (한파는 반대 효과 - 열섬이 높으면 노출 낮음)
+		uhi_scores = {
+			'high': 0.3,  # 도심은 한파 영향 적음
+			'medium': 0.5,
+			'low': 0.8,  # 외곽은 한파 영향 큼
+		}
+		uhi_intensity = heat_exp.get('urban_heat_island', 'medium')
+		base_score = uhi_scores.get(uhi_intensity, 0.5)
 
+		# 고도 보정 (고지대일수록 한파 심함)
+		elevation_m = location.get('elevation_m', 50)
+		if elevation_m > 200:
+			base_score *= 1.2
+		elif elevation_m < 50:
+			base_score *= 0.9
+
+		exposure_score = min(base_score, 1.0)
 		return round(exposure_score, 4)
 
 	def calculate_vulnerability(
 		self,
 		vulnerability_analysis: Dict[str, Any],
-		asset_info: Dict[str, Any]
+		collected_data: Dict[str, Any]
 	) -> float:
 		"""
 		극심한 한파 Vulnerability 점수 계산
-		건물 및 시설 취약성 평가
 
 		Args:
-			vulnerability_analysis: 취약성 분석 결과
-			asset_info: 사업장 자산 정보
+			vulnerability_analysis: VulnerabilityAnalysisAgent의 계산 결과
+			collected_data: 수집된 데이터 (미사용)
 
 		Returns:
 			Vulnerability 점수 (0.0 ~ 1.0)
 		"""
-		# 건물 연식
-		building_age = vulnerability_analysis.get('building_age', 10)
-
-		# 건물 연식 기반 취약성
-		age_vulnerability = 0.2 + min(building_age / 100, 0.5)
-
-		return round(min(age_vulnerability, 1.0), 4)
+		cold_vuln = vulnerability_analysis.get('extreme_cold', {})
+		vuln_score = cold_vuln.get('score', 50)
+		normalized_score = vuln_score / 100.0
+		return round(normalized_score, 4)

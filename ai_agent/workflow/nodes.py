@@ -1,12 +1,13 @@
 '''
 파일명: nodes.py
-최종 수정일: 2025-11-21
-버전: v03
+최종 수정일: 2025-11-25
+버전: v04
 파일 개요: LangGraph 워크플로우 노드 함수 정의 (Super Agent 계층적 구조용)
 변경 이력:
 	- 2025-11-11: v01 - Super Agent 계층적 구조로 전면 개편, 10개 주요 노드 재구성
 	- 2025-11-11: v02 - 노드 순서 변경 (Node 3: AAL 분석, Node 4: 물리적 리스크 점수 100점 스케일)
 	- 2025-11-21: v03 - Scratch Space 기반 데이터 관리 적용
+	- 2025-11-25: v04 - LangSmith 트레이싱 데코레이터 추가
 '''
 from typing import Dict, Any
 import numpy as np
@@ -16,14 +17,26 @@ from ..utils.llm_client import LLMClient
 from ..utils.rag_engine import RAGEngine
 from ..utils.scratch_manager import ScratchSpaceManager
 
+# LangSmith traceable 임포트
+try:
+	from langsmith import traceable
+except ImportError:
+	# LangSmith 미설치 시 no-op 데코레이터
+	def traceable(*args, **kwargs):
+		def decorator(func):
+			return func
+		return decorator
+
 from ..agents import (
 	DataCollectionAgent,
 	VulnerabilityAnalysisAgent,
-	ReportTemplateAgent,
-	StrategyGenerationAgent,
-	ReportGenerationAgent,
-	ValidationAgent,
+	ReportAnalysisAgent,
 	ImpactAnalysisAgent,
+	StrategyGenerationAgent,
+	ReportComposerAgent,
+	ValidationAgent,
+	RefinerAgent,
+	FinalizerNode,
 	ExtremeHeatScoreAgent,
 	ExtremeColdScoreAgent,
 	WildfireScoreAgent,
@@ -49,6 +62,7 @@ scratch_manager = ScratchSpaceManager(base_path="./scratch", default_ttl_hours=4
 
 
 # ========== Node 1: 데이터 수집 (Scratch Space 기반) ==========
+@traceable(name="data_collection_node", tags=["workflow", "node", "data-collection"])
 def data_collection_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	데이터 수집 노드 (Scratch Space 기반)
@@ -125,6 +139,7 @@ def data_collection_node(state: SuperAgentState, config: Any) -> Dict:
 
 
 # ========== Node 2: 취약성 분석 ==========
+@traceable(name="vulnerability_analysis_node", tags=["workflow", "node", "vulnerability"])
 def vulnerability_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	취약성 분석 노드
@@ -176,6 +191,7 @@ def vulnerability_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 
 
 # ========== Node 3: 연평균 재무 손실률 분석 (9개 Sub Agent 병렬 실행) ==========
+@traceable(name="aal_analysis_node", tags=["workflow", "node", "aal", "parallel"])
 def aal_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	연평균 재무 손실률 (AAL) 분석 노드
@@ -237,6 +253,7 @@ def aal_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 
 
 # ========== Node 3a: 물리적 리스크 종합 점수 산출 (9개 Sub Agent H×E×V 기반) ==========
+@traceable(name="physical_risk_score_node", tags=["workflow", "node", "physical-risk", "parallel"])
 def physical_risk_score_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	물리적 리스크 종합 점수 산출 노드 (병렬 실행)
@@ -307,6 +324,7 @@ def physical_risk_score_node(state: SuperAgentState, config: Any) -> Dict:
 
 
 # ========== Node 4: 리스크 통합 (물리적 리스크 + AAL 결과 통합) ==========
+@traceable(name="risk_integration_node", tags=["workflow", "node", "integration"])
 def risk_integration_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	리스크 통합 노드
@@ -360,11 +378,12 @@ def risk_integration_node(state: SuperAgentState, config: Any) -> Dict:
 		}
 
 
-# ========== Node 5: 기존 보고서 참고 및 템플릿 형성 (ReportTemplateAgent) ==========
+# ========== Node 5: 기존 보고서 참고 및 템플릿 형성 (ReportAnalysisAgent) ==========
+@traceable(name="report_template_node", tags=["workflow", "node", "report", "template"])
 def report_template_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	기존 보고서 참고 및 템플릿 형성 노드
-	ReportTemplateAgent를 사용하여 RAG 기반 템플릿 생성
+	ReportAnalysisAgent를 사용하여 report_profile 생성
 
 	Args:
 		state: 현재 워크플로우 상태
@@ -373,35 +392,60 @@ def report_template_node(state: SuperAgentState, config: Any) -> Dict:
 	Returns:
 		업데이트된 상태 딕셔너리
 	"""
-	print("[Node 5] 리포트 템플릿 생성 시작 (ReportTemplateAgent)...")
+	print("[Node 5] 리포트 템플릿 생성 시작 (ReportAnalysisAgent)...")
 
 	try:
-		rag_engine = RAGEngine()
-		template_agent = ReportTemplateAgent(rag_engine)
+		# LLM Client 초기화
+		llm_client = LLMClient()
 
-		report_template = template_agent.generate_template(
-			target_location=state.get('target_location', {}),
-			vulnerability_analysis=state.get('vulnerability_analysis', {}),
-			aal_analysis=state.get('aal_analysis', {}),
-			physical_risk_scores=state.get('physical_risk_scores', {})
+		# ReportAnalysisAgent 초기화
+		analysis_agent = ReportAnalysisAgent(llm_client)
+
+		# State에서 필요한 데이터 추출
+		company_name = state.get('company_name', None)
+		past_reports = state.get('past_reports', None)
+
+		# 동기 실행 (run_sync 메서드 사용)
+		report_profile = analysis_agent.run_sync(
+			company_name=company_name,
+			past_reports=past_reports
 		)
 
+		# report_profile을 report_template으로 저장
+		print(f"  ✓ Report profile 생성 완료")
+		print(f"    - Tone: {report_profile.get('tone', {}).get('style', 'N/A')}")
+		print(f"    - Sections: {len(report_profile.get('section_structure', {}).get('main_sections', []))}")
+		print(f"    - Citations: {len(report_profile.get('citations', []))}")
+
 		return {
-			'report_template': report_template,
+			'report_template': report_profile,
 			'template_status': 'completed',
 			'current_step': 'impact_analysis',
-			'logs': ['리포트 템플릿 생성 완료 (ReportTemplateAgent)']
+			'logs': [f'리포트 템플릿 생성 완료 (ReportAnalysisAgent, company={company_name or "default"})']
 		}
 
 	except Exception as e:
 		print(f"[Node 5] 오류: {str(e)}")
+		import traceback
+		traceback.print_exc()
+
+		# 오류 발생 시 기본 템플릿 생성
+		print("[Node 5] 기본 템플릿으로 fallback...")
+		llm_client = LLMClient()
+		analysis_agent = ReportAnalysisAgent(llm_client)
+		default_profile = analysis_agent._get_default_profile()
+
 		return {
-			'template_status': 'failed',
-			'errors': [f'템플릿 생성 오류: {str(e)}']
+			'report_template': default_profile,
+			'template_status': 'completed_with_fallback',
+			'current_step': 'impact_analysis',
+			'errors': [f'템플릿 생성 오류 (fallback 사용): {str(e)}'],
+			'logs': ['리포트 템플릿 생성 완료 (기본 템플릿 사용)']
 		}
 
 
 # ========== Node 6: 영향 분석 (ImpactAnalysisAgent) ==========
+@traceable(name="impact_analysis_node", tags=["workflow", "node", "impact", "llm"])
 def impact_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	리스크 영향 분석 노드
@@ -451,6 +495,7 @@ def impact_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 
 
 # ========== Node 7: 대응 전략 생성 (StrategyGenerationAgent) ==========
+@traceable(name="strategy_generation_node", tags=["workflow", "node", "strategy", "llm", "rag"])
 def strategy_generation_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	대응 전략 생성 노드
@@ -503,11 +548,12 @@ def strategy_generation_node(state: SuperAgentState, config: Any) -> Dict:
 		}
 
 
-# ========== Node 8: 리포트 생성 (ReportGenerationAgent) ==========
+# ========== Node 8: 리포트 생성 (ReportComposerAgent) ==========
+@traceable(name="report_generation_node", tags=["workflow", "node", "report", "composer"])
 def report_generation_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	리포트 생성 노드
-	ReportGenerationAgent를 사용하여 템플릿과 분석 결과 통합
+	ReportComposerAgent를 사용하여 템플릿과 분석 결과 통합
 
 	Args:
 		state: 현재 워크플로우 상태
@@ -516,12 +562,13 @@ def report_generation_node(state: SuperAgentState, config: Any) -> Dict:
 	Returns:
 		업데이트된 상태 딕셔너리
 	"""
-	print("[Node 8] 리포트 생성 시작 (ReportGenerationAgent)...")
+	print("[Node 8] 리포트 생성 시작 (ReportComposerAgent)...")
 
 	try:
-		report_agent = ReportGenerationAgent()
+		llm_client = LLMClient()
+		report_agent = ReportComposerAgent(llm_client)
 
-		generated_report = report_agent.generate_report(
+		generated_report = report_agent.compose_report(
 			target_location=state.get('target_location', {}),
 			building_info=state.get('building_info', {}),
 			vulnerability_analysis=state.get('vulnerability_analysis', {}),
@@ -536,7 +583,7 @@ def report_generation_node(state: SuperAgentState, config: Any) -> Dict:
 			'generated_report': generated_report,
 			'report_status': 'completed',
 			'current_step': 'validation',
-			'logs': ['리포트 생성 완료 (ReportGenerationAgent)']
+			'logs': ['리포트 생성 완료 (ReportComposerAgent)']
 		}
 
 	except Exception as e:
@@ -548,6 +595,7 @@ def report_generation_node(state: SuperAgentState, config: Any) -> Dict:
 
 
 # ========== Node 9: 검증 ==========
+@traceable(name="validation_node", tags=["workflow", "node", "validation"])
 def validation_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	검증 노드
@@ -602,11 +650,12 @@ def validation_node(state: SuperAgentState, config: Any) -> Dict:
 		}
 
 
-# ========== Node 10: 최종 리포트 산출 ==========
-def finalization_node(state: SuperAgentState, config: Any) -> Dict:
+# ========== Node 9a: Refiner (검증 실패 시 자동 보완) ==========
+@traceable(name="refiner_node", tags=["workflow", "node", "refiner", "llm"])
+def refiner_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
-	최종 리포트 산출 노드
-	검증 통과한 리포트를 최종 확정
+	Refiner 노드
+	검증 실패 시 Draft Report를 자동으로 보완
 
 	Args:
 		state: 현재 워크플로우 상태
@@ -615,12 +664,182 @@ def finalization_node(state: SuperAgentState, config: Any) -> Dict:
 	Returns:
 		업데이트된 상태 딕셔너리
 	"""
-	print("[Node 10] 최종 리포트 확정...")
+	refiner_loop_count = state.get('refiner_loop_count', 0) + 1
+	print(f"[Node 9a] Refiner 시작... (Loop {refiner_loop_count}/3)")
 
-	return {
-		'final_report': state.get('generated_report'),
-		'final_status': 'completed',
-		'workflow_status': 'completed',
-		'current_step': 'done',
-		'logs': ['최종 리포트 확정 완료']
-	}
+	try:
+		# LLM Client 초기화
+		llm_client = LLMClient()
+
+		# RefinerAgent 초기화
+		refiner = RefinerAgent(llm_client)
+
+		# State에서 필요한 데이터 추출
+		generated_report = state.get('generated_report', {})
+		validation_result = state.get('validation_result', {})
+
+		# Draft Markdown/JSON 추출
+		draft_markdown = generated_report.get('markdown', '')
+		draft_json = generated_report.get('json', {})
+
+		# Markdown이 없으면 JSON에서 생성 시도
+		if not draft_markdown and draft_json:
+			draft_markdown = "# Climate Risk Report\n\n(보고서 내용)"
+
+		# RefinerAgent 동기 실행
+		refine_result = refiner.refine_sync(
+			draft_markdown=draft_markdown,
+			draft_json=draft_json,
+			validation_results=validation_result
+		)
+
+		# 개선된 보고서 구성
+		refined_report = {
+			'markdown': refine_result.get('updated_markdown', draft_markdown),
+			'json': refine_result.get('updated_json', draft_json),
+			'status': refine_result.get('status', 'completed')
+		}
+
+		applied_fixes = refine_result.get('applied_fixes', [])
+
+		print(f"  ✓ Refiner 완료")
+		print(f"    - 적용된 수정: {len(applied_fixes)}개")
+		for fix in applied_fixes[:3]:  # 처음 3개만 출력
+			print(f"      * {fix}")
+
+		# 개선된 보고서를 generated_report로 교체 (재검증용)
+		return {
+			'generated_report': refined_report,
+			'refined_report': refined_report,
+			'applied_fixes': applied_fixes,
+			'refiner_status': 'completed',
+			'refiner_loop_count': refiner_loop_count,
+			'current_step': 'validation',  # 다시 검증으로
+			'logs': [f'Refiner 완료 (Loop {refiner_loop_count}, {len(applied_fixes)}개 수정)']
+		}
+
+	except Exception as e:
+		print(f"[Node 9a] 오류: {str(e)}")
+		import traceback
+		traceback.print_exc()
+
+		return {
+			'refiner_status': 'failed',
+			'refiner_loop_count': refiner_loop_count,
+			'errors': [f'Refiner 오류: {str(e)}'],
+			'current_step': 'finalization',  # 오류 시 최종화로
+			'logs': ['Refiner 실패 - 최종화로 진행']
+		}
+
+
+# ========== Node 10: 최종 리포트 산출 (FinalizerNode) ==========
+@traceable(name="finalization_node", tags=["workflow", "node", "finalization"])
+def finalization_node(state: SuperAgentState, config: Any) -> Dict:
+	"""
+	최종 리포트 산출 노드
+	FinalizerNode를 사용하여 Markdown/JSON/PDF 파일 저장 및 DB 로깅
+
+	Args:
+		state: 현재 워크플로우 상태
+		config: 설정 객체
+
+	Returns:
+		업데이트된 상태 딕셔너리
+	"""
+	print("[Node 10] 최종 리포트 확정 및 파일 저장 (FinalizerNode)...")
+
+	try:
+		# FinalizerNode 초기화
+		finalizer = FinalizerNode()
+
+		# 최종 보고서 추출 (Refiner를 거쳤으면 refined_report, 아니면 generated_report)
+		final_report = state.get('refined_report') or state.get('generated_report', {})
+
+		# Markdown/JSON 추출
+		refined_markdown = final_report.get('markdown', '')
+		refined_json = final_report.get('json', {})
+
+		# Markdown이 없으면 기본 구조 생성
+		if not refined_markdown:
+			refined_markdown = "# Climate Physical Risk Report\n\n검증을 통과한 최종 보고서입니다.\n\n"
+			refined_markdown += f"Generated: {state.get('current_step', 'N/A')}\n"
+
+		# Citations 추출
+		citations_final = []
+		if isinstance(refined_json, dict):
+			citations_final = refined_json.get('citations', [])
+
+		# 추가로 report_template의 citations도 포함
+		report_template = state.get('report_template', {})
+		if isinstance(report_template, dict) and 'citations' in report_template:
+			citations_final.extend(report_template.get('citations', []))
+
+		# Metadata 구성
+		metadata = {
+			'report_name': 'physical_risk_analysis',
+			'version': 'v1.0',
+			'facility': state.get('target_location', {}).get('name', 'facility'),
+			'company_name': state.get('company_name', 'Unknown Company'),
+			'generated_at': 'auto',
+			'validation_passed': state.get('validation_status') == 'passed',
+			'refiner_loops': state.get('refiner_loop_count', 0)
+		}
+
+		# Validation Result 추출
+		validation_result = state.get('validation_result', {})
+
+		# FinalizerInput 구성 (딕셔너리로 전달)
+		finalizer_input = {
+			'refined_markdown': refined_markdown,
+			'refined_json': refined_json,
+			'citations_final': citations_final,
+			'validation_result': validation_result,
+			'metadata': metadata,
+			'export_formats': ['md', 'json', 'pdf']
+		}
+
+		# FinalizerNode 실행
+		from ai_agent.agents.report_generation.finalizer_node_7 import FinalizerInput
+		finalizer_input_obj = FinalizerInput(**finalizer_input)
+		finalizer_output = finalizer.run(finalizer_input_obj)
+
+		# 출력 경로 저장
+		output_paths = {
+			'markdown': finalizer_output.md_path,
+			'json': finalizer_output.json_path,
+			'pdf': finalizer_output.pdf_path
+		}
+
+		print(f"  ✓ 파일 저장 완료")
+		print(f"    - Markdown: {finalizer_output.md_path}")
+		print(f"    - JSON: {finalizer_output.json_path}")
+		if finalizer_output.pdf_path:
+			print(f"    - PDF: {finalizer_output.pdf_path}")
+		if finalizer_output.db_log_id:
+			print(f"    - DB Log ID: {finalizer_output.db_log_id}")
+
+		return {
+			'final_report': final_report,
+			'output_paths': output_paths,
+			'final_status': 'completed',
+			'workflow_status': 'completed',
+			'current_step': 'done',
+			'logs': [f'최종 리포트 확정 완료 (Markdown: {finalizer_output.md_path})']
+		}
+
+	except Exception as e:
+		print(f"[Node 10] 오류: {str(e)}")
+		import traceback
+		traceback.print_exc()
+
+		# 오류 시에도 최소한의 정보 저장
+		final_report = state.get('refined_report') or state.get('generated_report', {})
+
+		return {
+			'final_report': final_report,
+			'final_status': 'completed_with_errors',
+			'workflow_status': 'completed',
+			'current_step': 'done',
+			'errors': [f'Finalizer 오류: {str(e)}'],
+			'logs': ['최종 리포트 확정 (오류 발생, 파일 저장 실패)']
+		}

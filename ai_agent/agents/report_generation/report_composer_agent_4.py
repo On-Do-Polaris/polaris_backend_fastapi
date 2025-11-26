@@ -94,11 +94,20 @@ class ReportComposerAgent:
             )
 
             # 3. Markdown Draft 구성
-            draft_md = self.render.render_markdown({
-                "executive_summary": executive_summary,
-                "sections": sections,
-                "template": template
-            })
+            # Markdown 문자열 생성
+            md_text = f"# {template.get('title', 'Physical Risk Analysis Report')}\n\n"
+            md_text += f"## Executive Summary\n\n{executive_summary}\n\n"
+
+            # sections는 dict {sec_key: content_text} 형태
+            # template의 sections 정의를 참고하여 제목 추가
+            section_defs = template.get("sections", {})
+            for sec_key, content_text in sections.items():
+                sec_info = section_defs.get(sec_key, {})
+                section_title = sec_info.get("title", sec_key.replace('_', ' ').title())
+                md_text += f"## {section_title}\n\n{content_text}\n\n"
+
+            # Markdown → HTML 변환
+            draft_md = md_text  # HTML로 변환하지 않고 Markdown 그대로 저장
 
             # 4. JSON Draft 구성 (Memory Node용)
             draft_json = {
@@ -141,7 +150,14 @@ class ReportComposerAgent:
         top_risks = impact_summary.get("top_risks", [])
         top3 = ", ".join([r["risk_type"] for r in top_risks[:3]])
         total_loss = impact_summary.get("total_financial_loss", "N/A")
-        overall_strategy = strategies.get("overall_strategy", "")
+
+        # strategies가 List[Dict]일 경우 Dict로 변환
+        if isinstance(strategies, list):
+            overall_strategy = " / ".join([s.get('strategy', '')[:100] for s in strategies if isinstance(s, dict)])
+        elif isinstance(strategies, dict):
+            overall_strategy = strategies.get("overall_strategy", "")
+        else:
+            overall_strategy = ""
 
         prompt = f"""
 당신은 기후 리스크 전문 보고서 작성자입니다.
@@ -170,14 +186,21 @@ class ReportComposerAgent:
         - 필요시 citation 포맷 삽입
         """
         sections = {}
-        section_defs = template.get("sections", {})
 
-        for sec_key, sec_info in section_defs.items():
+        # template은 report_profile과 동일하므로 section_structure를 사용
+        section_structure = template.get("section_structure", {})
+        main_sections = section_structure.get("main_sections", [])
+        tcfd_structure = template.get("tcfd_structure", {})
+
+        for sec_key in main_sections:
+            # TCFD 구조에서 설명 가져오기
+            sec_description = tcfd_structure.get(sec_key, f"{sec_key} section")
+
             prompt = f"""
 당신은 ESG/TCFD 보고서 전문 작성자입니다.
 
-섹션 제목: {sec_info.get("title")}
-역할: {sec_info.get("description")}
+섹션 제목: {sec_key.replace('_', ' ').title()}
+역할: {sec_description}
 
 분석 데이터:
 - report_profile: {report_profile}
@@ -186,6 +209,7 @@ class ReportComposerAgent:
 
 요구:
 - Markdown 문단 2~4개 생성
+- 구체적이고 전문적인 내용 작성
 - 필요 시 citation 포맷 삽입 (형식: [[ref-id]])
 """
             result = await self.llm.ainvoke(prompt)

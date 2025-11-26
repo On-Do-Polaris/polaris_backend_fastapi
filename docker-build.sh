@@ -9,6 +9,7 @@ set -e
 
 # Configuration (환경변수로 오버라이드 가능)
 REGISTRY="${REGISTRY:-ghcr.io}"
+OCIR_NAMESPACE="${OCIR_NAMESPACE:-}"
 IMAGE_NAME="${IMAGE_NAME:-polaris-backend-fastapi}"
 TAG="${TAG:-latest}"
 
@@ -53,15 +54,22 @@ login() {
 
 # Build Docker image
 build() {
-    # Convert repository name to lowercase for Docker registry compatibility
-    local repo_lower=$(echo "${GITHUB_REPOSITORY:-local}" | tr '[:upper:]' '[:lower:]')
-    local full_image="${REGISTRY}/${repo_lower}/${IMAGE_NAME}:${TAG}"
+    # OCIR uses namespace instead of repository path
+    if [ -n "${OCIR_NAMESPACE}" ]; then
+        local full_image="${REGISTRY}/${OCIR_NAMESPACE}/${IMAGE_NAME}:${TAG}"
+        local latest_image="${REGISTRY}/${OCIR_NAMESPACE}/${IMAGE_NAME}:latest"
+    else
+        # Fallback to GHCR format (repository path)
+        local repo_lower=$(echo "${GITHUB_REPOSITORY:-local}" | tr '[:upper:]' '[:lower:]')
+        local full_image="${REGISTRY}/${repo_lower}/${IMAGE_NAME}:${TAG}"
+        local latest_image="${REGISTRY}/${repo_lower}/${IMAGE_NAME}:latest"
+    fi
 
     log_info "Building Docker image: ${full_image}"
 
     docker build \
         --tag "${full_image}" \
-        --tag "${REGISTRY}/${repo_lower}/${IMAGE_NAME}:latest" \
+        --tag "${latest_image}" \
         --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY:-local}" \
         --label "org.opencontainers.image.revision=${GITHUB_SHA:-unknown}" \
         .
@@ -74,15 +82,22 @@ build() {
 
 # Push to registry
 push() {
-    # Convert repository name to lowercase for Docker registry compatibility
-    local repo_lower=$(echo "${GITHUB_REPOSITORY:-local}" | tr '[:upper:]' '[:lower:]')
-    local full_image="${REGISTRY}/${repo_lower}/${IMAGE_NAME}:${TAG}"
+    # OCIR uses namespace instead of repository path
+    if [ -n "${OCIR_NAMESPACE}" ]; then
+        local full_image="${REGISTRY}/${OCIR_NAMESPACE}/${IMAGE_NAME}:${TAG}"
+        local latest_image="${REGISTRY}/${OCIR_NAMESPACE}/${IMAGE_NAME}:latest"
+    else
+        # Fallback to GHCR format (repository path)
+        local repo_lower=$(echo "${GITHUB_REPOSITORY:-local}" | tr '[:upper:]' '[:lower:]')
+        local full_image="${REGISTRY}/${repo_lower}/${IMAGE_NAME}:${TAG}"
+        local latest_image="${REGISTRY}/${repo_lower}/${IMAGE_NAME}:latest"
+    fi
 
     log_info "Pushing image: ${full_image}"
     docker push "${full_image}"
 
     log_info "Pushing latest tag..."
-    docker push "${REGISTRY}/${repo_lower}/${IMAGE_NAME}:latest"
+    docker push "${latest_image}"
 
     log_info "Push completed"
 }
@@ -124,6 +139,7 @@ help() {
     echo ""
     echo "Environment variables:"
     echo "  REGISTRY           Container registry (default: ghcr.io)"
+    echo "  OCIR_NAMESPACE     OCIR namespace (for Oracle Cloud Registry)"
     echo "  IMAGE_NAME         Image name (default: polaris-backend-fastapi)"
     echo "  TAG                Image tag (default: latest)"
     echo "  REGISTRY_USERNAME  Registry username"

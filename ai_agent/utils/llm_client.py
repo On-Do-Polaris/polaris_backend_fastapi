@@ -13,8 +13,8 @@ import os
 import json
 from dotenv import load_dotenv
 
-# .env 파일 로드
-load_dotenv()
+# .env 파일 로드 (override=True: 시스템 환경변수 덮어쓰기)
+load_dotenv(override=True)
 
 logger = logging.getLogger(__name__)
 
@@ -46,30 +46,36 @@ class LLMClient:
 	LangSmith 자동 트레이싱 지원
 	"""
 
-	def __init__(self, model: str = 'gpt-4', temperature: float = 0.7):
+	def __init__(self, model: str = 'gpt-4o-mini', temperature: float = 0.7, max_tokens: int = 8192):
 		"""
 		LLMClient 초기화
 
 		Args:
-			model: 사용할 LLM 모델 (기본값: gpt-4)
+			model: 사용할 LLM 모델 (기본값: gpt-4o-mini)
 			temperature: 생성 다양성 (0.0 ~ 1.0)
+			max_tokens: 최대 생성 토큰 수 (기본값: 8192, 상세한 리포트 생성용)
 		"""
 		self.model = model
 		self.temperature = temperature
+		self.max_tokens = max_tokens
 		self.api_key = os.getenv('OPENAI_API_KEY', '')
 		self.logger = logger
+
+		# DEBUG: API 키 확인
+		self.logger.info(f"[DEBUG] LLMClient init - API key length: {len(self.api_key) if self.api_key else 0}")
+		self.logger.info(f"[DEBUG] LLMClient init - API key present: {bool(self.api_key)}")
 
 		# LangChain ChatOpenAI 초기화
 		if LANGCHAIN_AVAILABLE and self.api_key:
 			self.llm = ChatOpenAI(
 				model=model,
 				temperature=temperature,
-				openai_api_key=self.api_key,
-				model_kwargs={
-					"response_format": {"type": "json_object"} if "gpt-4" in model or "gpt-3.5" in model else {}
-				}
+				max_tokens=max_tokens,  # 최대 토큰 수 제한
+				openai_api_key=self.api_key
+				# response_format JSON 모드는 프롬프트에 "json" 키워드 필수
+				# 기본적으로 비활성화하고, 각 Agent에서 필요시 개별 설정
 			)
-			self.logger.info(f"LLMClient 초기화 완료: {model} (LangChain + LangSmith)")
+			self.logger.info(f"LLMClient 초기화 완료: {model} (max_tokens={max_tokens}, LangChain + LangSmith)")
 		else:
 			self.llm = None
 			self.logger.warning(f"LLMClient 초기화 (Fallback 모드): LangChain 미설치 또는 API 키 없음")
@@ -141,6 +147,13 @@ class LLMClient:
 		except Exception as e:
 			self.logger.error(f"LLM 비동기 호출 실패: {e}")
 			return self._fallback_invoke(prompt)
+
+	def generate(self, prompt: Union[str, List[Dict[str, str]]], **kwargs) -> str:
+		"""
+		generate() 메소드는 invoke()의 alias입니다.
+		일부 Agent가 generate()를 호출하므로 호환성을 위해 제공합니다.
+		"""
+		return self.invoke(prompt, **kwargs)
 
 	def _fallback_invoke(self, _prompt: Union[str, List]) -> str:
 		"""Fallback 응답 (LangChain 미설치 시)"""

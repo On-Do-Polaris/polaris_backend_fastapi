@@ -40,11 +40,11 @@ class SuperAgentState(TypedDict, total=False):
 	risk_analysis_status: Dict[str, str]  # 각 리스크별 분석 상태
 
 	# Step 4: 물리적 리스크별 종합 점수 산출 (Sub Agent 9개)
-	physical_risk_scores: Annotated[Dict[str, Any], operator.add]  # 리스크별 종합 점수 (병합)
+	physical_risk_scores: Dict[str, Any]  # 리스크별 종합 점수
 	physical_score_status: str  # 물리적 리스크 점수 산출 상태
 
 	# Step 5: 연평균 재무 손실률 분석 (Sub Agent 9개)
-	aal_analysis: Annotated[Dict[str, Any], operator.add]  # 리스크별 AAL 분석 결과 (병합)
+	aal_analysis: Dict[str, Any]  # 리스크별 AAL 분석 결과
 	aal_status: str  # AAL 분석 상태
 
 	# Step 6: 기존 보고서 참고 및 템플릿 형성

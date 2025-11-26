@@ -89,9 +89,37 @@ def safe_write_json(path: str, obj: Any):
 
 def try_generate_pdf_from_markdown(md_path: str, pdf_path: str) -> bool:
     """
-    pandoc 또는 xelatex가 있을 경우 PDF 생성 시도.
-    둘 다 없어도 장애가 발생하지 않고 False 반환.
+    pdfkit / pandoc / xelatex를 사용하여 PDF 생성 시도.
+    없어도 장애가 발생하지 않고 False 반환.
     """
+    # 1) pdfkit 시도 (우선순위 1)
+    try:
+        import pdfkit
+        import markdown2
+
+        # Markdown 파일 읽기
+        with open(md_path, 'r', encoding='utf-8') as f:
+            md_text = f.read()
+
+        # Markdown을 HTML로 변환
+        html = markdown2.markdown(md_text)
+
+        # wkhtmltopdf 경로 설정 (Windows)
+        config = None
+        wkhtmltopdf_path = r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
+        if os.path.exists(wkhtmltopdf_path):
+            config = pdfkit.configuration(wkhtmltopdf=wkhtmltopdf_path)
+
+        # PDF 생성
+        pdfkit.from_string(html, pdf_path, configuration=config)
+        logger.info(f"PDF 생성 성공 (pdfkit): {pdf_path}")
+        return True
+    except ImportError:
+        logger.info("pdfkit not available → trying pandoc fallback")
+    except Exception as e:
+        logger.warning(f"pdfkit PDF 생성 실패: {e} → trying pandoc fallback")
+
+    # 2) pandoc fallback (우선순위 2)
     pandoc = shutil.which("pandoc")
     if not pandoc:
         logger.info("Pandoc not found → PDF 생성 건너뜀.")
@@ -103,7 +131,7 @@ def try_generate_pdf_from_markdown(md_path: str, pdf_path: str) -> bool:
     ]:
         try:
             subprocess.run(args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            logger.info(f"PDF 생성 성공: {' '.join(args)}")
+            logger.info(f"PDF 생성 성공 (pandoc): {' '.join(args)}")
             return True
         except Exception:
             continue

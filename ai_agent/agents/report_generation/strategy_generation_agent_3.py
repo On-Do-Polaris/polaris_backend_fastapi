@@ -64,6 +64,11 @@ class StrategyGenerationAgent:
         strategy_candidates = []
 
         for impact in impact_summary:
+            # 타입 검증
+            if not isinstance(impact, dict):
+                print(f"[StrategyAgent] Warning: impact is not dict, type={type(impact)}, skipping")
+                continue
+
             risk = impact.get("risk")
             # 기본 템플릿 전략 후보
             strategy_candidates.append({
@@ -118,14 +123,32 @@ class StrategyGenerationAgent:
 출력 언어: 한국어
 전문적인 TCFD 지속가능경영 보고서 톤 유지
 """
-            response = self.llm.generate(prompt)
+            try:
+                response = self.llm.generate(prompt)
 
-            # LLM 결과를 바로 strategies_output에 저장
-            strategies_output.append({
-                "risk": risk,
-                "strategy": response.get("strategy", f"{risk} 대응 전략"),
-                "citation": response.get("citation", f"TCFD(2023)-Adaptation {risk}"),
-            })
+                # response가 str인 경우 JSON 파싱 시도
+                if isinstance(response, str):
+                    import json
+                    try:
+                        response = json.loads(response)
+                    except json.JSONDecodeError:
+                        # JSON 파싱 실패 시 텍스트 그대로 사용
+                        response = {"strategy": response, "citation": ""}
+
+                # LLM 결과를 바로 strategies_output에 저장
+                strategies_output.append({
+                    "risk": risk,
+                    "strategy": response.get("strategy", f"{risk} 대응 전략") if isinstance(response, dict) else str(response),
+                    "citation": response.get("citation", f"TCFD(2023)-Adaptation {risk}") if isinstance(response, dict) else "",
+                })
+            except Exception as e:
+                print(f"[StrategyAgent] Error generating strategy for {risk}: {e}")
+                # Fallback 전략 추가
+                strategies_output.append({
+                    "risk": risk,
+                    "strategy": f"{risk} 리스크에 대한 적응 및 완화 전략이 필요합니다.",
+                    "citation": f"TCFD(2023)-Adaptation {risk}",
+                })
 
         return strategies_output
 

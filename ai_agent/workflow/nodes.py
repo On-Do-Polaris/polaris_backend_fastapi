@@ -377,9 +377,7 @@ def physical_risk_score_node(state: SuperAgentState, config: Any) -> Dict:
 
 		return {
 			'physical_risk_scores': physical_risk_scores,
-			'physical_score_status': 'completed',
-			'current_step': 'risk_integration',
-			'logs': ['물리적 리스크 종합 점수 산출 완료 (H×E×V 기반)']
+			'physical_score_status': 'completed'
 		}
 
 	except Exception as e:
@@ -536,14 +534,55 @@ def impact_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 		print("[Node 6] 영향 분석 시작 (ImpactAnalysisAgent)...")
 
 	try:
-		impact_agent = ImpactAnalysisAgent()
+		llm_client = LLMClient()
+		impact_agent = ImpactAnalysisAgent(llm_client)
 
-		impact_analysis = impact_agent.analyze_impact(
-			physical_risk_scores=state.get('physical_risk_scores', {}),
-			aal_analysis=state.get('aal_analysis', {}),
-			collected_data=state.get('collected_data', {}),
-			vulnerability_analysis=state.get('vulnerability_analysis', {}),
-			validation_feedback=validation_feedback  # 피드백 전달
+		# State에서 필요한 데이터 추출
+		physical_risk_scores = state.get('physical_risk_scores', {})
+		aal_analysis = state.get('aal_analysis', {})
+		asset_info = state.get('asset_info', {})
+		report_template = state.get('report_template', {})
+
+		# scenario_input 구조 생성: ImpactAnalysisAgent가 기대하는 형식
+		# {"SSP245": {"H": {}, "E": {}, "V": {}, "risk_scores": {}, "power_usage": {}}}
+		vulnerability_analysis = state.get('vulnerability_analysis', {})
+
+		# 간단한 H/E/V 추출 (physical_risk_scores에서)
+		H_scores = {}
+		E_scores = {}
+		V_scores = {}
+		risk_scores = {}
+
+		for risk_type, risk_data in physical_risk_scores.items():
+			H_scores[risk_type] = risk_data.get('hazard_score', 0.5)
+			E_scores[risk_type] = risk_data.get('exposure_score', 0.5)
+			V_scores[risk_type] = risk_data.get('vulnerability_score', 0.5)
+			risk_scores[risk_type] = risk_data.get('physical_risk_score_100', 50.0)
+
+		# 단일 시나리오로 구성 (SSP245 가정)
+		scenario_input = {
+			"SSP245": {
+				"H": H_scores,
+				"E": E_scores,
+				"V": V_scores,
+				"risk_scores": risk_scores,
+				"power_usage": None  # 전력 사용량 데이터 없음
+			}
+		}
+
+		# AAL 데이터 변환 (final_aal_percentage를 float으로)
+		AAL_simplified = {}
+		for risk_type, aal_data in aal_analysis.items():
+			AAL_simplified[risk_type] = aal_data.get('final_aal_percentage', 1.0)
+
+		tcfd_warnings = []  # 필요시 State에서 추출
+
+		impact_analysis = impact_agent.run(
+			scenario_input=scenario_input,
+			AAL=AAL_simplified,
+			asset_info=asset_info,
+			tcfd_warnings=tcfd_warnings,
+			report_profile=report_template
 		)
 
 		return {
@@ -587,17 +626,52 @@ def strategy_generation_node(state: SuperAgentState, config: Any) -> Dict:
 
 	try:
 		llm_client = LLMClient()
-		rag_engine = RAGEngine()
-		strategy_agent = StrategyGenerationAgent(llm_client, rag_engine)
+		strategy_agent = StrategyGenerationAgent(llm_client)  # RAGEngine 제거
 
-		response_strategy = strategy_agent.generate_strategy(
-			target_location=state.get('target_location', {}),
-			vulnerability_analysis=state.get('vulnerability_analysis', {}),
-			aal_analysis=state.get('aal_analysis', {}),
-			physical_risk_scores=state.get('physical_risk_scores', {}),
-			impact_analysis=state.get('impact_analysis', {}),
-			report_template=state.get('report_template', {}),
-			validation_feedback=validation_feedback  # 피드백 전달
+		# run() 메소드의 파라미터에 맞게 변환
+		# impact_analysis는 Dict이지만, StrategyAgent는 List[Dict]를 기대함
+		impact_analysis = state.get('impact_analysis', {})
+
+		# Dict를 List[Dict]로 변환
+		# impact_analysis = {"quantitative_result": {...}, "narrative": {...}}
+		# → List[Dict] 형태로 변환 필요
+		if isinstance(impact_analysis, dict):
+			# quantitative_result에서 리스크별 데이터 추출
+			quant = impact_analysis.get('quantitative_result', {})
+			impact_summary = []
+
+			# quant가 Dict인지 확인
+			if not isinstance(quant, dict):
+				quant = {}
+
+			# 각 시나리오의 top3_risks를 impact_summary로 변환
+			for scenario, data in quant.items():
+				if scenario == "AAL":
+					continue
+				if not isinstance(data, dict):
+					continue
+				top_risks = data.get('top3_risks', [])
+				for risk_name, risk_score in top_risks:
+					impact_summary.append({
+						"risk": risk_name,
+						"scenario": scenario,
+						"score": risk_score,
+						"severity": data.get('severity', {}).get(risk_name, 'medium')
+					})
+		else:
+			impact_summary = []
+
+		facility_profile = {
+			'location': state.get('target_location', {}),
+			'building_info': state.get('building_info', {}),
+			'asset_info': state.get('asset_info', {})
+		}
+		report_profile = state.get('report_template', {})
+
+		response_strategy = strategy_agent.run(
+			impact_summary=impact_summary,
+			facility_profile=facility_profile,
+			report_profile=report_profile
 		)
 
 		return {
@@ -632,22 +706,53 @@ def report_generation_node(state: SuperAgentState, config: Any) -> Dict:
 	print("[Node 8] 리포트 생성 시작 (ReportComposerAgent)...")
 
 	try:
-		llm_client = LLMClient()
-		report_agent = ReportComposerAgent(llm_client)
+		import asyncio
+		from ai_agent.agents.report_generation.utils import citation_formatter
+		from ai_agent.agents.report_generation.utils import markdown_renderer
 
-		generated_report = report_agent.compose_report(
-			target_location=state.get('target_location', {}),
-			building_info=state.get('building_info', {}),
-			vulnerability_analysis=state.get('vulnerability_analysis', {}),
-			aal_analysis=state.get('aal_analysis', {}),
-			physical_risk_scores=state.get('physical_risk_scores', {}),
-			impact_analysis=state.get('impact_analysis', {}),
-			report_template=state.get('report_template', {}),
-			response_strategy=state.get('response_strategy', {})
-		)
+		llm_client = LLMClient()
+		# citation_formatter와 markdown_renderer는 모듈이므로 직접 전달
+		report_agent = ReportComposerAgent(llm_client, citation_formatter, markdown_renderer)
+
+		# compose_draft() 메소드의 파라미터에 맞게 변환
+		report_profile = state.get('report_template', {})
+		impact_summary = state.get('impact_analysis', {})
+
+		# strategies는 List[Dict]로 반환되지만, ReportComposer는 Dict를 기대
+		strategies_list = state.get('response_strategy', [])
+
+		# List[Dict]를 Dict로 변환
+		# strategies_list = [{"risk": "extreme_heat", "strategy": "...", ...}, ...]
+		# → {"extreme_heat": {...}, "extreme_cold": {...}}
+		strategies_dict = {}
+		if isinstance(strategies_list, list):
+			for strategy in strategies_list:
+				risk = strategy.get('risk', 'unknown')
+				strategies_dict[risk] = strategy
+		else:
+			strategies_dict = strategies_list  # 이미 Dict인 경우
+
+		template = report_profile  # 동일할 수도 있음
+
+		# async 메소드 호출
+		generated_report = asyncio.run(report_agent.compose_draft(
+			report_profile=report_profile,
+			impact_summary=impact_summary,
+			strategies=strategies_dict,
+			template=template
+		))
+
+		# 키 이름 변환: draft_markdown → markdown, draft_json → json
+		# finalization_node에서 'markdown', 'json' 키를 기대함
+		normalized_report = {
+			'markdown': generated_report.get('draft_markdown', ''),
+			'json': generated_report.get('draft_json', {}),
+			'citations': generated_report.get('citations', []),
+			'status': generated_report.get('status', 'completed')
+		}
 
 		return {
-			'generated_report': generated_report,
+			'generated_report': normalized_report,
 			'report_status': 'completed',
 			'current_step': 'validation',
 			'logs': ['리포트 생성 완료 (ReportComposerAgent)']
@@ -679,16 +784,28 @@ def validation_node(state: SuperAgentState, config: Any) -> Dict:
 	print(f"[Node 9] 리포트 검증 시작... (재시도 {retry_count}/3)")
 
 	try:
+		import asyncio
 		validator = ValidationAgent()
-		validation_result = validator.validate_report(
-			state.get('generated_report', {}),
-			state.get('physical_risk_scores', {}),
-			state.get('aal_analysis', {}),
-			state.get('response_strategy', {}),
-			state.get('impact_analysis', {})
-		)
 
-		validation_passed = validation_result.get('validation_passed', False)
+		# Extract report data
+		generated_report = state.get('generated_report', {})
+		draft_markdown = generated_report.get('markdown', '')
+		draft_json = generated_report.get('json', {})
+		report_profile = state.get('report_template', {})
+		impact_summary = state.get('impact_analysis', {})
+		strategies = state.get('response_strategy', {})
+
+		# Call async validate method
+		validation_result = asyncio.run(validator.validate(
+			draft_markdown=draft_markdown,
+			draft_json=draft_json,
+			report_profile=report_profile,
+			impact_summary=impact_summary,
+			strategies=strategies,
+			citations=None
+		))
+
+		validation_passed = validation_result.get('passed', False)
 
 		if validation_passed:
 			return {

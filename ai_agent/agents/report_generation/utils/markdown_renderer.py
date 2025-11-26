@@ -7,8 +7,18 @@ Markdown Renderer Utility
 """
 
 import markdown2
-import pdfkit
-from docx import Document
+try:
+    import pdfkit
+    PDFKIT_AVAILABLE = True
+except ImportError:
+    PDFKIT_AVAILABLE = False
+
+try:
+    from docx import Document
+    DOCX_AVAILABLE = True
+except ImportError:
+    DOCX_AVAILABLE = False
+
 from typing import Dict, Any, Optional
 import os
 import logging
@@ -42,14 +52,23 @@ def export_pdf_from_markdown(md_text: str, output_path: str) -> Optional[str]:
     Markdown → PDF 변환
     - pandoc, pdfkit 등 fallback 지원
     """
-    try:
-        html = render_markdown(md_text)
-        # 1) pdfkit 사용
-        pdfkit.from_string(html, output_path)
-        logger.info(f"[PDF] Saved to {output_path}")
-        return output_path
-    except Exception as e:
-        logger.warning(f"[PDF] pdfkit 변환 실패: {e}")
+    # 1) pdfkit 사용 (if available)
+    if PDFKIT_AVAILABLE:
+        try:
+            html = render_markdown(md_text)
+            # wkhtmltopdf 경로 설정 (Windows)
+            config = None
+            wkhtmltopdf_path = r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
+            if os.path.exists(wkhtmltopdf_path):
+                config = pdfkit.configuration(wkhtmltopdf=wkhtmltopdf_path)
+
+            pdfkit.from_string(html, output_path, configuration=config)
+            logger.info(f"[PDF] Saved to {output_path}")
+            return output_path
+        except Exception as e:
+            logger.warning(f"[PDF] pdfkit 변환 실패: {e}")
+    else:
+        logger.info(f"[PDF] pdfkit not available, trying pandoc fallback")
     
     # 2) pandoc fallback
     pandoc = shutil.which("pandoc")

@@ -142,11 +142,24 @@ class AnalysisService:
     ) -> Optional[PhysicalRiskScoreResponse]:
         """Spring Boot API 호환 - 시나리오별 물리적 리스크 점수 조회"""
         if settings.USE_MOCK_DATA:
+            # hazard_type이 영문 이름이면 enum으로 변환
+            risk_type = HazardType.HIGH_TEMPERATURE  # 기본값
+            if hazard_type:
+                try:
+                    # HazardType enum의 name으로 조회 (예: "HIGH_TEMPERATURE")
+                    risk_type = HazardType[hazard_type]
+                except KeyError:
+                    # 값으로 조회 시도 (예: "폭염")
+                    try:
+                        risk_type = HazardType(hazard_type)
+                    except ValueError:
+                        pass  # 기본값 사용
+
             scenarios = []
             for scenario in [SSPScenario.SSP1_26, SSPScenario.SSP2_45, SSPScenario.SSP3_70, SSPScenario.SSP5_85]:
                 scenarios.append(SSPScenarioScore(
                     scenario=scenario,
-                    riskType=HazardType(hazard_type) if hazard_type else HazardType.HIGH_TEMPERATURE,
+                    riskType=risk_type,
                     shortTerm=ShortTermScore(q1=65, q2=72, q3=78, q4=70),
                     midTerm=MidTermScore(year2026=68, year2027=70, year2028=73, year2029=75, year2030=77),
                     longTerm=LongTermScore(year2020s=72, year2030s=78, year2040s=84, year2050s=89),

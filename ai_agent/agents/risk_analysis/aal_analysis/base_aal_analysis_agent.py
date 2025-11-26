@@ -1,14 +1,23 @@
 '''
 파일명: base_aal_analysis_agent.py
-최종 수정일: 2025-11-11
-버전: v02
+최종 수정일: 2025-11-25
+버전: v11
 파일 개요: 연평균 재무 손실률 (AAL) 분석 Base Agent
 변경 이력:
-	- 2025-11-11: v01 - AAL 공식 수정 (AAL% = Σ[확률×손상률×(1-보험보전율)])
-	- 2025-11-11: v02 - 재무 손실액 계산 제거 (손실률만 계산)
+	- 2025-11-21: v10 - V 스케일링과 최종 AAL 계산만 수행
+		* P(H) 계산 제거 (외부에서 입력받음)
+		* bin별 기본 손상률 입력받음
+		* 취약성 스케일링 F_vuln 및 최종 AAL 계산만 수행
+	- 2025-11-25: v11 - DB에서 bin별 P(H)*기본손상률 합계를 입력받아,
+           취약성 스케일링 적용한 최종 AAL 계산 수행
+		* bin별 최종 손상률 DR_r[i,j] 계산 제거
+		* P(H) 관련 로직 완전 제거 (외부/DB에서 처리)
+        * 입력: base_aal_from_db, vulnerability_score(0~100)
+        * 출력: final_aal, f_vuln, risk_level
 '''
+
 from typing import Dict, Any
-from abc import ABC, abstractmethod
+from abc import ABC
 import logging
 
 
@@ -18,80 +27,85 @@ logger = logging.getLogger(__name__)
 class BaseAALAnalysisAgent(ABC):
 	"""
 	연평균 재무 손실률 (AAL: Average Annual Loss) 분석 Base Agent
-	각 기후 리스크별로 AAL(%) = Σ[확률 × 손상률 × (1-보험보전율)] 계산
+
+	입력: base_aal (DB에서 계산된 기본 AAL), vulnerability_score (취약성 점수 0~100)
+	처리:
+	- 취약성 스케일 계수 F_vuln_r(j) 계산
+	- 최종 AAL 계산: AAL_r(j) = base_aal × F_vuln_r(j) × (1-IR_r)
 	"""
 
-	def __init__(self, risk_type: str):
+	def __init__(
+		self,
+		risk_type: str,
+		s_min: float = 0.9,
+		s_max: float = 1.1,
+		insurance_rate: float = 0.0
+	):
 		"""
 		BaseAALAnalysisAgent 초기화
 
 		Args:
-			risk_type: 리스크 타입 (예: high_temperature, coastal_flood)
+			risk_type: 리스크 타입 (예: heat, cold, fire, drought, etc.)
+			s_min: 취약성 스케일 최소값 (기본 0.9)
+			s_max: 취약성 스케일 최대값 (기본 1.1)
+			insurance_rate: 보험 보전율 IR (기본 0.0)
 		"""
 		self.risk_type = risk_type
+		self.s_min = s_min
+		self.s_max = s_max
+		self.insurance_rate = insurance_rate
 		self.logger = logger
-		self.logger.info(f"{risk_type} AAL 분석 Agent 초기화")
+		self.logger.info(f"{risk_type} AAL 분석 Agent 초기화 (v11)")
 
 	def analyze_aal(
 		self,
-		collected_data: Dict[str, Any],
-		physical_risk_score: float,
-		asset_info: Dict[str, Any]
+		base_aal: float,
+		vulnerability_score: float
 	) -> Dict[str, Any]:
 		"""
 		연평균 재무 손실률 (AAL) 분석
-		공식: AAL(%) = Σ[확률 × 손상률 × (1-보험보전율)]
+		공식: AAL_r(j) = base_aal × F_vuln_r(j) × (1-IR_r)
 
 		Args:
-			collected_data: 수집된 기후 데이터
-			physical_risk_score: 물리적 리스크 점수 (선행 계산 결과)
-			asset_info: 사업장 노출 자산 정보
-				- insurance_coverage_rate: 보험보전율 (0.0 ~ 1.0, 기본값 0.0)
+			base_aal: DB에서 계산된 기본 AAL (Σ[P_r[i] × DR_intensity_r[i]])
+			vulnerability_score: 취약성 점수 V_score_r(j) (0.0 ~ 100.0)
 
 		Returns:
 			AAL 분석 결과 딕셔너리
-				- hazard_probability: P(H) 위험 발생 확률
-				- damage_rate: 손상률 (0.0 ~ 1.0)
-				- insurance_coverage_rate: 보험보전율 (0.0 ~ 1.0)
-				- aal_percentage: 연평균 재무 손실률 (%) - 0.0 ~ 100.0
-				- calculation_details: 계산 상세 내역
+				- risk_type: 리스크 타입
+				- vulnerability_score: 취약성 점수
+				- vulnerability_scale: 취약성 스케일 계수 F_vuln_r(j)
+				- base_aal: 기본 AAL
+				- insurance_rate: 보험 보전율
+				- final_aal_percentage: 최종 연평균 재무 손실률 (%)
+				- risk_level: 위험 수준 (Minimal, Low, Moderate, High, Critical)
 				- status: 분석 상태
 		"""
-		self.logger.info(f"{self.risk_type} AAL 분석 시작")
+		self.logger.info(f"{self.risk_type} AAL 분석 시작 (v11)")
 
 		try:
-			# 1. P(H): 위험 발생 확률 계산
-			hazard_probability = self.calculate_hazard_probability(collected_data, physical_risk_score)
+			# 1. 취약성 스케일 계수 F_vuln_r(j) 계산
+			f_vuln = self._calculate_vulnerability_scale(vulnerability_score)
 
-			# 2. 손상률 계산
-			damage_rate = self.calculate_damage_rate(collected_data, physical_risk_score, asset_info)
-
-			# 3. 보험보전율 (기본값 0.0)
-			insurance_coverage_rate = asset_info.get('insurance_coverage_rate', 0.0)
-
-			# 4. AAL(%) 계산: AAL(%) = 확률 × 손상률 × (1 - 보험보전율) × 100
-			aal_percentage = hazard_probability * damage_rate * (1 - insurance_coverage_rate) * 100
+			# 2. 최종 AAL 계산: base_aal × F_vuln_r(j) × (1-IR_r)
+			final_aal = base_aal * f_vuln * (1 - self.insurance_rate)
+			final_aal_percentage = final_aal * 100.0
 
 			result = {
 				'risk_type': self.risk_type,
-				'hazard_probability': round(hazard_probability, 4),
-				'damage_rate': round(damage_rate, 4),
-				'insurance_coverage_rate': round(insurance_coverage_rate, 4),
-				'aal_percentage': round(aal_percentage, 4),  # % 단위
-				'calculation_details': self._get_calculation_details(
-					hazard_probability,
-					damage_rate,
-					insurance_coverage_rate,
-					aal_percentage
-				),
+				'vulnerability_score': round(vulnerability_score, 4),
+				'vulnerability_scale': round(f_vuln, 4),
+				'base_aal': round(base_aal, 6),
+				'insurance_rate': round(self.insurance_rate, 4),
+				'final_aal_percentage': round(final_aal_percentage, 4),
+				'risk_level': self._classify_aal_level(final_aal_percentage),
 				'status': 'completed'
 			}
 
 			self.logger.info(
 				f"{self.risk_type} AAL 분석 완료: "
-				f"P(H)={hazard_probability:.4f}, Damage Rate={damage_rate:.4f}, "
-				f"Insurance Coverage={insurance_coverage_rate:.4f}, "
-				f"AAL={aal_percentage:.4f}%"
+				f"V_score={vulnerability_score:.4f}, F_vuln={f_vuln:.4f}, "
+				f"AAL={final_aal_percentage:.4f}%"
 			)
 
 			return result
@@ -104,73 +118,20 @@ class BaseAALAnalysisAgent(ABC):
 				'error': str(e)
 			}
 
-	@abstractmethod
-	def calculate_hazard_probability(self, collected_data: Dict[str, Any], physical_risk_score: float) -> float:
+	def _calculate_vulnerability_scale(self, vulnerability_score: float) -> float:
 		"""
-		P(H): 위험 발생 확률 계산
-		기후 데이터 및 물리적 리스크 점수 기반으로 연간 발생 확률 추정
+		취약성 스케일 계수 F_vuln_r(j) 계산
+		F_vuln_r(j) = s_min + (s_max - s_min) × V_score_r(j)
 
 		Args:
-			collected_data: 수집된 기후 데이터
-			physical_risk_score: 물리적 리스크 점수
+			vulnerability_score: 취약성 점수 (0~100점)
 
 		Returns:
-			위험 발생 확률 (0.0 ~ 1.0)
+			취약성 스케일 계수
 		"""
-		pass
-
-	@abstractmethod
-	def calculate_damage_rate(
-		self,
-		collected_data: Dict[str, Any],
-		physical_risk_score: float,
-		asset_info: Dict[str, Any]
-	) -> float:
-		"""
-		손상률 계산
-		리스크 발생 시 예상 자산 손상 비율
-
-		Args:
-			collected_data: 수집된 기후 데이터
-			physical_risk_score: 물리적 리스크 점수
-			asset_info: 사업장 노출 자산 정보
-
-		Returns:
-			손상률 (0.0 ~ 1.0)
-		"""
-		pass
-
-	def _get_calculation_details(
-		self,
-		hazard_probability: float,
-		damage_rate: float,
-		insurance_coverage_rate: float,
-		aal_percentage: float
-	) -> Dict[str, Any]:
-		"""
-		계산 상세 내역 생성
-
-		Args:
-			hazard_probability: 위험 발생 확률
-			damage_rate: 손상률
-			insurance_coverage_rate: 보험보전율
-			aal_percentage: 연평균 재무 손실률 (%)
-
-		Returns:
-			계산 상세 내역 딕셔너리
-		"""
-		return {
-			'formula': 'AAL(%) = P(H) × 손상률 × (1 - 보험보전율) × 100',
-			'components': {
-				'P(H) (Hazard Probability)': round(hazard_probability, 4),
-				'Damage Rate': round(damage_rate, 4),
-				'Insurance Coverage Rate': round(insurance_coverage_rate, 4)
-			},
-			'result': {
-				'AAL (%)': f"{aal_percentage:.4f}%"
-			},
-			'risk_level': self._classify_aal_level(aal_percentage)
-		}
+		v_clamped = max(0.0, min(100.0, vulnerability_score))  # 0~100으로 보정
+		v_norm = v_clamped / 100.0                             # 0~1로 정규화
+		return self.s_min + (self.s_max - self.s_min) * v_norm
 
 	def _classify_aal_level(self, aal_percentage: float) -> str:
 		"""
@@ -182,12 +143,12 @@ class BaseAALAnalysisAgent(ABC):
 		Returns:
 			위험 수준 (Minimal, Low, Moderate, High, Critical)
 		"""
-		if aal_percentage < 1.0:  # 1% 미만
+		if aal_percentage < 1.0:
 			return 'Minimal'
-		if aal_percentage < 5.0:  # 5% 미만
+		if aal_percentage < 5.0:
 			return 'Low'
-		if aal_percentage < 10.0:  # 10% 미만
+		if aal_percentage < 10.0:
 			return 'Moderate'
-		if aal_percentage < 20.0:  # 20% 미만
+		if aal_percentage < 20.0:
 			return 'High'
-		return 'Critical'  # 20% 이상
+		return 'Critical'

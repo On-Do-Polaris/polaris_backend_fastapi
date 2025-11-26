@@ -14,7 +14,7 @@ from .base_physical_risk_score_agent import BasePhysicalRiskScoreAgent
 class WildfireScoreAgent(BasePhysicalRiskScoreAgent):
 	"""
 	산불 리스크 물리적 종합 점수 산출 Agent
-	H (Hazard) × E (Exposure) × V (Vulnerability) 기반 리스크 점수 계산
+	(H + E + V) / 3 평균 기반 리스크 점수 계산
 	"""
 
 	def __init__(self):
@@ -44,45 +44,62 @@ class WildfireScoreAgent(BasePhysicalRiskScoreAgent):
 
 		return round(hazard_score, 4)
 
-	def calculate_exposure(self, asset_info: Dict[str, Any]) -> float:
+	def calculate_exposure(self, collected_data: Dict[str, Any]) -> float:
 		"""
-		산불 Exposure 점수 계산
-		자산 가치 및 노출 정도 평가
+		산불 Exposure 점수 계산 (산림 거리 + 경사도)
 
 		Args:
-			asset_info: 사업장 자산 정보
+			collected_data: 수집된 환경 데이터
 
 		Returns:
 			Exposure 점수 (0.0 ~ 1.0)
 		"""
-		total_asset_value = asset_info.get('total_asset_value', 0)
+		exposure_data = collected_data.get('exposure', {})
+		wildfire_exp = exposure_data.get('wildfire_exposure', {})
 
-		# 자산 가치 기반 노출도 (10억원 단위)
-		exposure_score = min(total_asset_value / 100_000_000_000, 1.0)
-		exposure_score = max(exposure_score, 0.1)
+		# 산림까지 거리
+		distance_to_forest_m = wildfire_exp.get('distance_to_forest_m', 5000)
 
-		return round(exposure_score, 4)
+		# 거리 기반 점수 (500m 이내: 1.0, 5km 이상: 0.1)
+		if distance_to_forest_m < 500:
+			distance_score = 1.0
+		elif distance_to_forest_m < 2000:
+			distance_score = 0.8
+		elif distance_to_forest_m < 5000:
+			distance_score = 0.4
+		else:
+			distance_score = 0.1
+
+		# 식생 유형
+		vegetation_type = wildfire_exp.get('vegetation_type', 'urban')
+		vegetation_scores = {
+			'forest': 1.0,
+			'grassland': 0.6,
+			'urban': 0.2
+		}
+		vegetation_score = vegetation_scores.get(vegetation_type, 0.2)
+
+		# 가중 평균
+		exposure_score = (distance_score * 0.7) + (vegetation_score * 0.3)
+
+		return round(min(exposure_score, 1.0), 4)
 
 	def calculate_vulnerability(
 		self,
 		vulnerability_analysis: Dict[str, Any],
-		asset_info: Dict[str, Any]
+		collected_data: Dict[str, Any]
 	) -> float:
 		"""
 		산불 Vulnerability 점수 계산
-		건물 및 시설 취약성 평가
 
 		Args:
-			vulnerability_analysis: 취약성 분석 결과
-			asset_info: 사업장 자산 정보
+			vulnerability_analysis: VulnerabilityAnalysisAgent의 계산 결과
+			collected_data: 수집된 데이터 (미사용)
 
 		Returns:
 			Vulnerability 점수 (0.0 ~ 1.0)
 		"""
-		# 건물 연식
-		building_age = vulnerability_analysis.get('building_age', 10)
-
-		# 건물 연식 기반 취약성
-		age_vulnerability = 0.2 + min(building_age / 100, 0.5)
-
-		return round(min(age_vulnerability, 1.0), 4)
+		wildfire_vuln = vulnerability_analysis.get('wildfire', {})
+		vuln_score = wildfire_vuln.get('score', 30)
+		normalized_score = vuln_score / 100.0
+		return round(normalized_score, 4)

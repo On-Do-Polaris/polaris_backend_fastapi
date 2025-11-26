@@ -1,18 +1,30 @@
 '''
 파일명: main.py
-최종 수정일: 2025-11-17
-버전: v05
+최종 수정일: 2025-11-25
+버전: v07
 파일 개요: SKAX 물리적 리스크 분석 메인 오케스트레이터 (Super Agent 계층 구조)
 변경 이력:
 	- 2025-11-05: v00 - 초기 LangGraph 구조
 	- 2025-11-11: v03 - Super Agent 계층 구조로 전면 개편
 	- 2025-11-13: v04 - 물리적 리스크 점수를 H×E×V 방식으로 복원, AAL과 병렬 실행
 	- 2025-11-17: v05 - LangSmith 트레이싱 통합
+	- 2025-11-25: v06 - LangSmith 트레이싱 데코레이터 적용
+	- 2025-11-25: v07 - AAL Agent v11 호환 (_print_summary에서 final_aal_percentage 사용)
 '''
 from .config.settings import Config
 from .workflow import create_workflow_graph, print_workflow_structure
 from .utils.langsmith_tracer import get_tracer
 from datetime import datetime
+
+# LangSmith traceable 임포트
+try:
+	from langsmith import traceable
+except ImportError:
+	# LangSmith 미설치 시 no-op 데코레이터
+	def traceable(*args, **kwargs):
+		def decorator(func):
+			return func
+		return decorator
 
 
 class SKAXPhysicalRiskAnalyzer:
@@ -41,6 +53,7 @@ class SKAXPhysicalRiskAnalyzer:
 		self.workflow_graph = create_workflow_graph(config)
 		print("[INFO] Workflow creation completed (11 Nodes, 18 Sub Agents, Parallel Execution)")
 
+	@traceable(name="skax_physical_risk_analyze", tags=["workflow", "main", "orchestrator"])
 	def analyze(
 		self,
 		target_location: dict,
@@ -194,8 +207,10 @@ class SKAXPhysicalRiskAnalyzer:
 			for error in errors:
 				print(f"  - {error}")
 
-		# 물리적 리스크 점수
+		# 물리적 리스크 점수 및 AAL
 		physical_risk_scores = result.get('physical_risk_scores', {})
+		aal_analysis = result.get('aal_analysis', {})
+
 		if physical_risk_scores:
 			print(f"\n[SCORE] Physical Risk Scores (100-point scale):")
 			sorted_risks = sorted(
@@ -206,8 +221,12 @@ class SKAXPhysicalRiskAnalyzer:
 			for risk_type, risk_data in sorted_risks[:5]:
 				score = risk_data.get('physical_risk_score_100', 0)
 				level = risk_data.get('risk_level', 'Unknown')
-				financial_loss = risk_data.get('financial_loss', 0)
-				print(f"  {risk_type}: {score:.2f}/100 ({level}) - Loss: {financial_loss:,.0f}원")
+
+				# AAL v11: final_aal_percentage 사용
+				aal_data = aal_analysis.get(risk_type, {})
+				aal_percentage = aal_data.get('final_aal_percentage', 0)
+
+				print(f"  {risk_type}: {score:.2f}/100 ({level}) - AAL: {aal_percentage:.4f}%")
 
 		# 검증 결과
 		validation_result = result.get('validation_result', {})

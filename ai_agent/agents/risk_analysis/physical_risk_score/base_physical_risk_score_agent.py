@@ -1,11 +1,12 @@
 '''
 파일명: base_physical_risk_score_agent.py
-최종 수정일: 2025-11-13
-버전: v02
-파일 개요: 물리적 리스크 종합 점수 산출 베이스 Agent (H×E×V 기반)
+최종 수정일: 2025-11-24
+버전: v03
+파일 개요: 물리적 리스크 종합 점수 산출 베이스 Agent ((H+E+V)/3 기반)
 변경 이력:
 	- 2025-11-11: v01 - H×E×V 방식에서 AAL×자산가치 방식으로 변경
 	- 2025-11-13: v02 - AAL×자산가치 방식에서 H×E×V 방식으로 복원
+	- 2025-11-24: v03 - H×E×V 방식에서 (H+E+V)/3 평균 방식으로 변경
 '''
 from typing import Dict, Any
 from abc import ABC, abstractmethod
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 class BasePhysicalRiskScoreAgent(ABC):
 	"""
 	물리적 리스크 종합 점수 산출 베이스 Agent
-	H (Hazard) × E (Exposure) × V (Vulnerability) 기반 리스크 점수 계산
+	(H + E + V) / 3 기반 리스크 점수 계산 (평균 방식)
 	"""
 
 	def __init__(self, risk_type: str):
@@ -26,7 +27,7 @@ class BasePhysicalRiskScoreAgent(ABC):
 		BasePhysicalRiskScoreAgent 초기화
 
 		Args:
-			risk_type: 리스크 타입 (예: 'high_temperature', 'typhoon')
+			risk_type: 리스크 타입 (예: 'extreme_heat', 'typhoon')
 		"""
 		self.risk_type = risk_type
 		self.logger = logger
@@ -39,7 +40,7 @@ class BasePhysicalRiskScoreAgent(ABC):
 		asset_info: Dict[str, Any]
 	) -> Dict[str, Any]:
 		"""
-		물리적 리스크 종합 점수 계산 (H × E × V)
+		물리적 리스크 종합 점수 계산 ((H + E + V) / 3)
 
 		Args:
 			collected_data: 수집된 기후 데이터
@@ -58,7 +59,7 @@ class BasePhysicalRiskScoreAgent(ABC):
 				- calculation_details: 계산 상세 내역
 				- status: 계산 상태
 		"""
-		self.logger.info(f"{self.risk_type} Physical Risk Score 계산 시작 (H×E×V)")
+		self.logger.info(f"{self.risk_type} Physical Risk Score 계산 시작 ((H+E+V)/3)")
 
 		try:
 			# 1. Hazard 점수 계산
@@ -70,8 +71,8 @@ class BasePhysicalRiskScoreAgent(ABC):
 			# 3. Vulnerability 점수 계산
 			vulnerability_score = self.calculate_vulnerability(vulnerability_analysis, asset_info)
 
-			# 4. 물리적 리스크 점수 = H × E × V
-			physical_risk_score = hazard_score * exposure_score * vulnerability_score
+			# 4. 물리적 리스크 점수 = (H + E + V) / 3
+			physical_risk_score = (hazard_score + exposure_score + vulnerability_score) / 3
 
 			# 5. 100점 스케일 변환
 			physical_risk_score_100 = physical_risk_score * 100
@@ -88,7 +89,7 @@ class BasePhysicalRiskScoreAgent(ABC):
 				'physical_risk_score_100': round(physical_risk_score_100, 2),
 				'risk_level': risk_level,
 				'calculation_details': {
-					'formula': 'Physical Risk Score = H × E × V',
+					'formula': 'Physical Risk Score = (H + E + V) / 3',
 					'components': {
 						'Hazard (H)': round(hazard_score, 4),
 						'Exposure (E)': round(exposure_score, 4),

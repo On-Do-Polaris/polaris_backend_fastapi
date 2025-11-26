@@ -203,7 +203,7 @@ def setup_logger():
 
 | 레벨 | 의미 | 사용 예시 |
 |------|------|-----------|
-| DEBUG | 개발 중 상세 진단 | `logger.debug("Redis cache miss: %s", key)` |
+| DEBUG | 개발 중 상세 진단 | `logger.debug("Cache miss for key: %s", key)` |
 | INFO | 정상 동작, 처리 로그 | `logger.info("User %s logged in", user_id)` |
 | WARNING | 잠재적 문제 | `logger.warning("Slow query detected: %s", query)` |
 | ERROR | 예외 발생 | `logger.error("Payment failed: %s", e, exc_info=True)` |

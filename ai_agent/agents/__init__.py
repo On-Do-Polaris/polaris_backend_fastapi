@@ -18,34 +18,36 @@ from .data_processing import (
 # Risk Analysis Agents (18개)
 from .risk_analysis import (
     # Physical Risk Score Agents (9개)
-    HighTemperatureScoreAgent,
-    ColdWaveScoreAgent,
+    ExtremeHeatScoreAgent,
+    ExtremeColdScoreAgent,
     WildfireScoreAgent,
     DroughtScoreAgent,
-    WaterScarcityScoreAgent,
-    CoastalFloodScoreAgent,
-    InlandFloodScoreAgent,
+    WaterStressScoreAgent,
+    SeaLevelRiseScoreAgent,
+    RiverFloodScoreAgent,
     UrbanFloodScoreAgent,
     TyphoonScoreAgent,
     # AAL Analysis Agents (9개)
-    HighTemperatureAALAgent,
-    ColdWaveAALAgent,
+    ExtremeHeatAALAgent,
+    ExtremeColdAALAgent,
     WildfireAALAgent,
     DroughtAALAgent,
-    WaterScarcityAALAgent,
-    CoastalFloodAALAgent,
-    InlandFloodAALAgent,
+    WaterStressAALAgent,
+    SeaLevelRiseAALAgent,
+    RiverFloodAALAgent,
     UrbanFloodAALAgent,
     TyphoonAALAgent
 )
 
-# Report Generation Agents (5개)
+# Report Generation Agents (7개)
 from .report_generation import (
-    ValidationAgent,
-    ReportGenerationAgent,
+    ReportAnalysisAgent,
+    ImpactAnalysisAgent,
     StrategyGenerationAgent,
-    ReportTemplateAgent,
-    ImpactAnalysisAgent
+    ReportComposerAgent,
+    ValidationAgent,
+    RefinerAgent,
+    FinalizerNode
 )
 
 
@@ -55,29 +57,31 @@ __all__ = [
     'DataCollectionAgent',
     'VulnerabilityAnalysisAgent',
     # Physical Risk Score Agents
-    'HighTemperatureScoreAgent',
-    'ColdWaveScoreAgent',
+    'ExtremeHeatScoreAgent',
+    'ExtremeColdScoreAgent',
     'WildfireScoreAgent',
     'DroughtScoreAgent',
-    'WaterScarcityScoreAgent',
-    'CoastalFloodScoreAgent',
-    'InlandFloodScoreAgent',
+    'WaterStressScoreAgent',
+    'SeaLevelRiseScoreAgent',
+    'RiverFloodScoreAgent',
     'UrbanFloodScoreAgent',
     'TyphoonScoreAgent',
     # AAL Analysis Agents
-    'HighTemperatureAALAgent',
-    'ColdWaveAALAgent',
+    'ExtremeHeatAALAgent',
+    'ExtremeColdAALAgent',
     'WildfireAALAgent',
     'DroughtAALAgent',
-    'WaterScarcityAALAgent',
-    'CoastalFloodAALAgent',
-    'InlandFloodAALAgent',
+    'WaterStressAALAgent',
+    'SeaLevelRiseAALAgent',
+    'RiverFloodAALAgent',
     'UrbanFloodAALAgent',
     'TyphoonAALAgent',
-    # Report Generation
-    'ValidationAgent',
-    'ReportGenerationAgent',
-    'StrategyGenerationAgent',
-    'ReportTemplateAgent',
+    # Report Generation (7개)
+    'ReportAnalysisAgent',
     'ImpactAnalysisAgent',
+    'StrategyGenerationAgent',
+    'ReportComposerAgent',
+    'ValidationAgent',
+    'RefinerAgent',
+    'FinalizerNode',
 ]

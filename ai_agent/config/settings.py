@@ -9,8 +9,11 @@
 	- 2025-11-17: v04 - LangSmith 트레이싱 설정 추가
 '''
 import os
+from dotenv import load_dotenv
 from typing import Dict, Any
 
+# override=True: 시스템 환경변수를 .env 파일 값으로 덮어씀
+load_dotenv(override=True)
 
 class Config:
 	"""
@@ -37,6 +40,8 @@ class Config:
 		기본 설정 로드
 		프로젝트의 기본값을 설정
 		"""
+		load_dotenv()
+
 		# ===== 일반 설정 =====
 		self.PROJECT_NAME = "SKAX Physical Risk Analyzer"
 		self.VERSION = "1.0.0"
@@ -73,13 +78,13 @@ class Config:
 
 		# ===== 기후 리스크 설정 (9개 리스크) =====
 		self.CLIMATE_RISKS = {
-			'high_temperature': {
+			'extreme_heat': {
 				'enabled': True,
 				'name': '극심한 고온',
 				'threshold_extreme': 35.0,  # Celsius
 				'threshold_heatwave': 33.0
 			},
-			'cold_wave': {
+			'extreme_cold': {
 				'enabled': True,
 				'name': '극심한 한파',
 				'threshold_extreme': -15.0,  # Celsius
@@ -96,28 +101,28 @@ class Config:
 				'threshold_precipitation_deficit': 0.3,  # 30% below normal
 				'threshold_dry_spell_days': 30
 			},
-			'water_scarcity': {
+			'water_stress': {
 				'enabled': True,
-				'name': '물 부족'
+				'name': '물부족'
 			},
-			'coastal_flood': {
+			'sea_level_rise': {
 				'enabled': True,
-				'name': '해안 홍수',
+				'name': '해수면 상승',
 				'extreme_rainfall_threshold': 100  # mm/day
 			},
-			'inland_flood': {
+			'river_flood': {
 				'enabled': True,
-				'name': '내륙 홍수',
+				'name': '하천 홍수',
 				'extreme_rainfall_threshold': 150  # mm/day
 			},
 			'urban_flood': {
 				'enabled': True,
-				'name': '도심 홍수',
+				'name': '도시 홍수',
 				'hourly_rainfall_threshold': 50  # mm/hr
 			},
 			'typhoon': {
 				'enabled': True,
-				'name': '열대성 태풍',
+				'name': '태풍',
 				'wind_speed_threshold': 17.2  # m/s (Beaufort scale 8)
 			}
 		}
@@ -155,7 +160,7 @@ class Config:
 		# ===== LLM 설정 (대응 전략 생성용) =====
 		self.LLM_CONFIG = {
 			'provider': 'openai',  # 'openai', 'anthropic', 'local'
-			'model': 'gpt-4',
+			'model': 'gpt-4o-mini',
 			'api_key': os.getenv('OPENAI_API_KEY', ''),
 			'temperature': 0.7,
 			'max_tokens': 2000
@@ -196,7 +201,16 @@ class Config:
 			'max_workers': 4,  # 병렬 처리 워커 수
 			'batch_size': 100,
 			'enable_caching': True,
-			'cache_backend': 'memory'  # 'memory', 'redis', 'file'
+			'cache_backend': 'memory'  # 'memory', 'file'
+		}
+
+		# ===== Scratch Space 설정 (TTL 기반 임시 데이터 저장) =====
+		self.SCRATCH_SPACE = {
+			'base_path': os.getenv('SCRATCH_BASE_PATH', './scratch'),
+			'default_ttl_hours': int(os.getenv('SCRATCH_TTL_HOURS', '4')),  # 기본 TTL: 4시간
+			'auto_cleanup_enabled': os.getenv('SCRATCH_AUTO_CLEANUP', 'True').lower() == 'true',
+			'cleanup_interval_hours': int(os.getenv('SCRATCH_CLEANUP_INTERVAL', '1')),  # 정리 간격: 1시간
+			'max_size_mb': int(os.getenv('SCRATCH_MAX_SIZE_MB', '10240')),  # 최대 크기: 10GB
 		}
 
 		# ===== LangSmith 트레이싱 설정 =====

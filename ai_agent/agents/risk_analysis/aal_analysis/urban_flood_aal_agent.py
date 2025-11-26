@@ -1,27 +1,24 @@
 '''
 파일명: urban_flood_aal_agent.py
-최종 수정일: 2025-11-11
-버전: v00
-파일 개요: 도시 집중 홍수 리스크 AAL 분석 Agent
+최종 수정일: 2025-11-21
+버전: v10
+파일 개요: 도시 홍수 리스크 AAL 분석 Agent
+변경 이력:
+	- 2025-11-21: v10 - V 스케일링과 최종 AAL 계산만 수행
+		* P(H) 및 기본 손상률 계산 제거
+		* 외부에서 입력받은 데이터로 AAL 계산
 '''
-from typing import Dict, Any
 from .base_aal_analysis_agent import BaseAALAnalysisAgent
 
 
 class UrbanFloodAALAgent(BaseAALAnalysisAgent):
+	"""
+	도시 홍수 리스크 AAL 분석 Agent
+	V 스케일링과 최종 AAL 계산만 수행
+	"""
+
 	def __init__(self):
-		super().__init__(risk_type='urban_flood')
-
-	def calculate_hazard_probability(self, collected_data: Dict[str, Any], physical_risk_score: float) -> float:
-		climate_data = collected_data.get('climate_data', {})
-		max_hourly_rainfall = climate_data.get('max_hourly_rainfall', 50)
-		base_probability = min(max_hourly_rainfall / 200, 0.4)
-		adjusted_probability = base_probability * (1 + physical_risk_score * 2)
-		return round(min(adjusted_probability, 1.0), 4)
-
-	def calculate_damage_rate(self, collected_data: Dict[str, Any], physical_risk_score: float, asset_info: Dict[str, Any]) -> float:
-		basement_floors = asset_info.get('basement_floors', 0)
-		base_damage = 0.10 if physical_risk_score >= 0.6 else 0.05
-		basement_multiplier = 1 + (basement_floors * 0.5)
-		damage_rate = base_damage * basement_multiplier
-		return round(min(damage_rate, 0.8), 4)
+		super().__init__(
+			risk_type='도시 홍수',
+			insurance_rate=0.0
+		)

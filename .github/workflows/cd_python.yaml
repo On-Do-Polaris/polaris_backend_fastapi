@@ -1,0 +1,125 @@
+name: CD - Deploy
+
+on:
+  workflow_run:
+    workflows: ["CI - Test & Build"]
+    types: [completed]
+    branches: [main]
+
+env:
+  IMAGE_NAME: polaris-backend-fastapi
+  CONTAINER_NAME: polaris-backend-fastapi
+
+jobs:
+  deploy:
+    name: 서버 배포
+    runs-on: ubuntu-22.04
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: 배포 시작 알림
+        run: |
+          echo "### Starting Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** ${{ secrets.OCIR_REGISTRY }}/${{ secrets.OCIR_NAMESPACE }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "**Target:** ${{ secrets.SERVER_HOST }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: SSH로 서버 배포
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          script: |
+            set -e
+
+            echo "========================================="
+            echo "배포 시작"
+            echo "========================================="
+
+            # 변수 설정
+            REGISTRY="${{ secrets.OCIR_REGISTRY }}"
+            NAMESPACE="${{ secrets.OCIR_NAMESPACE }}"
+            IMAGE_NAME="${{ env.IMAGE_NAME }}"
+            CONTAINER_NAME="${{ env.CONTAINER_NAME }}"
+            IMAGE="${REGISTRY}/${NAMESPACE}/${IMAGE_NAME}:latest"
+
+            # 필요시 네트워크 생성
+            docker network create web || true
+
+            # OCIR 로그인
+            echo "1. OCIR 로그인 중..."
+            echo "${{ secrets.OCIR_TOKEN }}" | docker login ${REGISTRY} -u "${{ secrets.OCIR_USERNAME }}" --password-stdin
+
+            # 최신 이미지 pull
+            echo "2. 최신 이미지 다운로드 중..."
+            docker pull ${IMAGE}
+
+            # 기존 컨테이너 확인 및 중지 (포트 충돌 방지)
+            echo "3. 기존 컨테이너 처리 중..."
+            if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+              echo "   기존 컨테이너 중지 중..."
+              docker stop ${CONTAINER_NAME} || true
+              echo "   기존 컨테이너 삭제 중..."
+              docker rm ${CONTAINER_NAME} || true
+            else
+              echo "   기존 컨테이너 없음 (최초 배포)"
+            fi
+
+            # 새 컨테이너 실행
+            echo "4. 새 컨테이너 실행 중... (이름: ${CONTAINER_NAME})"
+            docker run -d \
+              --name ${CONTAINER_NAME} \
+              --network web \
+              --restart unless-stopped \
+              ${IMAGE}
+
+            # Health check - 컨테이너가 준비될 때까지 대기
+            echo "5. Health check 중..."
+            for i in {1..30}; do
+              # curl 우선 시도, 없으면 wget, 둘 다 없으면 nc 사용
+              if docker exec ${CONTAINER_NAME} sh -c "curl -f -s http://localhost:8000/api/v1/health > /dev/null 2>&1 || wget --quiet --tries=1 --spider http://localhost:8000/api/v1/health 2>/dev/null || nc -z localhost 8000" 2>/dev/null; then
+                echo "   ✓ 컨테이너 정상 동작 확인 (${i}초 경과)"
+                break
+              fi
+              if [ $i -eq 30 ]; then
+                echo "   ✗ Health check 실패"
+                echo "   컨테이너 로그:"
+                docker logs ${CONTAINER_NAME} --tail 20
+                exit 1
+              fi
+              echo "   대기 중... (${i}/30)"
+              sleep 1
+            done
+
+            # 미사용 이미지 정리
+            echo "6. 미사용 이미지 정리 중..."
+            docker image prune -af
+
+            echo "========================================="
+            echo "배포 완료"
+            echo "========================================="
+
+            # 컨테이너 정보 출력
+            echo ""
+            echo "컨테이너 정보:"
+            docker ps --filter name=${CONTAINER_NAME} --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+
+      - name: 배포 완료 알림
+        if: success()
+        run: |
+          echo "### Deployment Successful" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "배포가 성공적으로 완료되었습니다." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**배포 전략:** Recreate 방식" >> $GITHUB_STEP_SUMMARY
+          echo "- OCIR 로그인 → 이미지 pull → 기존 컨테이너 중지 → 새 컨테이너 실행 → Health Check" >> $GITHUB_STEP_SUMMARY
+
+      - name: 배포 실패 알림
+        if: failure()
+        run: |
+          echo "### Deployment Failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "배포 중 오류가 발생했습니다." >> $GITHUB_STEP_SUMMARY
+          echo "컨테이너 로그를 확인해주세요." >> $GITHUB_STEP_SUMMARY

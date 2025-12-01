@@ -1,8 +1,8 @@
 # validation_agent_5.py
 """
 파일명: validation_agent_5.py
-최종 수정일: 2025-11-24
-버전: v04
+최종 수정일: 2025-12-01
+버전: v06
 
 파일 개요:
     - 보고서 품질 검증 Agent (ValidationAgent)
@@ -16,8 +16,9 @@
     3. 섹션 완전성 검증 (필수 Section, 템플릿 구조)
     4. TCFD Alignment 정합성 점수 산정
     5. citation 누락/오류 검증
-    6. 종합 score 계산 및 issue 분류(type: data/strategy/text/tcfd/structure)
+    6. 종합 score 계산 및 issue 분류(type: data/strategy/text/tcfd/structure)      
     7. Refiner Agent 재호출을 위한 판단 근거 생성
+    8. **LLM Judge를 통한 사실 확인 및 데이터 일관성 검증 추가**
 
 변경 이력:
     - v01 (2025-11-14): 기본 구조 작성
@@ -29,8 +30,11 @@
         * Cross consistency (impact ↔ strategy ↔ report) 검증 강화
         * score 가중치 방식으로 개선
         * Refiner 라우팅에서 직접 사용 가능한 issue payload 구조 제공
+    - v05 (2025-12-01): 프롬프트 구조 개선
+    - v06 (2025-12-01): LLM Judge 사실 확인 기능 및 프롬프트 최종 적용
 """
 
+import json
 from typing import Dict, Any, List, Tuple
 import logging
 
@@ -57,7 +61,7 @@ class ValidationAgent:
         draft_json: Dict[str, Any],
         report_profile: Dict[str, Any],
         impact_summary: Dict[str, Any],
-        strategies: Dict[str, Any],
+        strategies: List[Dict[str, Any]],  # <<-- 수정됨: Dict에서 List[Dict]로
         citations: List[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
 
@@ -92,11 +96,15 @@ class ValidationAgent:
             tcfd_score, tcfd_issues = await self._check_tcfd_alignment(draft_markdown)
             all_issues.extend(tcfd_issues)
 
-            # 6. LLM-as-Judge 미세조정 (선택)
+            # 6. LLM-as-Judge 미세조정 (선택) - 사실 확인 기능 강화
             judge_issues = []
             judge_score = 1.0
             if self.llm:
-                judge_score, judge_issues = await self._llm_judge(draft_markdown)
+                judge_score, judge_issues = await self._llm_judge(
+                    draft_markdown,
+                    impact_summary,
+                    strategies
+                )
                 all_issues.extend(judge_issues)
 
             # 7. 최종 score 계산
@@ -134,7 +142,7 @@ class ValidationAgent:
         self,
         draft_json: Dict[str, Any],
         impact_summary: Dict[str, Any],
-        strategies: Dict[str, Any]
+        strategies: List[Dict[str, Any]]  # <<-- 수정됨: Dict에서 List[Dict]로
     ) -> Tuple[float, List[Dict[str, str]]]:
 
         issues = []
@@ -171,7 +179,7 @@ class ValidationAgent:
     async def _check_consistency(
         self,
         draft_json: Dict[str, Any],
-        strategies: Dict[str, Any]
+        strategies: List[Dict[str, Any]]
     ) -> Tuple[float, List[Dict[str, str]]]:
 
         issues = []
@@ -179,24 +187,16 @@ class ValidationAgent:
 
         strategy_section = draft_json.get("sections", {}).get("strategy", "")
 
-        # strategies가 List[Dict]일 경우 Dict로 변환
-        if isinstance(strategies, list):
-            strategies_dict = {}
-            for strategy in strategies:
-                if isinstance(strategy, dict):
-                    risk = strategy.get('risk', 'unknown')
-                    strategies_dict[risk] = strategy.get('strategy', '')
-            strategies = strategies_dict
+        all_strategy_summaries = " ".join([s.get("strategy_summary", "") for s in strategies])
 
-        # Dict인 경우에만 items() 호출
-        if isinstance(strategies, dict):
-            for key, text in strategies.items():
-                if isinstance(text, str) and text[:40] not in strategy_section:
-                    issues.append({
-                        "type": "strategy",
-                        "msg": f"전략 '{key}' 내용이 전략 섹션에 충분히 반영되지 않음"
-                    })
-                    score -= 0.1
+        for s in strategies:
+            summary = s.get("strategy_summary", "")
+            if summary and summary not in strategy_section:
+                issues.append({
+                    "type": "strategy",
+                    "msg": f"전략 요약 '{summary}' 내용이 전략 섹션에 충분히 반영되지 않음"
+                })
+                score -= 0.1
 
         return max(score, 0), issues
 
@@ -217,7 +217,6 @@ class ValidationAgent:
                 })
                 score -= 0.2
 
-        # 최소 섹션 3개 이상
         if "sections" in draft_json and len(draft_json["sections"]) < 3:
             issues.append({
                 "type": "structure",
@@ -273,33 +272,82 @@ class ValidationAgent:
         return max(score, 0), issues
 
     # ============================================================
-    # 6. LLM Judge (선택)
+    # 6. LLM Judge (선택) - 강화된 버전: 품질 및 사실 관계 검증
     # ============================================================
-    async def _llm_judge(self, markdown: str) -> Tuple[float, List[Dict[str, str]]]:
-        """
-        LLM에게 전체 문서 품질 평가를 맡기는 옵션.
-        """
+    async def _llm_judge(self, markdown: str, impact_summary: Dict, strategies: List[Dict]) -> Tuple[float, List[Dict[str, str]]]:
+
         if not self.llm:
             return 1.0, []
 
         prompt = f"""
-다음은 기후 리스크 보고서 초안입니다. 품질을 0~1로 평가하고 개선이 필요한 문제점을 bullet으로 출력하세요.
+<ROLE>
+You are an independent and highly critical Report Auditor and Fact-Checker, specializing in ensuring the highest quality and factual accuracy of TCFD and ESG reports. Your dual role is:
+1.  **Quality Judge**: Rigorously evaluate the draft report for logical consistency, adherence to TCFD guidelines, readability, and professional presentation.
+2.  **Fact-Checker**: Meticulously verify that all claims, figures, and summaries in the report draft are perfectly consistent with the provided source data. There is no room for error, omission, or exaggeration.
+</ROLE>
 
-[초안]
+<CONTEXT>
+You have been provided with a draft report AND the original source data used to create it.
+
+<SOURCE_IMPACT_DATA>
+{json.dumps(impact_summary, indent=2, ensure_ascii=False)}
+</SOURCE_IMPACT_DATA>
+
+<SOURCE_STRATEGIES_DATA>
+{json.dumps(strategies, indent=2, ensure_ascii=False)}
+</SOURCE_STRATEGIES_DATA>
+
+<REPORT_DRAFT_TO_VALIDATE>
 {markdown}
+</REPORT_DRAFT_TO_VALIDATE>
+</CONTEXT>
 
-출력 형식:
-{{
+<INSTRUCTIONS>
+Your primary task is to critically evaluate the <REPORT_DRAFT_TO_VALIDATE> against the <SOURCE_IMPACT_DATA> and <SOURCE_STRATEGIES_DATA>.
+1.  **Fact-Check**: Cross-reference the draft against the source data. Identify any inconsistencies, factual errors, omissions, or exaggerations.
+2.  **Quality-Check**: Assess the overall quality of the writing, structure, and adherence to professional standards.
+3.  **Assign Score**: Based on both checks, assign an overall quality score between 0.0 and 1.0.
+4.  **List Issues**: Detail all identified issues in the specified JSON format.
+</INSTRUCTIONS>
+
+<OUTPUT_FORMAT>
+- Output ONLY a single, raw JSON object.
+- The JSON object must have the following structure:
+  {{
     "score": float,
-    "issues": ["문제1", "문제2", ...]
-}}
+    "issues": [
+      {{
+        "type": "string",
+        "msg": "string"
+      }}
+    ]
+  }}
+</OUTPUT_FORMAT>
+
+<RULES>
+- Output ONLY a single raw JSON object. DO NOT include any text outside the JSON object.
+- Be extremely critical.
+- Every claim in the draft must be traceable to the source data.
+- For factual_error, specify incorrect and correct values.
+- The output must be valid JSON.
+</RULES>
+
+JSON_ONLY:
 """
-        resp = self.llm.evaluate_document(prompt)
 
-        score = resp.get("score", 1.0)
-        issues = [{"type": "text", "msg": i} for i in resp.get("issues", [])]
+        resp_raw = await self.llm.ainvoke(prompt)
 
-        return score, issues
+        try:
+            resp = json.loads(resp_raw)
+            score = resp.get("score", 0.0)
+            issues_list = resp.get("issues", [])
+        except (json.JSONDecodeError, AttributeError):
+            logger.error(f"LLM Judge response parsing failed: {resp_raw}")
+            score = 0.0
+            issues_list = [{"type": "system_error", "msg": "LLM Judge output could not be parsed."}]
+
+        formatted_issues = [{"type": i.get("type", "unknown"), "msg": i.get("msg", str(i))} for i in issues_list]
+        return score, formatted_issues
 
     # ============================================================
     # Score 계산

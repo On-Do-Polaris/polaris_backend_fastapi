@@ -20,11 +20,30 @@ class AnalysisOptions(BaseModel):
         populate_by_name = True
 
 
+class AdditionalDataInput(BaseModel):
+    """추가 데이터 입력 (사용자 제공 컨텍스트)"""
+    raw_text: Optional[str] = Field(None, alias="rawText", description="자유 형식 텍스트 (사용자 제공)")
+    metadata: Optional[dict] = Field(None, description="메타데이터 (선택)")
+
+    class Config:
+        populate_by_name = True
+
+
 class StartAnalysisRequest(BaseModel):
     site: SiteInfo
     hazard_types: Optional[list[HazardType]] = Field(None, alias="hazardTypes")
     priority: Priority = Priority.NORMAL
     options: Optional[AnalysisOptions] = None
+    additional_data: Optional[AdditionalDataInput] = Field(None, alias="additionalData", description="사용자 제공 추가 데이터")
+
+    class Config:
+        populate_by_name = True
+
+
+class EnhanceAnalysisRequest(BaseModel):
+    """추가 데이터를 반영하여 분석 향상"""
+    job_id: UUID = Field(..., alias="jobId", description="원본 분석 작업 ID")
+    additional_data: AdditionalDataInput = Field(..., alias="additionalData", description="추가 데이터 (필수)")
 
     class Config:
         populate_by_name = True

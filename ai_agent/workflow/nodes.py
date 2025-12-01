@@ -1,7 +1,7 @@
 '''
 파일명: nodes.py
-최종 수정일: 2025-11-25
-버전: v05
+최종 수정일: 2025-12-01
+버전: v06
 파일 개요: LangGraph 워크플로우 노드 함수 정의 (Super Agent 계층적 구조용)
 변경 이력:
 	- 2025-11-11: v01 - Super Agent 계층적 구조로 전면 개편, 10개 주요 노드 재구성
@@ -9,6 +9,8 @@
 	- 2025-11-21: v03 - Scratch Space 기반 데이터 관리 적용
 	- 2025-11-25: v04 - LangSmith 트레이싱 데코레이터 추가
 	- 2025-11-25: v05 - AAL Agent v11 아키텍처 적용 (AALCalculatorService + vulnerability scaling)
+	- 2025-12-01: v06 - 통합 Validation 노드 구현 (Report + Building Characteristics 동시 검증)
+	                   - _validate_building_characteristics 헬퍼 함수 추가
 '''
 from typing import Dict, Any
 import numpy as np
@@ -30,7 +32,7 @@ except ImportError:
 
 from ..agents import (
 	DataCollectionAgent,
-	VulnerabilityAnalysisAgent,
+	# VulnerabilityAnalysisAgent,  # 삭제됨 (ModelOps가 V 계산)
 	ReportAnalysisAgent,
 	ImpactAnalysisAgent,
 	StrategyGenerationAgent,
@@ -57,6 +59,8 @@ from ..agents import (
 	UrbanFloodAALAgent,
 	TyphoonAALAgent
 )
+
+from ..agents.data_processing.building_characteristics_agent import BuildingCharacteristicsAgent
 
 # Scratch Space Manager 초기화 (TTL 4시간)
 scratch_manager = ScratchSpaceManager(base_path="./scratch", default_ttl_hours=4)
@@ -139,99 +143,9 @@ def data_collection_node(state: SuperAgentState, config: Any) -> Dict:
 		}
 
 
-# ========== Node 2: 취약성 분석 ==========
-@traceable(name="vulnerability_analysis_node", tags=["workflow", "node", "vulnerability"])
-def vulnerability_analysis_node(state: SuperAgentState, config: Any) -> Dict:
-	"""
-	취약성 분석 노드
-	건물 연식, 내진 설계, 소방차 진입 가능성 분석
-
-	Args:
-		state: 현재 워크플로우 상태
-		config: 설정 객체
-
-	Returns:
-		업데이트된 상태 딕셔너리
-	"""
-	print("[Node 2] 취약성 분석 시작...")
-
-	try:
-		agent = VulnerabilityAnalysisAgent()
-
-		# Exposure 데이터 구성 (VulnerabilityAnalysisAgent가 요구하는 형식)
-		building_info = state.get('building_info', {})
-		target_location = state.get('target_location', {})
-
-		# 기본 exposure 구조 생성
-		exposure = {
-			'building': {
-				'building_age': building_info.get('building_age', 20),
-				'structure': building_info.get('structure', '철근콘크리트'),
-				'main_purpose': building_info.get('main_purpose', '업무시설'),
-				'floors_below': building_info.get('floors_below', 0),
-				'floors_above': building_info.get('floors_above', 5),
-				'has_piloti': building_info.get('has_piloti', False),
-			},
-			'infrastructure': {
-				'water_supply_available': building_info.get('water_supply_available', True),
-			},
-			'flood_exposure': {
-				'in_flood_zone': target_location.get('in_flood_zone', False),
-			},
-			'typhoon_exposure': {
-				'coastal_exposure': target_location.get('coastal_exposure', False),
-			},
-			'wildfire_exposure': {
-				'distance_to_forest_m': target_location.get('distance_to_forest_m', 1000),
-			}
-		}
-
-		# 취약성 계산 (9개 리스크별)
-		vulnerability_result = agent.calculate_vulnerability(exposure)
-
-		# 9개 리스크 선정
-		selected_risks = [
-			'extreme_heat',
-			'extreme_cold',
-			'wildfire',
-			'drought',
-			'water_stress',
-			'sea_level_rise',
-			'river_flood',
-			'urban_flood',
-			'typhoon'
-		]
-
-		# AAL Agent v11을 위한 vulnerability_score 추출 (0-100 스케일)
-		vulnerability_scores = {}
-		for risk_type in selected_risks:
-			risk_vuln = vulnerability_result.get(risk_type, {})
-			vulnerability_scores[f'{risk_type}_vulnerability_score'] = risk_vuln.get('score', 50.0)
-
-		# vulnerability_result에 scores 추가
-		vulnerability_result['vulnerability_scores'] = vulnerability_scores
-
-		print(f"  ✓ 취약성 분석 완료")
-		for risk_type in selected_risks:
-			score = vulnerability_scores.get(f'{risk_type}_vulnerability_score', 0)
-			print(f"    - {risk_type}: V_score={score:.2f}/100")
-
-		return {
-			'vulnerability_analysis': vulnerability_result,
-			'vulnerability_status': 'completed',
-			'selected_risks': selected_risks,
-			'current_step': 'physical_risk_analysis',
-			'logs': ['취약성 분석 완료', f'{len(selected_risks)}개 리스크 선정']
-		}
-
-	except Exception as e:
-		print(f"[Node 2] 오류: {str(e)}")
-		import traceback
-		traceback.print_exc()
-		return {
-			'vulnerability_status': 'failed',
-			'errors': [f'취약성 분석 오류: {str(e)}']
-		}
+# ========== Node 2 (REMOVED): 취약성 분석 노드 삭제됨 ==========
+# ModelOps가 H, E, V를 모두 계산하므로 이 노드는 더 이상 필요하지 않습니다.
+# vulnerability_analysis_node 함수 삭제됨 (2025-12-01)
 
 
 # ========== Node 3: 연평균 재무 손실률 분석 (9개 Sub Agent 병렬 실행) ==========
@@ -377,9 +291,7 @@ def physical_risk_score_node(state: SuperAgentState, config: Any) -> Dict:
 
 		return {
 			'physical_risk_scores': physical_risk_scores,
-			'physical_score_status': 'completed',
-			'current_step': 'risk_integration',
-			'logs': ['물리적 리스크 종합 점수 산출 완료 (H×E×V 기반)']
+			'physical_score_status': 'completed'
 		}
 
 	except Exception as e:
@@ -536,14 +448,55 @@ def impact_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 		print("[Node 6] 영향 분석 시작 (ImpactAnalysisAgent)...")
 
 	try:
-		impact_agent = ImpactAnalysisAgent()
+		llm_client = LLMClient()
+		impact_agent = ImpactAnalysisAgent(llm_client)
 
-		impact_analysis = impact_agent.analyze_impact(
-			physical_risk_scores=state.get('physical_risk_scores', {}),
-			aal_analysis=state.get('aal_analysis', {}),
-			collected_data=state.get('collected_data', {}),
-			vulnerability_analysis=state.get('vulnerability_analysis', {}),
-			validation_feedback=validation_feedback  # 피드백 전달
+		# State에서 필요한 데이터 추출
+		physical_risk_scores = state.get('physical_risk_scores', {})
+		aal_analysis = state.get('aal_analysis', {})
+		asset_info = state.get('asset_info', {})
+		report_template = state.get('report_template', {})
+
+		# scenario_input 구조 생성: ImpactAnalysisAgent가 기대하는 형식
+		# {"SSP245": {"H": {}, "E": {}, "V": {}, "risk_scores": {}, "power_usage": {}}}
+		vulnerability_analysis = state.get('vulnerability_analysis', {})
+
+		# 간단한 H/E/V 추출 (physical_risk_scores에서)
+		H_scores = {}
+		E_scores = {}
+		V_scores = {}
+		risk_scores = {}
+
+		for risk_type, risk_data in physical_risk_scores.items():
+			H_scores[risk_type] = risk_data.get('hazard_score', 0.5)
+			E_scores[risk_type] = risk_data.get('exposure_score', 0.5)
+			V_scores[risk_type] = risk_data.get('vulnerability_score', 0.5)
+			risk_scores[risk_type] = risk_data.get('physical_risk_score_100', 50.0)
+
+		# 단일 시나리오로 구성 (SSP245 가정)
+		scenario_input = {
+			"SSP245": {
+				"H": H_scores,
+				"E": E_scores,
+				"V": V_scores,
+				"risk_scores": risk_scores,
+				"power_usage": None  # 전력 사용량 데이터 없음
+			}
+		}
+
+		# AAL 데이터 변환 (final_aal_percentage를 float으로)
+		AAL_simplified = {}
+		for risk_type, aal_data in aal_analysis.items():
+			AAL_simplified[risk_type] = aal_data.get('final_aal_percentage', 1.0)
+
+		tcfd_warnings = []  # 필요시 State에서 추출
+
+		impact_analysis = impact_agent.run(
+			scenario_input=scenario_input,
+			AAL=AAL_simplified,
+			asset_info=asset_info,
+			tcfd_warnings=tcfd_warnings,
+			report_profile=report_template
 		)
 
 		return {
@@ -587,17 +540,52 @@ def strategy_generation_node(state: SuperAgentState, config: Any) -> Dict:
 
 	try:
 		llm_client = LLMClient()
-		rag_engine = RAGEngine()
-		strategy_agent = StrategyGenerationAgent(llm_client, rag_engine)
+		strategy_agent = StrategyGenerationAgent(llm_client)  # RAGEngine 제거
 
-		response_strategy = strategy_agent.generate_strategy(
-			target_location=state.get('target_location', {}),
-			vulnerability_analysis=state.get('vulnerability_analysis', {}),
-			aal_analysis=state.get('aal_analysis', {}),
-			physical_risk_scores=state.get('physical_risk_scores', {}),
-			impact_analysis=state.get('impact_analysis', {}),
-			report_template=state.get('report_template', {}),
-			validation_feedback=validation_feedback  # 피드백 전달
+		# run() 메소드의 파라미터에 맞게 변환
+		# impact_analysis는 Dict이지만, StrategyAgent는 List[Dict]를 기대함
+		impact_analysis = state.get('impact_analysis', {})
+
+		# Dict를 List[Dict]로 변환
+		# impact_analysis = {"quantitative_result": {...}, "narrative": {...}}
+		# → List[Dict] 형태로 변환 필요
+		if isinstance(impact_analysis, dict):
+			# quantitative_result에서 리스크별 데이터 추출
+			quant = impact_analysis.get('quantitative_result', {})
+			impact_summary = []
+
+			# quant가 Dict인지 확인
+			if not isinstance(quant, dict):
+				quant = {}
+
+			# 각 시나리오의 top3_risks를 impact_summary로 변환
+			for scenario, data in quant.items():
+				if scenario == "AAL":
+					continue
+				if not isinstance(data, dict):
+					continue
+				top_risks = data.get('top3_risks', [])
+				for risk_name, risk_score in top_risks:
+					impact_summary.append({
+						"risk": risk_name,
+						"scenario": scenario,
+						"score": risk_score,
+						"severity": data.get('severity', {}).get(risk_name, 'medium')
+					})
+		else:
+			impact_summary = []
+
+		facility_profile = {
+			'location': state.get('target_location', {}),
+			'building_info': state.get('building_info', {}),
+			'asset_info': state.get('asset_info', {})
+		}
+		report_profile = state.get('report_template', {})
+
+		response_strategy = strategy_agent.run(
+			impact_summary=impact_summary,
+			facility_profile=facility_profile,
+			report_profile=report_profile
 		)
 
 		return {
@@ -632,22 +620,53 @@ def report_generation_node(state: SuperAgentState, config: Any) -> Dict:
 	print("[Node 8] 리포트 생성 시작 (ReportComposerAgent)...")
 
 	try:
-		llm_client = LLMClient()
-		report_agent = ReportComposerAgent(llm_client)
+		import asyncio
+		from ai_agent.agents.report_generation.utils import citation_formatter
+		from ai_agent.agents.report_generation.utils import markdown_renderer
 
-		generated_report = report_agent.compose_report(
-			target_location=state.get('target_location', {}),
-			building_info=state.get('building_info', {}),
-			vulnerability_analysis=state.get('vulnerability_analysis', {}),
-			aal_analysis=state.get('aal_analysis', {}),
-			physical_risk_scores=state.get('physical_risk_scores', {}),
-			impact_analysis=state.get('impact_analysis', {}),
-			report_template=state.get('report_template', {}),
-			response_strategy=state.get('response_strategy', {})
-		)
+		llm_client = LLMClient()
+		# citation_formatter와 markdown_renderer는 모듈이므로 직접 전달
+		report_agent = ReportComposerAgent(llm_client, citation_formatter, markdown_renderer)
+
+		# compose_draft() 메소드의 파라미터에 맞게 변환
+		report_profile = state.get('report_template', {})
+		impact_summary = state.get('impact_analysis', {})
+
+		# strategies는 List[Dict]로 반환되지만, ReportComposer는 Dict를 기대
+		strategies_list = state.get('response_strategy', [])
+
+		# List[Dict]를 Dict로 변환
+		# strategies_list = [{"risk": "extreme_heat", "strategy": "...", ...}, ...]
+		# → {"extreme_heat": {...}, "extreme_cold": {...}}
+		strategies_dict = {}
+		if isinstance(strategies_list, list):
+			for strategy in strategies_list:
+				risk = strategy.get('risk', 'unknown')
+				strategies_dict[risk] = strategy
+		else:
+			strategies_dict = strategies_list  # 이미 Dict인 경우
+
+		template = report_profile  # 동일할 수도 있음
+
+		# async 메소드 호출
+		generated_report = asyncio.run(report_agent.compose_draft(
+			report_profile=report_profile,
+			impact_summary=impact_summary,
+			strategies=strategies_dict,
+			template=template
+		))
+
+		# 키 이름 변환: draft_markdown → markdown, draft_json → json
+		# finalization_node에서 'markdown', 'json' 키를 기대함
+		normalized_report = {
+			'markdown': generated_report.get('draft_markdown', ''),
+			'json': generated_report.get('draft_json', {}),
+			'citations': generated_report.get('citations', []),
+			'status': generated_report.get('status', 'completed')
+		}
 
 		return {
-			'generated_report': generated_report,
+			'generated_report': normalized_report,
 			'report_status': 'completed',
 			'current_step': 'validation',
 			'logs': ['리포트 생성 완료 (ReportComposerAgent)']
@@ -661,12 +680,139 @@ def report_generation_node(state: SuperAgentState, config: Any) -> Dict:
 		}
 
 
+# ========== Helper: Building Characteristics Validation ==========
+def _validate_building_characteristics(
+	building_characteristics: Dict[str, Any],
+	physical_risk_scores: Dict[str, Any],
+	aal_analysis: Dict[str, Any]
+) -> Dict[str, Any]:
+	"""
+	건물 특징 분석 검증 헬퍼 함수
+
+	검증 항목:
+	1. 분석 완전성: 필수 섹션 존재 여부
+	2. ModelOps 결과 일관성: Physical Risk Score 및 AAL 데이터와의 정합성
+	3. 분석 품질: 종합 분석, 주요 발견사항, 리스크 해석 존재 여부
+
+	Args:
+		building_characteristics: 건물 특징 분석 결과
+		physical_risk_scores: 물리적 리스크 점수 (ModelOps 계산)
+		aal_analysis: AAL 분석 결과 (ModelOps 계산)
+
+	Returns:
+		검증 결과 딕셔너리
+			- passed: 검증 통과 여부 (bool)
+			- score: 검증 점수 (0.0 ~ 1.0)
+			- issues: 발견된 이슈 리스트
+			- recommendations: 개선 권장사항
+	"""
+	issues = []
+	score = 1.0
+	recommendations = []
+
+	# 1. 존재 여부 확인
+	if not building_characteristics:
+		return {
+			'passed': False,
+			'score': 0.0,
+			'issues': [{'type': 'structure', 'description': 'Building Characteristics 분석 결과가 없습니다.'}],
+			'recommendations': ['Building Characteristics Agent를 실행하여 건물 특징 분석을 수행하세요.']
+		}
+
+	# 2. 분석 상태 확인
+	analysis_status = building_characteristics.get('analysis_status', 'unknown')
+	if analysis_status != 'completed':
+		issues.append({
+			'type': 'structure',
+			'description': f'Building Characteristics 분석이 완료되지 않았습니다 (status: {analysis_status})'
+		})
+		score -= 0.3
+		recommendations.append('Building Characteristics 분석을 완료하세요.')
+
+	# 3. 종합 분석 (comprehensive_analysis) 존재 여부
+	comprehensive = building_characteristics.get('comprehensive_analysis', {})
+	if not comprehensive:
+		issues.append({
+			'type': 'completeness',
+			'description': 'comprehensive_analysis 섹션이 누락되었습니다.'
+		})
+		score -= 0.2
+		recommendations.append('종합 분석(comprehensive_analysis)을 추가하세요.')
+	else:
+		# 종합 분석 내 필수 필드 확인
+		required_fields = ['summary', 'key_findings', 'risk_interpretation']
+		for field in required_fields:
+			if not comprehensive.get(field):
+				issues.append({
+					'type': 'completeness',
+					'description': f'comprehensive_analysis.{field} 필드가 누락되었습니다.'
+				})
+				score -= 0.1
+				recommendations.append(f'종합 분석의 {field}를 추가하세요.')
+
+	# 4. ModelOps 결과와의 일관성 확인
+	# Physical Risk Scores와 Building Characteristics가 동일한 리스크 타입을 다루는지 확인
+	bc_risk_types = set()
+	for section_key, section_data in building_characteristics.items():
+		if isinstance(section_data, dict) and 'risk_type' in section_data:
+			bc_risk_types.add(section_data['risk_type'])
+
+	modelops_risk_types = set(physical_risk_scores.keys())
+
+	# 누락된 리스크 타입이 있는지 확인
+	missing_risks = modelops_risk_types - bc_risk_types
+	if missing_risks and len(missing_risks) > 0:
+		issues.append({
+			'type': 'consistency',
+			'description': f'ModelOps에서 계산된 일부 리스크가 Building Characteristics에 반영되지 않았습니다: {", ".join(missing_risks)}'
+		})
+		score -= 0.15
+		recommendations.append(f'누락된 리스크 타입({", ".join(missing_risks)})에 대한 건물 특징 분석을 추가하세요.')
+
+	# 5. 분석 품질 확인 (텍스트 길이 기반 간단한 품질 체크)
+	if comprehensive:
+		summary = comprehensive.get('summary', '')
+		key_findings = comprehensive.get('key_findings', [])
+
+		# Summary가 너무 짧으면 경고
+		if len(summary) < 50:
+			issues.append({
+				'type': 'quality',
+				'description': 'comprehensive_analysis.summary가 너무 짧습니다 (최소 50자 권장).'
+			})
+			score -= 0.1
+			recommendations.append('종합 분석의 요약을 더 상세하게 작성하세요.')
+
+		# Key findings가 비어있으면 경고
+		if not key_findings or len(key_findings) == 0:
+			issues.append({
+				'type': 'quality',
+				'description': 'comprehensive_analysis.key_findings가 비어있습니다.'
+			})
+			score -= 0.1
+			recommendations.append('주요 발견사항(key_findings)을 추가하세요.')
+
+	# 6. 최종 검증 통과 여부 결정 (score >= 0.7)
+	passed = score >= 0.7
+
+	return {
+		'passed': passed,
+		'score': max(0.0, score),  # 음수 방지
+		'issues': issues,
+		'recommendations': recommendations
+	}
+
+
 # ========== Node 9: 검증 ==========
 @traceable(name="validation_node", tags=["workflow", "node", "validation"])
 def validation_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
-	검증 노드
-	생성된 리포트의 정확성, 일관성, 완전성 확인
+	검증 노드 (통합 검증)
+	생성된 리포트 및 건물 특징 분석의 정확성, 일관성, 완전성 확인
+
+	검증 대상:
+	1. Report Validation: 리포트 내용, 구조, TCFD 정합성
+	2. Building Characteristics Validation: 건물 특징 분석 완전성, ModelOps 결과와의 일관성
 
 	Args:
 		state: 현재 워크플로우 상태
@@ -676,37 +822,81 @@ def validation_node(state: SuperAgentState, config: Any) -> Dict:
 		업데이트된 상태 딕셔너리
 	"""
 	retry_count = state.get('retry_count', 0)
-	print(f"[Node 9] 리포트 검증 시작... (재시도 {retry_count}/3)")
+	print(f"[Node 9] 통합 검증 시작 (Report + Building Characteristics)... (재시도 {retry_count}/3)")
 
 	try:
+		import asyncio
 		validator = ValidationAgent()
-		validation_result = validator.validate_report(
-			state.get('generated_report', {}),
-			state.get('physical_risk_scores', {}),
-			state.get('aal_analysis', {}),
-			state.get('response_strategy', {}),
-			state.get('impact_analysis', {})
+
+		# ========== 1. Report Validation ==========
+		print("  [1/2] Report Validation...")
+		generated_report = state.get('generated_report', {})
+		draft_markdown = generated_report.get('markdown', '')
+		draft_json = generated_report.get('json', {})
+		report_profile = state.get('report_template', {})
+		impact_summary = state.get('impact_analysis', {})
+		strategies = state.get('response_strategy', {})
+
+		# Call async validate method for Report
+		report_validation = asyncio.run(validator.validate(
+			draft_markdown=draft_markdown,
+			draft_json=draft_json,
+			report_profile=report_profile,
+			impact_summary=impact_summary,
+			strategies=strategies,
+			citations=None
+		))
+
+		# ========== 2. Building Characteristics Validation ==========
+		print("  [2/2] Building Characteristics Validation...")
+		building_characteristics = state.get('building_characteristics', {})
+		bc_validation = _validate_building_characteristics(
+			building_characteristics=building_characteristics,
+			physical_risk_scores=state.get('physical_risk_scores', {}),
+			aal_analysis=state.get('aal_analysis', {})
 		)
 
-		validation_passed = validation_result.get('validation_passed', False)
+		# ========== 3. 통합 검증 결과 ==========
+		report_passed = report_validation.get('passed', False)
+		bc_passed = bc_validation.get('passed', False)
+		overall_passed = report_passed and bc_passed
 
-		if validation_passed:
+		# 통합 validation_result 생성
+		validation_result = {
+			'report_validation': report_validation,
+			'building_characteristics_validation': bc_validation,
+			'passed': overall_passed,
+			'report_score': report_validation.get('score', 0.0),
+			'bc_score': bc_validation.get('score', 0.0),
+			'overall_score': (report_validation.get('score', 0.0) + bc_validation.get('score', 0.0)) / 2,
+			'issues_found': report_validation.get('issues', []) + bc_validation.get('issues', []),
+			'improvement_suggestions': report_validation.get('recommendations', []) + bc_validation.get('recommendations', [])
+		}
+
+		if overall_passed:
+			print(f"  [OK] 통합 검증 통과 (Report: {report_validation.get('score', 0):.2f}, BC: {bc_validation.get('score', 0):.2f})")
 			return {
 				'validation_result': validation_result,
 				'validation_status': 'passed',
 				'current_step': 'finalization',
-				'logs': ['검증 통과']
+				'logs': ['통합 검증 통과 (Report + Building Characteristics)']
 			}
 		else:
 			# 검증 실패 - retry_count 증가
 			new_retry_count = retry_count + 1
+			failed_parts = []
+			if not report_passed:
+				failed_parts.append('Report')
+			if not bc_passed:
+				failed_parts.append('Building Characteristics')
 
+			print(f"  [FAIL] 검증 실패: {', '.join(failed_parts)}")
 			return {
 				'validation_result': validation_result,
 				'validation_status': 'failed',
 				'validation_feedback': validation_result.get('improvement_suggestions', []),
 				'retry_count': new_retry_count,
-				'logs': [f'검증 실패: {len(validation_result.get("issues_found", []))}개 이슈 발견']
+				'logs': [f'검증 실패 ({", ".join(failed_parts)}): {len(validation_result.get("issues_found", []))}개 이슈 발견']
 			}
 
 	except Exception as e:
@@ -909,4 +1099,76 @@ def finalization_node(state: SuperAgentState, config: Any) -> Dict:
 			'current_step': 'done',
 			'errors': [f'Finalizer 오류: {str(e)}'],
 			'logs': ['최종 리포트 확정 (오류 발생, 파일 저장 실패)']
+		}
+
+
+# ========== Node 2 (NEW): 건물 특징 분석 (병렬 독립 실행) ==========
+@traceable(name="building_characteristics_node", tags=["workflow", "node", "building-analysis"])
+def building_characteristics_node(state: SuperAgentState, config: Any) -> Dict:
+	"""
+	건물 특징 분석 노드 (Node 5 이후 병렬 실행)
+
+	Physical Risk Score와 AAL 결과를 받아서 건물 특징을 분석
+	LLM 기반 정성적 분석 제공
+	리포트 체인(6-11)과 완전히 독립적으로 실행
+
+	Args:
+		state: 현재 워크플로우 상태
+		config: 설정 객체
+
+	Returns:
+		업데이트된 상태 딕셔너리
+	"""
+	print("[Node 2] 건물 특징 분석 시작 (독립 병렬 실행)...")
+
+	try:
+		# 1. 필요한 데이터 추출
+		building_info = state.get('building_info', {})
+		physical_risk_results = state.get('physical_risk_results', {})
+		aal_results = state.get('aal_results', {})
+		integrated_risk = state.get('integrated_risk', {})
+
+		# 2. Additional data guideline 확인
+		additional_data_guidelines = state.get('additional_data_guidelines', {})
+		guideline = additional_data_guidelines.get('building_characteristics', {})
+
+		# 3. LLM 클라이언트 초기화
+		llm_client = LLMClient(config)
+
+		# 4. Building Characteristics Agent 실행
+		agent = BuildingCharacteristicsAgent(llm_client=llm_client)
+
+		analysis_result = agent.analyze(
+			building_info=building_info,
+			physical_risk_results=physical_risk_results,
+			aal_results=aal_results,
+			integrated_risk=integrated_risk,
+			additional_data_guideline=guideline if guideline.get('relevance', 0.0) >= 0.4 else None
+		)
+
+		print(f"  ✓ 건물 특징 분석 완료")
+		print(f"    - 구조적 등급: {analysis_result['structural_features'].get('structural_grade', 'Unknown')}")
+		print(f"    - 취약 요인: {len(analysis_result.get('vulnerability_factors', []))}개")
+		print(f"    - 회복력 요인: {len(analysis_result.get('resilience_factors', []))}개")
+
+		if guideline.get('relevance', 0.0) >= 0.4:
+			print(f"    - 가이드라인 적용됨 (relevance: {guideline.get('relevance', 0.0):.2f})")
+
+		return {
+			'building_characteristics': analysis_result,
+			'building_analysis_status': 'completed',
+			'logs': [
+				'건물 특징 분석 완료 (독립 브랜치)',
+				f'구조적 등급: {analysis_result["structural_features"].get("structural_grade", "Unknown")}'
+			]
+		}
+
+	except Exception as e:
+		print(f"[Node 2] 오류: {str(e)}")
+		import traceback
+		traceback.print_exc()
+
+		return {
+			'building_analysis_status': 'failed',
+			'errors': [f'건물 특징 분석 오류: {str(e)}']
 		}

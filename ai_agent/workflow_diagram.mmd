@@ -6,10 +6,10 @@ config:
 graph TD;
 	__start__([<p>__start__</p>]):::first
 	data_collection(data_collection)
-	vulnerability_analysis(vulnerability_analysis)
 	physical_risk_score(physical_risk_score)
 	aal_analysis(aal_analysis)
 	risk_integration(risk_integration)
+	building_characteristics(building_characteristics)
 	report_template(report_template)
 	impact_analysis(impact_analysis)
 	strategy_generation(strategy_generation)
@@ -20,20 +20,22 @@ graph TD;
 	__end__([<p>__end__</p>]):::last
 	__start__ --> data_collection;
 	aal_analysis --> risk_integration;
-	data_collection --> vulnerability_analysis;
+	building_characteristics --> validation;
+	data_collection --> aal_analysis;
+	data_collection --> physical_risk_score;
 	impact_analysis --> strategy_generation;
 	physical_risk_score --> risk_integration;
 	refiner --> validation;
 	report_generation --> validation;
 	report_template --> impact_analysis;
+	risk_integration --> building_characteristics;
 	risk_integration --> report_template;
 	strategy_generation --> report_generation;
+	validation -.-> building_characteristics;
 	validation -.-> finalization;
 	validation -.-> impact_analysis;
 	validation -.-> refiner;
 	validation -.-> strategy_generation;
-	vulnerability_analysis --> aal_analysis;
-	vulnerability_analysis --> physical_risk_score;
 	finalization --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0

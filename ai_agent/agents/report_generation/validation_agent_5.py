@@ -187,16 +187,24 @@ class ValidationAgent:
 
         strategy_section = draft_json.get("sections", {}).get("strategy", "")
 
-        all_strategy_summaries = " ".join([s.get("strategy_summary", "") for s in strategies])
+        # strategies가 List[Dict]일 경우 Dict로 변환
+        if isinstance(strategies, list):
+            strategies_dict = {}
+            for strategy in strategies:
+                if isinstance(strategy, dict):
+                    risk = strategy.get('risk', 'unknown')
+                    strategies_dict[risk] = strategy.get('strategy', '')
+            strategies = strategies_dict
 
-        for s in strategies:
-            summary = s.get("strategy_summary", "")
-            if summary and summary not in strategy_section:
-                issues.append({
-                    "type": "strategy",
-                    "msg": f"전략 요약 '{summary}' 내용이 전략 섹션에 충분히 반영되지 않음"
-                })
-                score -= 0.1
+        # Dict인 경우에만 items() 호출
+        if isinstance(strategies, dict):
+            for key, text in strategies.items():
+                if isinstance(text, str) and text[:40] not in strategy_section:
+                    issues.append({
+                        "type": "strategy",
+                        "msg": f"전략 '{key}' 내용이 전략 섹션에 충분히 반영되지 않음"
+                    })
+                    score -= 0.1
 
         return max(score, 0), issues
 

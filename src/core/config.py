@@ -29,7 +29,7 @@ class Settings(BaseSettings):
 
     # LLM Settings
     OPENAI_API_KEY: Optional[str] = None
-    LLM_MODEL: str = "gpt-4"
+    LLM_MODEL: str = "gpt-4o-mini"
 
     # Agent Settings
     AGENT_TIMEOUT: int = 300  # 5분

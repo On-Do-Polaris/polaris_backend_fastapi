@@ -56,8 +56,8 @@ class ImpactAnalysisAgent:
         self.llm = llm_client
 
         self.risk_list = [
-            "extreme_heat", "extreme_cold", "drought", "inland_flood",
-            "urban_flood", "coastal_flood", "typhoon", "wildfire", "water_stress"
+            "extreme_heat", "extreme_cold", "drought", "river_flood",
+            "urban_flood", "sea_level_rise", "typhoon", "wildfire", "water_stress"
         ]
 
     # ----------------------------------------------------------------------
@@ -121,6 +121,10 @@ class ImpactAnalysisAgent:
         output = {}
 
         for scenario, data in scenario_input.items():
+            # DEBUG: scenario_input 구조 로깅
+            print(f"[ImpactAnalysisAgent] Processing scenario: {scenario}")
+            print(f"[ImpactAnalysisAgent] Data keys: {list(data.keys())}")
+
             H, E, V = data["H"], data["E"], data["V"]
             power_usage = data.get("power_usage", None)
 

@@ -96,11 +96,20 @@ class ReportComposerAgent:
             )
 
             # 3. Markdown Draft 구성
-            draft_md = self.render.render_markdown({
-                "executive_summary": executive_summary,
-                "sections": sections,
-                "template": template
-            })
+            # Markdown 문자열 생성
+            md_text = f"# {template.get('title', 'Physical Risk Analysis Report')}\n\n"
+            md_text += f"## Executive Summary\n\n{executive_summary}\n\n"
+
+            # sections는 dict {sec_key: content_text} 형태
+            # template의 sections 정의를 참고하여 제목 추가
+            section_defs = template.get("sections", {})
+            for sec_key, content_text in sections.items():
+                sec_info = section_defs.get(sec_key, {})
+                section_title = sec_info.get("title", sec_key.replace('_', ' ').title())
+                md_text += f"## {section_title}\n\n{content_text}\n\n"
+
+            # Markdown → HTML 변환
+            draft_md = md_text  # HTML로 변환하지 않고 Markdown 그대로 저장
 
             # 4. JSON Draft 구성 (Memory Node용)
             draft_json = {
@@ -141,11 +150,16 @@ class ReportComposerAgent:
         - 상위 3개 리스크 및 종합 전략 요약
         """
         top_risks = impact_summary.get("top_risks", [])
-        top3_risk_names = ", ".join([r["risk_type"] for r in top_risks[:3]]) if top_risks else "N/A"
-        total_financial_loss = impact_summary.get("total_financial_loss", "N/A")
+        top3 = ", ".join([r["risk_type"] for r in top_risks[:3]])
+        total_loss = impact_summary.get("total_financial_loss", "N/A")
 
-        overall_strategy_summary_parts = [s.get("strategy_summary", "") for s in strategies if s.get("strategy_summary")]
-        overall_strategy = ". ".join(overall_strategy_summary_parts[:2]) + ("..." if len(overall_strategy_summary_parts) > 2 else "") if overall_strategy_summary_parts else "N/A"
+        # strategies가 List[Dict]일 경우 Dict로 변환
+        if isinstance(strategies, list):
+            overall_strategy = " / ".join([s.get('strategy', '')[:100] for s in strategies if isinstance(s, dict)])
+        elif isinstance(strategies, dict):
+            overall_strategy = strategies.get("overall_strategy", "")
+        else:
+            overall_strategy = ""
 
         prompt = f"""
 <ROLE>
@@ -205,13 +219,15 @@ Your task is to draft a compelling Executive Summary for a TCFD/ESG report.
         - 필요시 citation 포맷 삽입
         """
         sections = {}
-        section_defs = template.get("sections", {})
 
-        for sec_key, sec_info in section_defs.items():
-            section_title = sec_info.get("title", sec_key.replace("_", " ").title())
-            section_description = sec_info.get("description", "No specific description provided.")
-            
-            strategies_for_prompt = json.dumps(strategies, indent=2, ensure_ascii=False)
+        # template은 report_profile과 동일하므로 section_structure를 사용
+        section_structure = template.get("section_structure", {})
+        main_sections = section_structure.get("main_sections", [])
+        tcfd_structure = template.get("tcfd_structure", {})
+
+        for sec_key in main_sections:
+            # TCFD 구조에서 설명 가져오기
+            sec_description = tcfd_structure.get(sec_key, f"{sec_key} section")
 
             prompt = f"""
 <ROLE>
@@ -239,9 +255,8 @@ Section Purpose: {section_description}
 </STRATEGIES_DETAILS>
 </CONTEXT>
 
-<INSTRUCTIONS>
-Your task is to write the content for the section titled "{section_title}".
-</INSTRUCTIONS>
+섹션 제목: {sec_key.replace('_', ' ').title()}
+역할: {sec_description}
 
 <OUTPUT_FORMAT>
 - The section content must be in Markdown format.
@@ -249,12 +264,10 @@ Your task is to write the content for the section titled "{section_title}".
 - If relevant and justified by the context, insert citation placeholders in the format "[[ref-id]]".
 </OUTPUT_FORMAT>
 
-<RULES>
-- Output ONLY the Markdown formatted section content. DO NOT include any explanations, apologies, or text outside the section content itself.
-- DO NOT invent details or go beyond the provided context.
-- Maintain the tone and style of a high-level corporate report, as indicated in the <REPORT_PROFILE>.
-- Strictly adhere to Markdown syntax.
-</RULES>
+요구:
+- Markdown 문단 2~4개 생성
+- 구체적이고 전문적인 내용 작성
+- 필요 시 citation 포맷 삽입 (형식: [[ref-id]])
 """
             result = await self.llm.ainvoke(prompt)
             sections[sec_key] = result.strip()

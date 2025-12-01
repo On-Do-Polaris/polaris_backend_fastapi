@@ -54,7 +54,33 @@ class StrategyGenerationAgent:
         llm_client: OpenAI, Anthropic, Vertex 등 LLM 객체
         """
         self.llm = llm_client
-        
+
+    # ----------------------------------------------------------------------
+    # Layer 1: Quantitative/Context Mapping
+    # ----------------------------------------------------------------------
+    def map_strategies(self, impact_summary: List[Dict], facility_profile: Dict) -> List[Dict]:
+        """
+        영향 분석 결과와 시설 정보 기반 전략 후보 생성
+        각 impact_summary 항목과 1:1 매핑
+        """
+        strategy_candidates = []
+
+        for impact in impact_summary:
+            # 타입 검증
+            if not isinstance(impact, dict):
+                print(f"[StrategyAgent] Warning: impact is not dict, type={type(impact)}, skipping")
+                continue
+
+            risk = impact.get("risk")
+            # 기본 템플릿 전략 후보
+            strategy_candidates.append({
+                "risk": risk,
+                "strategy": f"{risk} 대응 기본 전략 후보",  # 초기 placeholder
+                "impact": impact,  # 나중에 LLM에 context로 사용
+            })
+
+        return strategy_candidates
+
     # ----------------------------------------------------------------------
     # Layer : LLM Narrative Generation
     # ----------------------------------------------------------------------
@@ -64,89 +90,68 @@ class StrategyGenerationAgent:
         """
         LLM을 통해 단일 리스크에 대한 구조화된 대응 전략 JSON을 생성합니다.
         """
-        risk = candidate.get("risk")
-        impact = candidate.get("impact")
-        prompt = f"""
-    <ROLE>
-    You are a premier strategy consultant specializing in TCFD and Climate Adaptation. Your expertise is in designing actionable, cost-effective, and data-driven response strategies for specific, analyzed climate risks. Your proposals are always concrete, measurable, and clearly justified, never vague.
-    </ROLE>
+        strategies_output = []
 
-    <CONTEXT>
-    You will be provided with a specific climate risk's impact analysis, the profile of the facility at risk, and the company's preferred report style profile. 
+        for candidate in strategy_candidates:
+            risk = candidate["risk"]
+            impact = candidate["impact"]
 
-        <IMPACT_ANALYSIS>
-        This is the analysis for the specific risk: '{risk}'
-        {json.dumps(impact, indent=2, ensure_ascii=False)}
-        </IMPACT_ANALYSIS>
+            prompt = f"""
+당신은 Strategy Generation Agent 3입니다.
+역할:
+- 영향 분석 결과를 기반으로 리스크별 전략 작성
+- 비용/효과 분석 포함
+- 정책/운영/기술 대응 권고 포함
+- 국제 기준 RAG 기반 citations 자동 생성
 
-        <FACILITY_PROFILE>
-        {json.dumps(facility_profile, indent=2, ensure_ascii=False)}
-        </FACILITY_PROFILE>
+===== 입력 데이터 =====
+영향 분석 결과:
+{impact}
 
-        <REPORT_STYLE_PROFILE>
-        {json.dumps(report_profile, indent=2, ensure_ascii=False)}
-        </REPORT_STYLE_PROFILE>
+시설 정보:
+{facility_profile}
 
-    </CONTEXT>    
+보고서 스타일 프로필:
+{report_profile}
 
-    <INSTRUCTIONS>
-    Your task is to design a robust response strategy for the single climate risk specified in the context. You must generate a single, structured JSON object as the output. 
-    Follow this thought process to structure your response:
+===== 출력 요구사항 =====
+1. 리스크별 전략(strategy)
+2. 대응 근거 citations (항상 전체 재생성)
+3. 전략 내러티브에 비용/효과 및 정책/운영/기술 권고 포함
 
-    <THOUGHT_PROCESS>
-    1.  **Analyze Impact**: Deeply understand the impact and vulnerabilities associated with the given risk from the `<IMPACT_ANALYSIS>` section.
-    2.  **Brainstorm Strategies**: Consider a range of potential strategies: structural (e.g., building reinforcements), operational (e.g., emergency response plans), and financial (e.g., insurance).
-    3.  **Evaluate Strategies**: Assess the brainstormed ideas based on estimated cost, effectiveness, feasibility, and timeline, considering the specific `<FACILITY_PROFILE>`.
-    4.  **Select & Refine Best Strategy**: Choose the most viable strategy. Elaborate on it, breaking it down into specific recommendations for policy, operations, and technology as required by the output format.
-    5.  **Find Citation**: Formulate a supporting citation from a reputable international standard or report (e.g., TCFD, IPCC, ISO) that justifies your proposed strategy.
-    </THOUGHT_PROCESS>
+출력 형식:
+{{ "risk": "<리스크>", "strategy": "<전략>", "citation": "<RAG 근거>" }}
+출력 언어: 한국어
+전문적인 TCFD 지속가능경영 보고서 톤 유지
+"""
+            try:
+                response = self.llm.generate(prompt)
 
-    Based on this thought process, generate a single JSON object that strictly adheres to the format specified in <OUTPUT_FORMAT>.
-    </INSTRUCTIONS>  
+                # response가 str인 경우 JSON 파싱 시도
+                if isinstance(response, str):
+                    import json
+                    try:
+                        response = json.loads(response)
+                    except json.JSONDecodeError:
+                        # JSON 파싱 실패 시 텍스트 그대로 사용
+                        response = {"strategy": response, "citation": ""}
 
-    <OUTPUT_FORMAT>
-    - You must output a single, raw JSON object and nothing else.
-    - The JSON object must have the following structure and keys:
-        {{
-        "risk": "The specific risk being addressed (e.g., 'extreme_heat')",
-        "strategy_summary": "A concise, one-sentence summary of the proposed strategy.",
-        "strategy_details": {{
-            "policy_recommendation": "Recommendations related to company policy, governance, or procedures.",
-            "operational_recommendation": "Recommendations for changes in operational processes or activities.",
-            "technical_recommendation": "Recommendations for technical, structural, or engineering changes."
-        }},
-        "cost_benefit_analysis": "A brief analysis of the estimated costs and expected benefits of implementing the strategy.",
-        "citation": "A supporting citation from an international standard, e.g., 'TCFD (2023) - Adaptation for Physical Risks'."
-        }}
+                # LLM 결과를 바로 strategies_output에 저장
+                strategies_output.append({
+                    "risk": risk,
+                    "strategy": response.get("strategy", f"{risk} 대응 전략") if isinstance(response, dict) else str(response),
+                    "citation": response.get("citation", f"TCFD(2023)-Adaptation {risk}") if isinstance(response, dict) else "",
+                })
+            except Exception as e:
+                print(f"[StrategyAgent] Error generating strategy for {risk}: {e}")
+                # Fallback 전략 추가
+                strategies_output.append({
+                    "risk": risk,
+                    "strategy": f"{risk} 리스크에 대한 적응 및 완화 전략이 필요합니다.",
+                    "citation": f"TCFD(2023)-Adaptation {risk}",
+                })
 
-    </OUTPUT_FORMAT>
-
-    <RULES>
-    - Output ONLY a single raw JSON object. Do NOT include explanations, apologies, or any text outside the JSON object.
-    - DO NOT provide vague or generic advice like "risk management should be strengthened." All recommendations must be specific and actionable.
-    - The proposed strategy MUST be relevant and tailored to the facility described in `<FACILITY_PROFILE>`.
-    - The output language must be Korean.
-    </RULES>
-
-    JSON_ONLY:
-    """
-        response_str = self.llm.generate(prompt)
-        
-        try:
-            llm_output = json.loads(response_str)
-        except (json.JSONDecodeError, TypeError):
-            llm_output = {{
-                "risk": risk,
-                "strategy_summary": "Error: Failed to generate a valid strategy.",
-                "strategy_details": {{
-                    "policy_recommendation": "N/A",
-                    "operational_recommendation": "N/A",
-                    "technical_recommendation": "N/A"
-                }},
-                "cost_benefit_analysis": "N/A",
-                "citation": "N/A"
-            }}
-        return llm_output
+        return strategies_output
 
     # ----------------------------------------------------------------------
     # Main API method

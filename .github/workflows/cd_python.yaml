@@ -73,6 +73,13 @@ jobs:
               --name ${CONTAINER_NAME} \
               --network web \
               --restart unless-stopped \
+              -e USE_MOCK_DATA="${{ secrets.USE_MOCK_DATA }}" \
+              -e OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
+              -e DATABASE_URL="${{ secrets.DATABASE_URL }}" \
+              -e API_KEY="${{ secrets.API_KEY }}" \
+              -e LANGSMITH_ENABLED="${{ secrets.LANGSMITH_ENABLED }}" \
+              -e LANGSMITH_API_KEY="${{ secrets.LANGSMITH_API_KEY }}" \
+              -e LANGSMITH_PROJECT="${{ secrets.LANGSMITH_PROJECT }}" \
               ${IMAGE}
 
             # Health check - 컨테이너가 준비될 때까지 대기

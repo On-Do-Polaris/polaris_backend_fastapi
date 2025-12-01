@@ -1,0 +1,81 @@
+---
+config:
+  flowchart:
+    curve: basis
+---
+graph TB;
+    %% ===== 추가 데이터 전처리 =====
+    subgraph PreProcess["🔧 추가 데이터 전처리 (워크플로우 외부)"]
+        direction TB
+        UserData[["사용자 입력<br/>(additional_data)"]]
+        Helper["AdditionalDataHelper<br/>(LLM 1회 호출)"]
+        Guidelines{{"가이드라인 생성<br/>(4개 Agent)"}}
+
+        UserData --> Helper
+        Helper --> Guidelines
+    end
+
+    %% ===== 메인 워크플로우 =====
+    subgraph MainFlow["🚀 메인 워크플로우 (LangGraph)"]
+        direction TB
+
+        Start(["__start__"])
+        DC["1. Data Collection"]
+
+        subgraph Parallel1["병렬 실행 (ModelOps)"]
+            PRS["2. Physical Risk Score<br/>(H×E×V)"]
+            AAL["3. AAL Analysis<br/>(P×D)"]
+        end
+
+        RI["4. Risk Integration"]
+
+        subgraph Parallel2["Fork-Join 병렬"]
+            BC["BC. Building Characteristics<br/>(LLM 정성 분석)"]
+
+            subgraph ReportChain["Report Chain"]
+                RT["5. Report Template"]
+                IA["6. Impact Analysis"]
+                SG["7. Strategy Generation"]
+                RG["8. Report Generation"]
+            end
+        end
+
+        Val["9. Validation<br/>(Report + BC 통합 검증)"]
+        Fin["10. Finalization"]
+        End(["__end__"])
+
+        Start --> DC
+        DC --> PRS
+        DC --> AAL
+        PRS --> RI
+        AAL --> RI
+        RI --> BC
+        RI --> RT
+        RT --> IA
+        IA --> SG
+        SG --> RG
+        BC --> Val
+        RG --> Val
+        Val -->|"통과"| Fin
+        Val -.->|"BC 이슈"| BC
+        Val -.->|"Impact 이슈"| IA
+        Val -.->|"Strategy 이슈"| SG
+        Fin --> End
+    end
+
+    %% ===== 가이드라인 주입 (점선) =====
+    Guidelines -.->|"가이드라인 주입<br/>(relevance ≥ 0.4)"| BC
+    Guidelines -.->|"가이드라인 주입"| IA
+    Guidelines -.->|"가이드라인 주입"| SG
+    Guidelines -.->|"가이드라인 주입"| RG
+
+    %% 스타일
+    classDef preprocessing fill:#e1f5ff,stroke:#0288d1,stroke-width:3px
+    classDef guideline fill:#fff9c4,stroke:#fbc02d,stroke-width:3px
+    classDef main fill:#f2f0ff,stroke:#7c4dff,stroke-width:2px
+    classDef parallel fill:#e8f5e9,stroke:#4caf50,stroke-width:2px
+
+    class UserData,Helper preprocessing
+    class Guidelines guideline
+    class Start,DC,RI,Val,Fin,End main
+    class PRS,AAL,BC,RT,IA,SG,RG parallel

@@ -1,12 +1,14 @@
 '''
 파일명: state.py
-최종 수정일: 2025-11-25
-버전: v03
-파일 개요: LangGraph 워크플로우 상태 정의 (계층적 Super Agent 구조용)
+최종 수정일: 2025-12-01
+버전: v04
+파일 개요: LangGraph 워크플로우 상태 정의 (계층적 Super Agent 구조용 + Fork-Join 병렬)
 변경 이력:
 	- 2025-11-11: v01 - Super Agent 계층적 구조로 전면 개편
 	- 2025-11-21: v02 - Scratch Space 기반 데이터 관리 적용
 	- 2025-11-25: v03 - AALAnalysisState를 v11 아키텍처에 맞게 업데이트
+	- 2025-12-01: v04 - Building Characteristics 분석 필드 추가 (Fork-Join 병렬 구조)
+	                   - Additional Data Guidelines 필드 추가
 '''
 from typing import TypedDict, Dict, Any, List, Optional
 from typing_extensions import Annotated
@@ -26,14 +28,22 @@ class SuperAgentState(TypedDict, total=False):
 	company_name: Optional[str]  # 회사명 (Report Analysis용)
 	past_reports: Optional[List[str]]  # 기존 보고서 텍스트 리스트 (Report Analysis용)
 
+	# 추가 데이터 (NEW in v04)
+	additional_data: Optional[Dict[str, Any]]  # 사용자 제공 추가 데이터 (raw_text, metadata)
+	additional_data_guidelines: Optional[Dict[str, Any]]  # Agent별 가이드라인 (Pre-processing 결과)
+
 	# Step 1: 데이터 수집 (Scratch Space 기반)
 	scratch_session_id: str  # Scratch Space 세션 ID (데이터 참조용)
 	climate_summary: Optional[Dict[str, Any]]  # 기후 데이터 요약 통계 (작은 크기)
 	data_collection_status: str  # 데이터 수집 상태
 
-	# Step 2: 취약성 분석
+	# Step 2 (OLD): 취약성 분석 (현재는 ModelOps V 계산 사전 분석)
 	vulnerability_analysis: Optional[Dict[str, Any]]  # 취약성 분석 결과 (건물 연식, 내진 설계, 소방차 진입)
 	vulnerability_status: str  # 취약성 분석 상태
+
+	# Step 2 (NEW): 건물 특징 분석 (Node 5 이후 병렬 실행)
+	building_characteristics: Optional[Dict[str, Any]]  # 건물 특징 분석 결과 (LLM 기반 정성 분석)
+	building_analysis_status: str  # 건물 특징 분석 상태
 
 	# Step 3: 리스크 분석 (9개 리스크로 분기)
 	selected_risks: List[str]  # 선정된 리스크 목록

@@ -1,7 +1,7 @@
 """
 파일명: report_analysis_agent_1.py
-최종 수정일: 2025-11-25
-버전: v04
+최종 수정일: 2025-12-01
+버전: v05
 
 개요:
     기존 지속가능경영보고서(ESG/TCFD)에서 문체·구조·KPI·템플릿 정보를 추출하여
@@ -29,6 +29,7 @@
         * Prompt 전면 개선 (정확도 + 일관성 극대화)
         * JSON 누락 자동 보정 기능 강화
     - v04 (2025-11-25): LangSmith 트레이싱 추가
+    - v05 (2025-12-01): 프롬프트 구조 개선
 """
 
 import json
@@ -247,52 +248,88 @@ class ReportAnalysisAgent:
 
         # 최적화된 Prompt
         prompt = f"""
-당신은 ESG/TCFD 보고서 분석 전문가이며,
-지속가능경영보고서의 문체·구조·KPI 템플릿을 정밀 분석하는 역할을 맡았습니다.
+<ROLE>
+You analyze sustainability reports and extract a structured "report_profile" JSON. 
+You do not write reports. Your only job is extracting structure and style patterns.
+</ROLE>
 
-아래 텍스트는 {company_name}의 기존 지속가능경영보고서입니다.
-또한 RAG 검색으로 확보한 참고 문서들도 함께 제공합니다.
+<CONTEXT>
+You are given:
+1) RAG documents
+2) Past sustainability reports of the company "{company_name}"
 
-#######################################
-### RAG 참고 문서(JSON)
-#######################################
+<RAG_DOCUMENTS>
 {rag_json}
+</RAG_DOCUMENTS>
 
-#######################################
-### 분석 대상 REPORT 텍스트
-#######################################
+<PAST_REPORTS>
 {reports_text}
+</PAST_REPORTS>
+</CONTEXT>
 
-#######################################
-### 분석 목표
-#######################################
-다음 12개 항목을 JSON으로만 출력하십시오.
+<INSTRUCTIONS>
+Your task: From ALL provided content, extract patterns that define how this company writes sustainability reports.  
+You must output a **single JSON object** with **exactly the 12 keys** listed below.
 
-1. tone: 문체·표현 스타일·시제·어휘 수준
-2. section_structure: 목차 구조 (TCFD/ESG 포함)
-3. section_style: 문단 규칙 (제목 길이, 소제목 depth, bullet 규칙)
-4. formatting_rules: 표/그래프/수치 표현 규칙
-5. report_years: 보고서가 다루는 연도 목록
-6. esg_structure: E/S/G 항목별 내용 구성 규칙
-7. tcfd_structure: Governance/Strategy/Risk/Metrics & Targets 형태
-8. materiality: 중대성 이슈 그룹 및 설명
-9. benchmark_KPIs: 기존 보고서에서 사용하는 KPI 구조·예시
-10. scenario_templates: 기후 리스크 시나리오 문단 구성 템플릿
-11. hazard_template_blocks: 
-    9개 기후리스크(extreme_heat, extreme_cold, wildfire, drought,
-    water_stress, sea_level_rise, river_flood, urban_flood, typhoon)
-    각각의 문단 템플릿 (문장 구조/패턴)
-12. reusable_paragraphs: 재사용 가능한 문단 리스트 (목적별 구분)
+The extracted information must be factual—do NOT invent details.  
+If something is missing, output an empty string "", empty list [], or empty object {{}}.
 
-#######################################
-### 출력 형식
-#######################################
-* 반드시 JSON만 출력
-* 문자열 내 " 를 반드시 escape
-* 모든 필드를 포함
-* 누락 없이 key를 모두 포함
+The 12 required keys in the final JSON:
+1. tone
+2. section_structure
+3. section_style
+4. formatting_rules
+5. report_years
+6. esg_structure
+7. tcfd_structure
+8. materiality
+9. benchmark_KPIs
+10. scenario_templates
+11. hazard_template_blocks
+12. reusable_paragraphs
 
-JSON ONLY:
+SCHEMA EXPECTATIONS (very important):
+{{
+  "tone": {{
+    "style": "",
+    "tense": "",
+    "voice": "",
+    "vocabulary_level": ""
+  }},
+  "section_structure": {{}},
+  "section_style": {{}},
+  "formatting_rules": {{}},
+  "report_years": [],
+  "esg_structure": {{}},
+  "tcfd_structure": {{}},
+  "materiality": {{}},
+  "benchmark_KPIs": {{}},
+  "scenario_templates": {{}},
+  "hazard_template_blocks": {{
+    "extreme_heat": "",
+    "extreme_cold": "",
+    "wildfire": "",
+    "drought": "",
+    "water_stress": "",
+    "sea_level_rise": "",
+    "river_flood": "",
+    "urban_flood": "",
+    "typhoon": ""
+  }},
+  "reusable_paragraphs": []
+}}
+</INSTRUCTIONS>
+
+<OUTPUT_RULES>
+- Output ONLY a single raw JSON object.
+- Do NOT include explanation, comments, markdown, or text outside the JSON.
+- Do NOT wrap the JSON in code fences.
+- Do NOT output keys other than the 12 required keys.
+- Follow the schema exactly.
+</OUTPUT_RULES>
+
+JSON_ONLY:
+
 """
         return prompt
 

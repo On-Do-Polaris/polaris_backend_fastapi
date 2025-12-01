@@ -1,8 +1,8 @@
 # strategy_generation_agent_3.py
 """
 파일명: strategy_generation_agent_3.py
-최종 수정일: 2025-11-24
-버전: v04
+최종 수정일: 2025-12-01
+버전: v05
 
 파일 개요:
     - LangGraph StrategyGeneration Node용 대응 전략 생성 Agent
@@ -29,9 +29,11 @@ Refiner 루프 연계:
     - v02 (2025-11-21): RAG + LLM 구조로 리팩토링, citations 포함
     - v03 (2025-11-24): 최신 LangGraph 아키텍처 반영, Memory Node/Refiner 루프 연계
     - v04 (2025-11-24): Impact Analysis Agent와 1:1 매핑, 전략별 citations 자동 재생성
+    - v05 (2025-12-01): 프롬프트 구조 개선
 """
 
 from typing import Dict, List, Any
+import json
 
 class StrategyGenerationAgent:
     """
@@ -43,7 +45,7 @@ class StrategyGenerationAgent:
     - Composer/보고서용 구조화 output 생성
 
     구성:
-    - Layer 1: Quantitative/Context Mapping (영향→전략 후보)
+    - Layer 1: Quantitative/Context Mapping (영향→전략 후보) - v05에서 run 함수로 변경
     - Layer 2: LLM Narrative Generation (전략 설명 + 비용/효과 분석)
     """
 
@@ -80,14 +82,13 @@ class StrategyGenerationAgent:
         return strategy_candidates
 
     # ----------------------------------------------------------------------
-    # Layer 2: LLM Narrative Generation
+    # Layer : LLM Narrative Generation
     # ----------------------------------------------------------------------
-    def generate_strategy_narrative(self, strategy_candidates: List[Dict],
+    def generate_strategy_narrative(self, candidate: Dict,
                                     facility_profile: Dict,
-                                    report_profile: Dict) -> List[Dict]:
+                                    report_profile: Dict) -> Dict:
         """
-        LLM을 통해 리스크별 전략 내러티브, 비용/효과 분석, 정책/운영/기술 권고 작성
-        citations는 항상 전체 재생성
+        LLM을 통해 단일 리스크에 대한 구조화된 대응 전략 JSON을 생성합니다.
         """
         strategies_output = []
 
@@ -160,19 +161,22 @@ class StrategyGenerationAgent:
             report_profile: Dict) -> List[Dict]:
         """
         에이전트 3 전체 파이프라인 실행
+        impact_summary의 각 리스크에 대해 개별적으로 전략을 생성합니다.
         """
+        strategies_output = []  
 
-        # Layer 1: 전략 후보 매핑
-        strategy_candidates = self.map_strategies(
-            impact_summary=impact_summary,
-            facility_profile=facility_profile
-        )
+        for impact_item in impact_summary:
+            candidate = {
+                "risk": impact_item.get("risk"),
+                "impact": impact_item
+            }
+            
+            # 각 리스크에 대해 LLM을 호출하여 구조화된 전략 JSON을 생성
+            strategy_json = self.generate_strategy_narrative(
+                candidate=candidate,
+                facility_profile=facility_profile,
+                report_profile=report_profile
+            )
 
-        # Layer 2: LLM 기반 전략 내러티브 및 citations 생성
-        strategies_output = self.generate_strategy_narrative(
-            strategy_candidates=strategy_candidates,
-            facility_profile=facility_profile,
-            report_profile=report_profile
-        )
-
+            strategies_output.append(strategy_json)
         return strategies_output

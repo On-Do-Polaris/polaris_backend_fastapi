@@ -437,7 +437,7 @@ def report_template_node(state: SuperAgentState, config: Any) -> Dict:
 @traceable(name="impact_analysis_node", tags=["workflow", "node", "impact", "llm"])
 def impact_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
-	리스크 영향 분석 노드
+	리스크 영향 분석 노드 (v07: 단일/다중 사업장 지원)
 	ImpactAnalysisAgent를 사용하여 전력 사용량 기반 구체적 영향 분석
 
 	Args:
@@ -450,71 +450,77 @@ def impact_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 	retry_count = state.get('retry_count', 0)
 	validation_feedback = state.get('validation_feedback', [])
 
+	# 다중 사업장 모드 확인
+	site_ids = state.get('site_ids', [])
+	is_multi_site = site_ids and len(site_ids) > 1
+
 	if retry_count > 0:
-		print(f"[Node 6] 영향 분석 재실행 (재시도 {retry_count}/3)...")
+		mode_str = "다중 사업장" if is_multi_site else "단일 사업장"
+		print(f"[Node 6] 영향 분석 재실행 ({mode_str}, 재시도 {retry_count}/3)...")
 		if validation_feedback:
 			print(f"[Node 6] 검증 피드백 반영: {len(validation_feedback)}개 개선사항")
 	else:
-		print("[Node 6] 영향 분석 시작 (ImpactAnalysisAgent)...")
+		mode_str = f"다중 사업장 ({len(site_ids)}개)" if is_multi_site else "단일 사업장"
+		print(f"[Node 6] 영향 분석 시작 ({mode_str}, ImpactAnalysisAgent)...")
 
 	try:
 		llm_client = LLMClient()
 		impact_agent = ImpactAnalysisAgent(llm_client)
-
-		# State에서 필요한 데이터 추출
-		physical_risk_scores = state.get('physical_risk_scores', {})
-		aal_analysis = state.get('aal_analysis', {})
-		asset_info = state.get('asset_info', {})
 		report_template = state.get('report_template', {})
 
-		# scenario_input 구조 생성: ImpactAnalysisAgent가 기대하는 형식
-		# {"SSP245": {"H": {}, "E": {}, "V": {}, "risk_scores": {}, "power_usage": {}}}
-		vulnerability_analysis = state.get('vulnerability_analysis', {})
+		# ========== 다중 사업장 모드 ==========
+		if is_multi_site:
+			sites_data = state.get('sites_data', [])
+			if not sites_data:
+				raise ValueError("다중 사업장 모드이지만 sites_data가 비어있습니다.")
 
-		# 간단한 H/E/V 추출 (physical_risk_scores에서)
-		H_scores = {}
-		E_scores = {}
-		V_scores = {}
-		risk_scores = {}
+			impact_analysis = impact_agent.run_aggregated(
+				sites_data=sites_data,
+				report_profile=report_template
+			)
 
-		for risk_type, risk_data in physical_risk_scores.items():
-			H_scores[risk_type] = risk_data.get('hazard_score', 0.5)
-			E_scores[risk_type] = risk_data.get('exposure_score', 0.5)
-			V_scores[risk_type] = risk_data.get('vulnerability_score', 0.5)
-			risk_scores[risk_type] = risk_data.get('physical_risk_score_100', 50.0)
-
-		# 단일 시나리오로 구성 (SSP245 가정)
-		scenario_input = {
-			"SSP245": {
-				"H": H_scores,
-				"E": E_scores,
-				"V": V_scores,
-				"risk_scores": risk_scores,
-				"power_usage": None  # 전력 사용량 데이터 없음
+			return {
+				'impact_analysis': impact_analysis,
+				'impact_status': 'completed',
+				'logs': [f'다중 사업장 영향 분석 {"재실행" if retry_count > 0 else ""} 완료 (사업장 수: {len(sites_data)})']
 			}
-		}
 
-		# AAL 데이터 변환 (final_aal_percentage를 float으로)
-		AAL_simplified = {}
-		for risk_type, aal_data in aal_analysis.items():
-			AAL_simplified[risk_type] = aal_data.get('final_aal_percentage', 1.0)
+		# ========== 단일 사업장 모드 (기존 로직) ==========
+		else:
+			# State에서 필요한 데이터 추출 (DB 로드 결과)
+			hazard_scores = state.get('hazard_scores', {})
+			exposure_scores = state.get('exposure_scores', {})
+			vulnerability_scores = state.get('vulnerability_scores', {})
+			risk_scores = state.get('risk_scores', {})
+			aal_values = state.get('aal_values', {})
+			asset_info = state.get('asset_info', {})
 
-		tcfd_warnings = []  # 필요시 State에서 추출
+			# scenario_input 구조 생성 (단일 시나리오 SSP245 가정)
+			scenario_input = {
+				"SSP245": {
+					"H": hazard_scores,
+					"E": exposure_scores,
+					"V": vulnerability_scores,
+					"risk_scores": risk_scores,
+					"power_usage": asset_info.get('power_usage', None)
+				}
+			}
 
-		impact_analysis = impact_agent.run(
-			scenario_input=scenario_input,
-			AAL=AAL_simplified,
-			asset_info=asset_info,
-			tcfd_warnings=tcfd_warnings,
-			report_profile=report_template
-		)
+			tcfd_warnings = []  # 필요시 State에서 추출
 
-		return {
-			'impact_analysis': impact_analysis,
-			'impact_status': 'completed',
-			# 'current_step' 제거 (순차 실행이지만 병렬 브랜치 내부이므로)
-			'logs': [f'영향 분석 {"재실행" if retry_count > 0 else ""} 완료 (ImpactAnalysisAgent)']
-		}
+			impact_analysis = impact_agent.run(
+				scenario_input=scenario_input,
+				AAL=aal_values,
+				asset_info=asset_info,
+				tcfd_warnings=tcfd_warnings,
+				report_profile=report_template
+			)
+
+			return {
+				'impact_analysis': impact_analysis,
+				'impact_status': 'completed',
+				'logs': [f'단일 사업장 영향 분석 {"재실행" if retry_count > 0 else ""} 완료']
+			}
 
 	except Exception as e:
 		print(f"[Node 6] 오류: {str(e)}")
@@ -528,7 +534,7 @@ def impact_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 @traceable(name="strategy_generation_node", tags=["workflow", "node", "strategy", "llm", "rag"])
 def strategy_generation_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
-	대응 전략 생성 노드
+	대응 전략 생성 노드 (v07: 단일/다중 사업장 지원)
 	StrategyGenerationAgent를 사용하여 LLM + RAG 기반 전략 생성
 
 	Args:
@@ -541,69 +547,87 @@ def strategy_generation_node(state: SuperAgentState, config: Any) -> Dict:
 	retry_count = state.get('retry_count', 0)
 	validation_feedback = state.get('validation_feedback', [])
 
+	# 다중 사업장 모드 확인
+	site_ids = state.get('site_ids', [])
+	is_multi_site = site_ids and len(site_ids) > 1
+
 	if retry_count > 0:
-		print(f"[Node 7] 대응 전략 재생성 (재시도 {retry_count}/3)...")
+		mode_str = "다중 사업장" if is_multi_site else "단일 사업장"
+		print(f"[Node 7] 대응 전략 재생성 ({mode_str}, 재시도 {retry_count}/3)...")
 		if validation_feedback:
 			print(f"[Node 7] 검증 피드백 반영: {len(validation_feedback)}개 개선사항")
 	else:
-		print("[Node 7] 대응 전략 생성 시작 (StrategyGenerationAgent)...")
+		mode_str = f"다중 사업장 ({len(site_ids)}개)" if is_multi_site else "단일 사업장"
+		print(f"[Node 7] 대응 전략 생성 시작 ({mode_str}, StrategyGenerationAgent)...")
 
 	try:
 		llm_client = LLMClient()
-		strategy_agent = StrategyGenerationAgent(llm_client)  # RAGEngine 제거
-
-		# run() 메소드의 파라미터에 맞게 변환
-		# impact_analysis는 Dict이지만, StrategyAgent는 List[Dict]를 기대함
+		strategy_agent = StrategyGenerationAgent(llm_client)
 		impact_analysis = state.get('impact_analysis', {})
-
-		# Dict를 List[Dict]로 변환
-		# impact_analysis = {"quantitative_result": {...}, "narrative": {...}}
-		# → List[Dict] 형태로 변환 필요
-		if isinstance(impact_analysis, dict):
-			# quantitative_result에서 리스크별 데이터 추출
-			quant = impact_analysis.get('quantitative_result', {})
-			impact_summary = []
-
-			# quant가 Dict인지 확인
-			if not isinstance(quant, dict):
-				quant = {}
-
-			# 각 시나리오의 top3_risks를 impact_summary로 변환
-			for scenario, data in quant.items():
-				if scenario == "AAL":
-					continue
-				if not isinstance(data, dict):
-					continue
-				top_risks = data.get('top3_risks', [])
-				for risk_name, risk_score in top_risks:
-					impact_summary.append({
-						"risk": risk_name,
-						"scenario": scenario,
-						"score": risk_score,
-						"severity": data.get('severity', {}).get(risk_name, 'medium')
-					})
-		else:
-			impact_summary = []
-
-		facility_profile = {
-			'location': state.get('target_location', {}),
-			'building_info': state.get('building_info', {}),
-			'asset_info': state.get('asset_info', {})
-		}
 		report_profile = state.get('report_template', {})
 
-		response_strategy = strategy_agent.run(
-			impact_summary=impact_summary,
-			facility_profile=facility_profile,
-			report_profile=report_profile
-		)
+		# ========== 다중 사업장 모드 ==========
+		if is_multi_site:
+			sites_data = state.get('sites_data', [])
+			if not sites_data:
+				raise ValueError("다중 사업장 모드이지만 sites_data가 비어있습니다.")
 
-		return {
-			'response_strategy': response_strategy,
-			'strategy_status': 'completed',
-			# 'current_step' 제거 (순차 실행이지만 병렬 브랜치 내부이므로)
-			'logs': [f'대응 전략 {"재생성" if retry_count > 0 else "생성"} 완료 (StrategyGenerationAgent)']
-		}
+			response_strategy = strategy_agent.run_aggregated(
+				aggregated_impact=impact_analysis,
+				sites_data=sites_data,
+				report_profile=report_profile
+			)
+
+			return {
+				'response_strategy': response_strategy,
+				'strategy_status': 'completed',
+				'logs': [f'다중 사업장 대응 전략 {"재생성" if retry_count > 0 else "생성"} 완료 (사업장 수: {len(sites_data)})']
+			}
+
+		# ========== 단일 사업장 모드 (기존 로직) ==========
+		else:
+			# impact_analysis를 List[Dict] 형태로 변환
+			if isinstance(impact_analysis, dict):
+				quant = impact_analysis.get('quantitative_result', {})
+				impact_summary = []
+
+				if not isinstance(quant, dict):
+					quant = {}
+
+				# 각 시나리오의 top3_risks를 impact_summary로 변환
+				for scenario, data in quant.items():
+					if scenario == "AAL":
+						continue
+					if not isinstance(data, dict):
+						continue
+					top_risks = data.get('top3_risks', [])
+					for risk_name, risk_score in top_risks:
+						impact_summary.append({
+							"risk": risk_name,
+							"scenario": scenario,
+							"score": risk_score,
+							"severity": data.get('severity', {}).get(risk_name, 'medium')
+						})
+			else:
+				impact_summary = []
+
+			facility_profile = {
+				'location': state.get('target_location', {}),
+				'building_info': state.get('building_info', {}),
+				'asset_info': state.get('asset_info', {})
+			}
+
+			response_strategy = strategy_agent.run(
+				impact_summary=impact_summary,
+				facility_profile=facility_profile,
+				report_profile=report_profile
+			)
+
+			return {
+				'response_strategy': response_strategy,
+				'strategy_status': 'completed',
+				'logs': [f'단일 사업장 대응 전략 {"재생성" if retry_count > 0 else "생성"} 완료']
+			}
 
 	except Exception as e:
 		print(f"[Node 7] 오류: {str(e)}")

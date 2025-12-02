@@ -1,14 +1,14 @@
 # impact_analysis_agent_2.py
 """
 파일명: impact_analysis_agent_2.py
-최종 수정일: 2025-12-01
-버전: v06
+최종 수정일: 2025-12-02
+버전: v07
 
 파일 개요:
     - 물리적 기후 리스크 영향 분석 Agent
     - Physical Risk Scores, AAL, 취약성 데이터, 전력 사용량 기반 영향 분석 수행
     - Impact List 표준 스키마 적용
-    - 향후 Strategy Generation Agent와 1:1 매핑을 위한 구조 확정
+    - 단일/다중 사업장 통합 분석 지원
     - RAG 기반 근거 포함
 
 주요 기능:
@@ -18,6 +18,7 @@
     4. 전력 사용량 기반 HEV 가중치 반영
     5. citations 포함
     6. LangGraph Memory Node용 output 생성 (impact_summary, impact_list)
+    7. 다중 사업장 통합 분석 (run_aggregated)
 
 Refiner 루프 연계:
     - Impact Issue 발생 시 route: impact
@@ -30,6 +31,7 @@ Refiner 루프 연계:
     - v04 (2025-11-24): 전략 생성 Agent와 1:1 매핑, impact_list 표준화
     - v05 (2025-11-24): 전력 사용량 기반 영향 분석 Layer1 통합
     - v06 (2025-12-01): 프롬프트 구조 개선
+    - v07 (2025-12-02): 다중 사업장 통합 분석 지원 (run_aggregated 추가)
 """
 
 import numpy as np
@@ -251,14 +253,14 @@ Compose a complete TCFD-compliant impact assessment report section. This section
         return response
 
     # ----------------------------------------------------------------------
-    # Main API method
+    # Main API method (단일 사업장)
     # ----------------------------------------------------------------------
 
     def run(self, scenario_input: Dict, AAL: Dict,
             asset_info: Dict, tcfd_warnings: List,
             report_profile: Dict) -> Dict:
         """
-        에이전트 2 전체 파이프라인 실행
+        에이전트 2 전체 파이프라인 실행 (단일 사업장)
         """
 
         # Layer 1: Quantitative 결과 생성 (전력 사용량 기반 HEV 포함)
@@ -279,3 +281,216 @@ Compose a complete TCFD-compliant impact assessment report section. This section
             "quantitative_result": quantitative_result,
             "narrative": narrative
         }
+
+    # ----------------------------------------------------------------------
+    # 다중 사업장 통합 분석 (NEW in v07)
+    # ----------------------------------------------------------------------
+
+    def run_aggregated(self, sites_data: List[Dict[str, Any]],
+                       report_profile: Dict) -> Dict:
+        """
+        다중 사업장 통합 영향 분석 (v07)
+
+        각 사업장의 H, E, V, risk_scores, AAL, power_usage를 집계하여
+        통합 분석 결과 생성
+
+        Args:
+            sites_data: 사업장별 데이터 리스트
+                [
+                    {
+                        "site_id": "site_001",
+                        "H": {"extreme_heat": 45.2, ...},
+                        "E": {"extreme_heat": 38.1, ...},
+                        "V": {"extreme_heat": 52.3, ...},
+                        "risk_scores": {"extreme_heat": 44.7, ...},
+                        "AAL": {"extreme_heat": 2.94, ...},
+                        "power_usage": {"IT": 15000, "Cooling": 8000, ...},
+                        "asset_info": {...},
+                        "building_info": {...}
+                    },
+                    ...
+                ]
+            report_profile: 보고서 스타일 프로필
+
+        Returns:
+            {
+                "aggregated_quantitative": {...},  # 집계된 정량 결과
+                "aggregated_narrative": "...",     # 통합 내러티브
+                "top_site": {...},                 # 최고 리스크 사업장
+                "bottom_site": {...},              # 최저 리스크 사업장
+                "average_impact": {...}            # 평균 영향
+            }
+        """
+        print(f"[ImpactAnalysisAgent] 다중 사업장 통합 분석 시작 (사업장 수: {len(sites_data)})")
+
+        # 1. 사업장별 정량 결과 생성
+        site_results = []
+        for site_data in sites_data:
+            site_id = site_data.get("site_id", "unknown")
+
+            # 시나리오별 입력 구성
+            scenario_input = self._build_scenario_input_from_site(site_data)
+
+            # Layer 1: Quantitative 결과 생성
+            quant_result = self.build_quantitative_output(
+                scenario_input=scenario_input,
+                AAL=site_data.get("AAL", {})
+            )
+
+            site_results.append({
+                "site_id": site_id,
+                "quantitative": quant_result,
+                "asset_info": site_data.get("asset_info", {}),
+                "building_info": site_data.get("building_info", {})
+            })
+
+        # 2. 집계 결과 생성
+        aggregated_quant = self._aggregate_results(site_results)
+
+        # 3. 통합 내러티브 생성
+        aggregated_narrative = self._generate_aggregated_narrative(
+            aggregated_quant=aggregated_quant,
+            site_results=site_results,
+            report_profile=report_profile
+        )
+
+        return {
+            "aggregated_quantitative": aggregated_quant,
+            "aggregated_narrative": aggregated_narrative,
+            "site_results": site_results,
+            "top_site": aggregated_quant.get("top_site"),
+            "bottom_site": aggregated_quant.get("bottom_site"),
+            "average_impact": aggregated_quant.get("average_impact")
+        }
+
+    def _build_scenario_input_from_site(self, site_data: Dict[str, Any]) -> Dict:
+        """
+        사업장 데이터를 scenario_input 형식으로 변환
+        """
+        # 기본 시나리오 리스트 (실제 시나리오는 analysis_params에서 가져와야 함)
+        scenarios = ["SSP126", "SSP245", "SSP370", "SSP585"]
+
+        scenario_input = {}
+        for scenario in scenarios:
+            scenario_input[scenario] = {
+                "H": site_data.get("H", {}),
+                "E": site_data.get("E", {}),
+                "V": site_data.get("V", {}),
+                "risk_scores": site_data.get("risk_scores", {}),
+                "power_usage": site_data.get("power_usage", {})
+            }
+
+        return scenario_input
+
+    def _aggregate_results(self, site_results: List[Dict]) -> Dict:
+        """
+        사업장별 결과를 집계
+        - 평균값 계산
+        - 최고/최저 리스크 사업장 식별
+        """
+        if not site_results:
+            return {}
+
+        # 리스크별 평균 점수 계산
+        risk_avg = {}
+        for risk in self.risk_list:
+            scores = []
+            for site in site_results:
+                # 첫 번째 시나리오(SSP126)의 risk_scores 사용
+                quant = site.get("quantitative", {})
+                first_scenario = list(quant.keys())[0] if quant else None
+                if first_scenario and first_scenario != "AAL":
+                    risk_score = quant[first_scenario].get("risk_scores", {}).get(risk, 0)
+                    scores.append(risk_score)
+
+            risk_avg[risk] = np.mean(scores) if scores else 0
+
+        # 최고/최저 리스크 사업장 식별
+        total_scores = []
+        for site in site_results:
+            quant = site.get("quantitative", {})
+            first_scenario = list(quant.keys())[0] if quant else None
+            if first_scenario and first_scenario != "AAL":
+                site_total = sum(quant[first_scenario].get("risk_scores", {}).values())
+                total_scores.append({
+                    "site_id": site.get("site_id"),
+                    "total_score": site_total,
+                    "site_info": site
+                })
+
+        total_scores.sort(key=lambda x: x["total_score"], reverse=True)
+
+        return {
+            "average_risk_scores": risk_avg,
+            "top_site": total_scores[0] if total_scores else None,
+            "bottom_site": total_scores[-1] if total_scores else None,
+            "average_impact": {
+                "total_sites": len(site_results),
+                "average_total_score": np.mean([s["total_score"] for s in total_scores]) if total_scores else 0
+            }
+        }
+
+    def _generate_aggregated_narrative(self, aggregated_quant: Dict,
+                                       site_results: List[Dict],
+                                       report_profile: Dict) -> str:
+        """
+        집계 결과를 바탕으로 통합 내러티브 생성
+        """
+        prompt = f"""
+<ROLE>
+You are a senior climate risk analyst conducting a multi-site integrated physical risk assessment for a corporate portfolio.
+</ROLE>
+
+<CONTEXT>
+You have analyzed {aggregated_quant.get("average_impact", {}).get("total_sites", 0)} sites and aggregated the results.
+
+<AGGREGATED_QUANTITATIVE_RESULTS>
+{json.dumps(aggregated_quant, indent=2, ensure_ascii=False)}
+</AGGREGATED_QUANTITATIVE_RESULTS>
+
+<SITE_LEVEL_RESULTS>
+{json.dumps([{{"site_id": s.get("site_id"), "building_info": s.get("building_info"), "quantitative_summary": s.get("quantitative")}} for s in site_results], indent=2, ensure_ascii=False)}
+</SITE_LEVEL_RESULTS>
+
+<REPORT_STYLE_PROFILE>
+{json.dumps(report_profile, indent=2, ensure_ascii=False)}
+</REPORT_STYLE_PROFILE>
+</CONTEXT>
+
+<INSTRUCTIONS>
+Generate an integrated TCFD-compliant impact assessment narrative for this multi-site portfolio. Your analysis should:
+
+1. **Portfolio-Level Risk Summary**:
+   - Provide an overview of the average risk scores across all sites
+   - Identify the dominant climate risks affecting the portfolio
+   - Highlight significant variations or patterns across sites
+
+2. **Top Risk Sites**:
+   - Analyze the site(s) with the highest risk exposure
+   - Explain why these sites face elevated risks (location, building characteristics, vulnerability factors)
+
+3. **Low Risk Sites**:
+   - Discuss the site(s) with the lowest risk exposure
+   - Identify protective factors or favorable conditions
+
+4. **Strategic Insights**:
+   - Provide portfolio-wide strategic recommendations
+   - Suggest prioritization for risk mitigation efforts
+   - Discuss potential synergies or shared risk factors
+
+5. **Data Quality & Uncertainty**:
+   - Address any limitations or variations in data quality across sites
+   - Maintain TCFD transparency standards
+
+Follow the tone and style defined in the REPORT_STYLE_PROFILE.
+</INSTRUCTIONS>
+
+<RULES>
+- Output ONLY the final narrative text
+- DO NOT include explanations or apologies
+- Maintain professional, executive-level tone
+- The output language must be Korean.
+</RULES>
+"""
+        response = self.llm.generate(prompt)
+        return response

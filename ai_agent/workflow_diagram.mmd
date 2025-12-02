@@ -6,9 +6,6 @@ config:
 graph TD;
 	__start__([<p>__start__</p>]):::first
 	data_collection(data_collection)
-	physical_risk_score(physical_risk_score)
-	aal_analysis(aal_analysis)
-	risk_integration(risk_integration)
 	building_characteristics(building_characteristics)
 	report_template(report_template)
 	impact_analysis(impact_analysis)
@@ -19,17 +16,13 @@ graph TD;
 	finalization(finalization)
 	__end__([<p>__end__</p>]):::last
 	__start__ --> data_collection;
-	aal_analysis --> risk_integration;
 	building_characteristics --> validation;
-	data_collection --> aal_analysis;
-	data_collection --> physical_risk_score;
+	data_collection --> report_template;
 	impact_analysis --> strategy_generation;
-	physical_risk_score --> risk_integration;
 	refiner --> validation;
 	report_generation --> validation;
+	report_template --> building_characteristics;
 	report_template --> impact_analysis;
-	risk_integration --> building_characteristics;
-	risk_integration --> report_template;
 	strategy_generation --> report_generation;
 	validation -.-> building_characteristics;
 	validation -.-> finalization;

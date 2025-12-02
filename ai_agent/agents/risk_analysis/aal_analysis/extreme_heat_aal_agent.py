@@ -1,93 +1,26 @@
 '''
 파일명: extreme_heat_aal_agent.py
 최종 수정일: 2025-11-21
-버전: v2
-파일 개요: 극심한 고온 리스크 AAL 분석 Agent (AAL_final_logic_v2 기반)
+버전: v10
+파일 개요: 극심한 고온 리스크 AAL 분석 Agent
 변경 이력:
-	- 2025-11-11: v00 - 초기 생성
-	- 2025-11-20: v9 - AAL_final_logic_v9.md 로직 적용
-	- 2025-11-21: v2 - AAL_final_logic_v2.md 로직 적용
-	- 2025-11-21: v3 - 리스크 명칭 통일 (high_temperature → extreme_heat)
-		* 강도지표: X_heat(t) = WSDI(t) (Warm Spell Duration Index)
-		* bin: [0~3), [3~8), [8~20), [20~)
-		* DR_intensity: [0.001, 0.003, 0.010, 0.020]
-		* 취약성 스케일: s_min=0.7, s_max=1.3
+	- 2025-11-21: v10 - V 스케일링과 최종 AAL 계산만 수행
+		* P(H) 및 기본 손상률 계산 제거
+		* 외부에서 입력받은 데이터로 AAL 계산
 '''
-from typing import Dict, Any
-import numpy as np
 from .base_aal_analysis_agent import BaseAALAnalysisAgent
 
 
 class ExtremeHeatAALAgent(BaseAALAnalysisAgent):
 	"""
-	극심한 고온 리스크 AAL 분석 Agent (v2)
-
-	사용 데이터: KMA 연간 극값 지수 WSDI (Warm Spell Duration Index)
-	강도지표: X_heat(t) = WSDI(t)
-	의미: 평년 기준 상위 분위수 이상 고온이 연속적으로 지속된 기간의 연간 합
+	극심한 고온 리스크 AAL 분석 Agent
+	V 스케일링과 최종 AAL 계산만 수행
 	"""
 
 	def __init__(self):
-		"""
-		ExtremeHeatAALAgent 초기화 (v2)
-
-		bin 구간:
-			- bin1: 0 <= WSDI < 3 (낮음)
-			- bin2: 3 <= WSDI < 8 (중간)
-			- bin3: 8 <= WSDI < 20 (높음)
-			- bin4: WSDI >= 20 (매우 높음)
-
-		기본 손상률 (DR_intensity):
-			- bin1: 0.1%
-			- bin2: 0.3%
-			- bin3: 1.0%
-			- bin4: 2.0%
-		"""
-		bins = [
-			(0, 3),
-			(3, 8),
-			(8, 20),
-			(20, float('inf'))
-		]
-
-		dr_intensity = [
-			0.001,  # 0.1%
-			0.003,  # 0.3%
-			0.010,  # 1.0%
-			0.020   # 2.0%
-		]
-
 		super().__init__(
 			risk_type='극심한 고온',
-			bins=bins,
-			dr_intensity=dr_intensity,
 			s_min=0.7,
 			s_max=1.3,
 			insurance_rate=0.0
 		)
-
-	def calculate_intensity_indicator(self, collected_data: Dict[str, Any]) -> np.ndarray:
-		"""
-		극심한 고온 강도지표 X_heat(t) 계산
-		X_heat(t) = WSDI(t)
-
-		Args:
-			collected_data: 수집된 기후 데이터
-				- wsdi: 연도별 WSDI 값 리스트 또는 배열
-
-		Returns:
-			연도별 WSDI 값 배열
-		"""
-		climate_data = collected_data.get('climate_data', {})
-		wsdi_data = climate_data.get('wsdi', [])
-
-		if not wsdi_data:
-			self.logger.warning("WSDI 데이터가 없습니다. 기본값 0으로 설정합니다.")
-			wsdi_data = [0]
-
-		# numpy 배열로 변환
-		wsdi_array = np.array(wsdi_data, dtype=float)
-
-		self.logger.info(f"WSDI 데이터: {len(wsdi_array)}개 연도, 범위: {wsdi_array.min():.2f} ~ {wsdi_array.max():.2f}")
-
-		return wsdi_array

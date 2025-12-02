@@ -1,144 +1,26 @@
 '''
 파일명: wildfire_aal_agent.py
 최종 수정일: 2025-11-21
-버전: v2
-파일 개요: 산불 리스크 AAL 분석 Agent (AAL_final_logic_v2 기반)
+버전: v10
+파일 개요: 산불 리스크 AAL 분석 Agent
 변경 이력:
-	- 2025-11-11: v00 - 초기 생성
-	- 2025-11-20: v9 - AAL_final_logic_v9.md 로직 적용
-	- 2025-11-21: v2 - AAL_final_logic_v2.md 로직 적용
-		* 강도지표: X_fire(t,m) = FWI(t,m) (Fire Weather Index, 월별)
-		* FWI 계산식 적용
-		* bin: [11.2~21.3), [21.3~38), [38~50), [50~)
-		* DR_intensity: [0.01, 0.03, 0.10, 0.25]
-		* 월 기반 발생확률: P_fire[i] = (해당 bin에 속한 월 수) / (총 월 수)
+	- 2025-11-21: v10 - V 스케일링과 최종 AAL 계산만 수행
+		* P(H) 및 기본 손상률 계산 제거
+		* 외부에서 입력받은 데이터로 AAL 계산
 '''
-from typing import Dict, Any
-import numpy as np
 from .base_aal_analysis_agent import BaseAALAnalysisAgent
 
 
 class WildfireAALAgent(BaseAALAnalysisAgent):
 	"""
-	산불 리스크 AAL 분석 Agent (v2)
-
-	사용 데이터: 월별 기상 데이터 (TA, RHM, WS, RN)
-	강도지표: X_fire(t,m) = FWI(t,m) (월별)
-	FWI 계산식:
-		FWI(t,m) = (1 - RHM/100) × 0.5 × (WS + 1) × exp(0.05 × (TA - 10)) × exp(-0.001 × RN)
-	월 기반 발생확률: P_fire[i] = (해당 bin에 속한 월 수) / (총 월 수)
+	산불 리스크 AAL 분석 Agent
+	V 스케일링과 최종 AAL 계산만 수행
 	"""
 
 	def __init__(self):
-		"""
-		WildfireAALAgent 초기화 (v2)
-
-		bin 구간 (EFFIS FWI 기준):
-			- bin1: 11.2 <= FWI < 21.3 (Moderate)
-			- bin2: 21.3 <= FWI < 38 (High)
-			- bin3: 38 <= FWI < 50 (Very High)
-			- bin4: FWI >= 50 (Extreme)
-
-		기본 손상률 (DR_intensity):
-			- bin1: 1%
-			- bin2: 3%
-			- bin3: 10%
-			- bin4: 25%
-
-		참고:
-			- 월 기반 발생확률 사용
-			- P_fire[i] = (해당 bin에 속한 월 수) / (총 월 수)
-		"""
-		bins = [
-			(11.2, 21.3),
-			(21.3, 38),
-			(38, 50),
-			(50, float('inf'))
-		]
-
-		dr_intensity = [
-			0.01,   # 1%
-			0.03,   # 3%
-			0.10,   # 10%
-			0.25    # 25%
-		]
-
 		super().__init__(
 			risk_type='산불',
-			bins=bins,
-			dr_intensity=dr_intensity,
 			s_min=0.7,
 			s_max=1.3,
 			insurance_rate=0.0
 		)
-
-	def calculate_intensity_indicator(self, collected_data: Dict[str, Any]) -> np.ndarray:
-		"""
-		산불 강도지표 X_fire(t,m) 계산
-		X_fire(t,m) = FWI(t,m) (월별)
-
-		FWI(t,m) = (1 - RHM(t,m)/100) × 0.5 × (WS(t,m) + 1)
-		           × exp(0.05 × (TA(t,m) - 10)) × exp(-0.001 × RN(t,m))
-
-		Args:
-			collected_data: 수집된 기후 데이터
-				- monthly_data: 연도별 월별 데이터 리스트
-					각 원소는 {'year': int, 'months': [{'ta': float, 'rhm': float, 'ws': float, 'rn': float}, ...]}
-
-		Returns:
-			월별 FWI 값 배열 (전체 월을 평탄화하여 반환)
-		"""
-		climate_data = collected_data.get('climate_data', {})
-		monthly_data = climate_data.get('monthly_data', [])
-
-		if not monthly_data:
-			self.logger.warning("월별 기상 데이터가 없습니다. 기본값 0으로 설정합니다.")
-			return np.array([0.0])
-
-		all_monthly_fwi = []
-
-		for year_data in monthly_data:
-			year = year_data.get('year')
-			months = year_data.get('months', [])
-
-			if not months:
-				continue
-
-			for month in months:
-				ta = month.get('ta', 10.0)    # 기온 (°C)
-				rhm = month.get('rhm', 50.0)  # 상대습도 (%)
-				ws = month.get('ws', 2.0)     # 풍속 (m/s)
-				rn = month.get('rn', 0.0)     # 강수량 (mm)
-
-				# FWI 계산
-				fwi = self._calculate_fwi(ta, rhm, ws, rn)
-				all_monthly_fwi.append(fwi)
-
-		fwi_array = np.array(all_monthly_fwi, dtype=float)
-		self.logger.info(f"FWI 데이터: {len(fwi_array)}개 월, 범위: {fwi_array.min():.2f} ~ {fwi_array.max():.2f}")
-
-		return fwi_array
-
-	def _calculate_fwi(self, ta: float, rhm: float, ws: float, rn: float) -> float:
-		"""
-		Fire Weather Index (FWI) 계산
-
-		FWI = (1 - RHM/100) × 0.5 × (WS + 1) × exp(0.05 × (TA - 10)) × exp(-0.001 × RN)
-
-		Args:
-			ta: 평균 기온 (°C)
-			rhm: 상대습도 (%)
-			ws: 평균 풍속 (m/s)
-			rn: 강수량 (mm)
-
-		Returns:
-			FWI 값
-		"""
-		humidity_factor = 1 - (rhm / 100.0)
-		wind_factor = 0.5 * (ws + 1)
-		temp_factor = np.exp(0.05 * (ta - 10))
-		rain_factor = np.exp(-0.001 * rn)
-
-		fwi = humidity_factor * wind_factor * temp_factor * rain_factor
-
-		return max(fwi, 0.0)  # 음수 방지

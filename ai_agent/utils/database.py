@@ -1,0 +1,296 @@
+"""
+File: database.py
+Last Modified: 2025-11-22
+Version: v01
+Description: PostgreSQL database connection and query utilities
+Change History:
+    - 2025-11-22: v01 - Initial creation
+"""
+import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from typing import List, Dict, Any, Optional
+from contextlib import contextmanager
+import logging
+
+
+class DatabaseManager:
+    """
+    PostgreSQL database connection and query manager
+    """
+
+    def __init__(self, database_url: Optional[str] = None):
+        """
+        Initialize DatabaseManager
+
+        Args:
+            database_url: PostgreSQL connection URL (from env if not provided)
+        """
+        self.database_url = database_url or os.getenv('DATABASE_URL')
+        if not self.database_url:
+            raise ValueError("DATABASE_URL is not set")
+
+        self.logger = logging.getLogger(__name__)
+
+    @contextmanager
+    def get_connection(self):
+        """
+        Database connection context manager
+
+        Yields:
+            psycopg2 connection object
+        """
+        conn = psycopg2.connect(self.database_url)
+        try:
+            yield conn
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            self.logger.error(f"Database error: {e}")
+            raise
+        finally:
+            conn.close()
+
+    def execute_query(self, query: str, params: Optional[tuple] = None) -> List[Dict[str, Any]]:
+        """
+        Execute SELECT query and return results
+
+        Args:
+            query: SQL query
+            params: Query parameters (tuple)
+
+        Returns:
+            List of query results (as dictionaries)
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute(query, params)
+            results = cursor.fetchall()
+            cursor.close()
+
+            # Convert RealDictRow to dict
+            return [dict(row) for row in results]
+
+    def execute_update(self, query: str, params: Optional[tuple] = None) -> int:
+        """
+        Execute INSERT/UPDATE/DELETE query
+
+        Args:
+            query: SQL query
+            params: Query parameters (tuple)
+
+        Returns:
+            Number of affected rows
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            rowcount = cursor.rowcount
+            cursor.close()
+            return rowcount
+
+    def fetch_climate_data(
+        self,
+        latitude: float,
+        longitude: float,
+        start_year: int,
+        end_year: int,
+        data_types: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Fetch climate data for specific location
+
+        Args:
+            latitude: Latitude
+            longitude: Longitude
+            start_year: Start year
+            end_year: End year
+            data_types: List of data types to fetch (default: all)
+
+        Returns:
+            Climate data dictionary
+        """
+        # Data type filter
+        if data_types is None:
+            data_types = ['temperature', 'precipitation', 'sea_level', 'wind']
+
+        query = """
+            SELECT
+                date, year, month, day,
+                temperature_max, temperature_min, temperature_avg,
+                precipitation_daily, precipitation_monthly,
+                sea_level, wind_speed
+            FROM climate_data
+            WHERE latitude = %s
+                AND longitude = %s
+                AND year BETWEEN %s AND %s
+            ORDER BY year, month, day
+        """
+
+        results = self.execute_query(query, (latitude, longitude, start_year, end_year))
+
+        return {
+            'location': {
+                'latitude': latitude,
+                'longitude': longitude
+            },
+            'period': {
+                'start_year': start_year,
+                'end_year': end_year
+            },
+            'records': results,
+            'total_records': len(results)
+        }
+
+    def fetch_historical_events(
+        self,
+        latitude: float,
+        longitude: float,
+        radius_km: float = 50,
+        start_year: Optional[int] = None,
+        end_year: Optional[int] = None,
+        event_types: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch historical disaster events near location
+
+        Args:
+            latitude: Latitude
+            longitude: Longitude
+            radius_km: Search radius (km)
+            start_year: Start year
+            end_year: End year
+            event_types: List of event types
+
+        Returns:
+            List of historical disaster events
+        """
+        # Base query
+        query = """
+            SELECT
+                event_id, event_type, event_date,
+                latitude, longitude, severity,
+                damage_cost, casualties, description
+            FROM historical_events
+            WHERE ST_DWithin(
+                ST_MakePoint(longitude, latitude)::geography,
+                ST_MakePoint(%s, %s)::geography,
+                %s * 1000
+            )
+        """
+
+        params = [longitude, latitude, radius_km]
+
+        # Year filter
+        if start_year:
+            query += " AND EXTRACT(YEAR FROM event_date) >= %s"
+            params.append(start_year)
+
+        if end_year:
+            query += " AND EXTRACT(YEAR FROM event_date) <= %s"
+            params.append(end_year)
+
+        # Event type filter
+        if event_types:
+            placeholders = ', '.join(['%s'] * len(event_types))
+            query += f" AND event_type IN ({placeholders})"
+            params.extend(event_types)
+
+        query += " ORDER BY event_date DESC"
+
+        return self.execute_query(query, tuple(params))
+
+    def fetch_ssp_scenario_data(
+        self,
+        latitude: float,
+        longitude: float,
+        scenario: str,
+        start_year: int,
+        end_year: int
+    ) -> Dict[str, Any]:
+        """
+        Fetch SSP scenario data
+
+        Args:
+            latitude: Latitude
+            longitude: Longitude
+            scenario: SSP scenario (ssp1-2.6, ssp2-4.5, ssp3-7.0, ssp5-8.5)
+            start_year: Start year
+            end_year: End year
+
+        Returns:
+            SSP scenario data dictionary
+        """
+        query = """
+            SELECT
+                year, month,
+                temperature_projection,
+                precipitation_projection,
+                sea_level_projection,
+                extreme_events_frequency
+            FROM ssp_scenario_data
+            WHERE latitude = %s
+                AND longitude = %s
+                AND scenario = %s
+                AND year BETWEEN %s AND %s
+            ORDER BY year, month
+        """
+
+        results = self.execute_query(
+            query,
+            (latitude, longitude, scenario, start_year, end_year)
+        )
+
+        return {
+            'scenario': scenario,
+            'location': {
+                'latitude': latitude,
+                'longitude': longitude
+            },
+            'period': {
+                'start_year': start_year,
+                'end_year': end_year
+            },
+            'projections': results,
+            'total_records': len(results)
+        }
+
+    def fetch_geographic_data(
+        self,
+        latitude: float,
+        longitude: float
+    ) -> Dict[str, Any]:
+        """
+        Fetch geographic information data
+
+        Args:
+            latitude: Latitude
+            longitude: Longitude
+
+        Returns:
+            Geographic data dictionary
+        """
+        query = """
+            SELECT
+                elevation, slope, land_cover,
+                vegetation_index, proximity_to_water,
+                soil_type, drainage_class
+            FROM geographic_data
+            WHERE latitude = %s AND longitude = %s
+            LIMIT 1
+        """
+
+        results = self.execute_query(query, (latitude, longitude))
+
+        if results:
+            return results[0]
+        else:
+            return {
+                'elevation': None,
+                'slope': None,
+                'land_cover': None,
+                'vegetation_index': None,
+                'proximity_to_water': None,
+                'soil_type': None,
+                'drainage_class': None
+            }

@@ -76,7 +76,8 @@ class SKAXPhysicalRiskAnalyzer:
 		building_info: dict,
 		asset_info: dict,
 		analysis_params: dict,
-		additional_data: dict = None
+		additional_data: dict = None,
+		language: str = 'ko'
 	) -> dict:
 		"""
 		전체 물리적 리스크 분석 실행
@@ -99,6 +100,7 @@ class SKAXPhysicalRiskAnalyzer:
 			additional_data: 추가 데이터 (선택사항)
 				- raw_text: 자유 형식 텍스트
 				- metadata: 메타데이터
+			language: 보고서 언어 ('ko' 또는 'en', 기본값: 'ko')
 
 		Returns:
 			분석 결과 딕셔너리
@@ -126,6 +128,7 @@ class SKAXPhysicalRiskAnalyzer:
 			'building_info': building_info,
 			'asset_info': asset_info,
 			'analysis_params': analysis_params,
+			'language': language,
 			'errors': [],
 			'logs': [],
 			'current_step': 'data_collection',

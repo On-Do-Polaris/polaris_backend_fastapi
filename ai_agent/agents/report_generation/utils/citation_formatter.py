@@ -83,3 +83,65 @@ def collect_all(text: str = "", citations: Optional[List[str]] = None) -> List[s
         collected.extend(citations)
     # TODO: text에서 [[ref-id]] 형식 파싱 가능
     return collected
+
+
+# ============================================================
+# [[ref-id]] placeholder를 실제 citation 번호로 변환
+# ============================================================
+def replace_citation_placeholders(text: str) -> str:
+    """
+    텍스트의 [[ref-id]] placeholder를 [1], [2] 등의 실제 citation 번호로 변환
+
+    Args:
+        text: [[ref-id]]를 포함한 원본 텍스트
+
+    Returns:
+        placeholder가 번호로 치환된 텍스트
+
+    Example:
+        Input: "This is a fact [[ref-id]]. Another fact [[ref-id]]."
+        Output: "This is a fact [1]. Another fact [2]."
+    """
+    if not text:
+        return text
+
+    import re
+
+    # [[ref-id]]를 찾아서 순차적으로 번호 매기기
+    citation_counter = 0
+
+    def replace_match(_match):  # match parameter required by re.sub, but not used
+        nonlocal citation_counter
+        citation_counter += 1
+        return f"[{citation_counter}]"
+
+    # [[ref-id]] 패턴을 [1], [2], ... 으로 치환
+    result = re.sub(r'\[\[ref-id\]\]', replace_match, text)
+
+    return result
+
+
+# ============================================================
+# References 섹션 생성
+# ============================================================
+def generate_references_section(citations: Optional[List[str]] = None, language: str = 'en') -> str:
+    """
+    보고서 하단에 추가할 References 섹션 생성
+
+    Args:
+        citations: citation 문자열 리스트
+        language: 'en' or 'ko'
+
+    Returns:
+        Markdown 형식의 References 섹션
+    """
+    if not citations or len(citations) == 0:
+        return ""
+
+    title = "References" if language == 'en' else "참고문헌"
+
+    references = f"\n\n## {title}\n\n"
+    for i, citation in enumerate(citations, 1):
+        references += f"[{i}] {citation}\n"
+
+    return references

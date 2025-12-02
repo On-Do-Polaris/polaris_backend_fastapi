@@ -1,5 +1,8 @@
-from uuid import UUID, uuid4
+from uuid import uuid4
 from datetime import datetime, timedelta
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 
 from src.core.config import settings
 from src.schemas.reports import (
@@ -21,6 +24,7 @@ class ReportService:
         """서비스 초기화"""
         self._analyzer = None
         self._report_results = {}  # report_id별 결과 캐시
+        self._executor = ThreadPoolExecutor(max_workers=4)  # 비동기 실행용 Thread Pool
 
     def _get_analyzer(self) -> SKAXPhysicalRiskAnalyzer:
         """ai_agent 분석기 인스턴스 반환 (lazy initialization)"""
@@ -65,7 +69,20 @@ class ReportService:
                     'analysis_period': '2025-2050'
                 }
 
-                result = analyzer.analyze(target_location, building_info, asset_info, analysis_params)
+                # Language 파라미터 전달
+                language = request.language.value if request.language else 'ko'
+
+                # 비동기 실행: 동기 함수를 별도 스레드에서 실행하여 이벤트 루프 블로킹 방지
+                loop = asyncio.get_event_loop()
+                analyze_func = partial(
+                    analyzer.analyze,
+                    target_location,
+                    building_info,
+                    asset_info,
+                    analysis_params,
+                    language=language
+                )
+                result = await loop.run_in_executor(self._executor, analyze_func)
 
                 report_id = uuid4()
                 self._report_results[report_id] = {

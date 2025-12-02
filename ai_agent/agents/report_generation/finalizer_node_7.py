@@ -32,6 +32,7 @@ import logging
 from datetime import datetime
 import subprocess
 import shutil
+from .utils.citation_formatter import replace_citation_placeholders, generate_references_section
 
 logger = logging.getLogger("FinalizerNode")
 logger.setLevel(logging.INFO)
@@ -102,22 +103,66 @@ def try_generate_pdf_from_markdown(md_path: str, pdf_path: str) -> bool:
             md_text = f.read()
 
         # Markdown을 HTML로 변환
-        html = markdown2.markdown(md_text)
+        html_body = markdown2.markdown(md_text)
 
-        # wkhtmltopdf 경로 설정 (Windows)
+        # HTML 템플릿 (한글 폰트 지원)
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <style>
+                @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;700&display=swap');
+                body {{
+                    font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+                    line-height: 1.6;
+                    padding: 20px;
+                    max-width: 800px;
+                    margin: 0 auto;
+                }}
+                h1, h2, h3 {{
+                    font-weight: 700;
+                }}
+                p {{
+                    font-weight: 400;
+                }}
+            </style>
+        </head>
+        <body>
+            {html_body}
+        </body>
+        </html>
+        """
+
+        # wkhtmltopdf 경로 설정 (OS별 자동 감지)
         config = None
-        wkhtmltopdf_path = r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
-        if os.path.exists(wkhtmltopdf_path):
-            config = pdfkit.configuration(wkhtmltopdf=wkhtmltopdf_path)
+        if os.name == 'nt':  # Windows
+            wkhtmltopdf_path = r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
+            if os.path.exists(wkhtmltopdf_path):
+                config = pdfkit.configuration(wkhtmltopdf=wkhtmltopdf_path)
+        else:  # Linux/Ubuntu
+            wkhtmltopdf_path = shutil.which('wkhtmltopdf')
+            if wkhtmltopdf_path:
+                config = pdfkit.configuration(wkhtmltopdf=wkhtmltopdf_path)
+
+        # PDF 생성 옵션 (한글 인코딩 지원)
+        options = {
+            'encoding': 'UTF-8',
+            'enable-local-file-access': None,
+            'no-outline': None,
+            'quiet': ''
+        }
 
         # PDF 생성
-        pdfkit.from_string(html, pdf_path, configuration=config)
+        pdfkit.from_string(html, pdf_path, configuration=config, options=options)
         logger.info(f"PDF 생성 성공 (pdfkit): {pdf_path}")
         return True
-    except ImportError:
-        logger.info("pdfkit not available → trying pandoc fallback")
+    except ImportError as e:
+        logger.info(f"pdfkit not available: {e} → trying pandoc fallback")
     except Exception as e:
         logger.warning(f"pdfkit PDF 생성 실패: {e} → trying pandoc fallback")
+        import traceback
+        traceback.print_exc()
 
     # 2) pandoc fallback (우선순위 2)
     pandoc = shutil.which("pandoc")
@@ -234,8 +279,19 @@ class FinalizerNode:
             # -------------------------
             # 1) Markdown 저장
             # -------------------------
+            # Citation placeholder 치환 및 References 섹션 추가
+            markdown_with_citations = replace_citation_placeholders(input_data.refined_markdown)
+
+            # References 섹션 추가 (citations가 있는 경우에만)
+            if input_data.citations_final and len(input_data.citations_final) > 0:
+                references_section = generate_references_section(
+                    input_data.citations_final,
+                    language='en'  # TODO: language 파라미터 추가 후 동적으로 설정
+                )
+                markdown_with_citations += references_section
+
             md_path = os.path.join(out_dir, f"{base_name}.md")
-            safe_write_text(md_path, input_data.refined_markdown)
+            safe_write_text(md_path, markdown_with_citations)
 
             # -------------------------
             # 2) JSON 저장

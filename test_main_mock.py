@@ -1,18 +1,31 @@
 """
-AI Agent Workflow Mock Data Test Script
-목 데이터를 사용하여 전체 워크플로우 테스트
+AI Agent Main.py Mock Data Test Script
+목 데이터를 사용하여 main.py의 SKAXPhysicalRiskAnalyzer 테스트
 
 실행 방법:
-    python test_agent_workflow_mock.py
+    python test_main_mock.py
 
 주의사항:
-    - OPENAI_API_KEY 환경변수 필요 (Node 6-8에서 LLM 호출)
+    - OPENAI_API_KEY 환경변수 필요 (LLM 호출)
     - scratch/run_test_mock/ 폴더에 Mock 데이터 필요
 """
 import os
+import sys
 import json
 from datetime import datetime
 from dotenv import load_dotenv
+
+# Windows 콘솔 인코딩 문제 해결
+if sys.platform == 'win32':
+    try:
+        # stdout, stderr을 UTF-8로 재설정
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except AttributeError:
+        # Python 3.6 이하 버전 호환
+        import codecs
+        sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
+        sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
 
 # .env 파일 로드 (OPENAI_API_KEY 등)
 # override=True: 시스템 환경변수를 .env 파일 값으로 덮어씀
@@ -25,7 +38,7 @@ print(f"[DEBUG] OPENAI_API_KEY length: {len(_api_key)}")
 print(f"[DEBUG] OPENAI_API_KEY starts with: {_api_key[:10] if _api_key else 'EMPTY'}")
 
 print("=" * 80)
-print("AI Agent Workflow Mock Data Test")
+print("AI Agent Main.py Mock Data Test")
 print("=" * 80)
 
 # 1. Check Mock Data Files
@@ -51,7 +64,7 @@ for filename in required_files:
         exit(1)
 
 # 2. Load Config and Initialize Analyzer
-print("\n[2] Initializing AI Agent...")
+print("\n[2] Initializing SKAXPhysicalRiskAnalyzer...")
 from ai_agent.config.settings import Config
 from ai_agent import SKAXPhysicalRiskAnalyzer
 
@@ -100,25 +113,39 @@ analysis_params = {
     'search_radius_km': 100
 }
 
+# Additional data (optional)
+additional_data = {
+    'raw_text': '이 건물은 최근 리모델링을 진행했으며, 옥상에 태양광 패널이 설치되어 있습니다. 주변 지역은 홍수 위험이 있으며, 지하 주차장이 침수된 사례가 있습니다.',
+    'metadata': {
+        'source': 'test_input',
+        'date': datetime.now().isoformat()
+    }
+}
+
 print("    [OK] Input data prepared")
 print(f"        Location: {target_location['name']}")
 print(f"        Building Age: {building_info['building_age']} years")
 print(f"        Asset Value: {asset_info['total_asset_value']:,} KRW")
+print(f"        Additional Data: {'Provided' if additional_data else 'None'}")
 
 # 4. Create Custom Initial State (Skip Node 1)
-print("\n[4] Creating Custom Initial State (Bypassing Node 1)...")
+print("\n[4] Creating Custom Initial State (Bypassing Data Collection Node)...")
 
+# analyzer의 workflow_graph에 직접 주입할 초기 상태 생성
 initial_state = {
     'target_location': target_location,
     'building_info': building_info,
     'asset_info': asset_info,
     'analysis_params': analysis_params,
 
+    # Language setting
+    'language': 'en',  # 'ko' for Korean, 'en' for English
+
     # CRITICAL: Inject mock scratch_session_id to skip data_collection
     'scratch_session_id': mock_session_id,
 
     # Skip data_collection node
-    'current_step': 'vulnerability_analysis',
+    'current_step': 'physical_risk_score_calculation',  # Node 2로 직접 이동
     'data_collection_status': 'completed',
 
     # Climate summary (lightweight)
@@ -136,6 +163,9 @@ initial_state = {
         }
     },
 
+    # Additional data (optional)
+    'additional_data': additional_data,
+
     'errors': [],
     'logs': ['Data collection bypassed with mock data'],
     'workflow_status': 'in_progress',
@@ -146,13 +176,14 @@ initial_state = {
 print("    [OK] Initial state created")
 print(f"        Starting from: {initial_state['current_step']}")
 print(f"        Scratch session: {mock_session_id}")
+print(f"        Report Language: {initial_state['language']}")
 
 # 5. Run Workflow
 print("\n[5] Running Workflow...")
 print("    " + "-" * 76)
 
 try:
-    # Execute workflow starting from Node 2
+    # Execute workflow starting from Node 2 (Physical Risk Score Calculation)
     final_state = None
     node_count = 0
 
@@ -196,17 +227,6 @@ if final_state:
         for error in errors:
             print(f"  - {error}")
 
-    # Vulnerability Analysis
-    vulnerability_analysis = result.get('vulnerability_analysis', {})
-    if vulnerability_analysis:
-        print(f"\n[Vulnerability Analysis]")
-        vuln_scores = vulnerability_analysis.get('vulnerability_scores', {})
-        if vuln_scores:
-            print("  Top 5 vulnerabilities:")
-            sorted_vulns = sorted(vuln_scores.items(), key=lambda x: x[1], reverse=True)[:5]
-            for risk_type, score in sorted_vulns:
-                print(f"    {risk_type}: {score:.2f}/100")
-
     # Physical Risk Scores
     physical_risk_scores = result.get('physical_risk_scores', {})
     if physical_risk_scores:
@@ -248,6 +268,17 @@ if final_state:
             combined = risk_data.get('combined_score', 0)
             print(f"  {risk_type}: {combined:.2f}/100 (combined)")
 
+    # Building Characteristics
+    building_characteristics = result.get('building_characteristics', {})
+    if building_characteristics:
+        print(f"\n[Building Characteristics Analysis]")
+        analysis_status = building_characteristics.get('analysis_status', 'unknown')
+        print(f"  Status: {analysis_status}")
+        comprehensive = building_characteristics.get('comprehensive_analysis', {})
+        if comprehensive:
+            summary = comprehensive.get('summary', 'N/A')
+            print(f"  Summary: {summary[:200]}..." if len(summary) > 200 else f"  Summary: {summary}")
+
     # Report Template
     report_template = result.get('report_template', {})
     if report_template:
@@ -258,6 +289,20 @@ if final_state:
         sections = report_template.get('section_structure', {}).get('main_sections', [])
         if sections:
             print(f"  Sections: {len(sections)}")
+
+    # Impact Analysis
+    impact_analysis = result.get('impact_analysis', {})
+    if impact_analysis:
+        print(f"\n[Impact Analysis]")
+        impact_status = impact_analysis.get('status', 'unknown')
+        print(f"  Status: {impact_status}")
+
+    # Response Strategy
+    response_strategy = result.get('response_strategy', {})
+    if response_strategy:
+        print(f"\n[Response Strategy]")
+        strategy_status = response_strategy.get('status', 'unknown')
+        print(f"  Status: {strategy_status}")
 
     # Generated Report
     report = result.get('generated_report', {})
@@ -274,19 +319,29 @@ if final_state:
     validation = result.get('validation_result', {})
     if validation:
         print(f"\n[Validation]")
-        passed = validation.get('validation_passed', False)
-        print(f"  Passed: {passed}")
-        issues = validation.get('issues_found', [])
+        is_valid = validation.get('is_valid', False)
+        print(f"  Valid: {is_valid}")
+        issues = validation.get('issues', [])
         if issues:
             print(f"  Issues: {len(issues)}")
             for issue in issues[:3]:
-                print(f"    - {issue.get('type', 'unknown')}: {issue.get('description', 'N/A')}")
+                issue_type = issue.get('type', 'unknown') if isinstance(issue, dict) else 'unknown'
+                issue_desc = issue.get('description', str(issue)) if isinstance(issue, dict) else str(issue)
+                print(f"    - {issue_type}: {issue_desc}")
+
+    # Refined Report
+    refined_report = result.get('refined_report', {})
+    if refined_report:
+        print(f"\n[Refined Report]")
+        refined_status = refined_report.get('status', 'unknown')
+        print(f"  Status: {refined_status}")
 
     # Final Report
     final_report = result.get('final_report', {})
     if final_report:
         print(f"\n[Final Report]")
-        print(f"  Status: {final_report.get('status', 'unknown')}")
+        final_status = final_report.get('status', 'unknown')
+        print(f"  Status: {final_status}")
 
     # Output Paths
     output_paths = result.get('output_paths', {})
@@ -307,7 +362,7 @@ print("\n" + "=" * 80)
 print("Test Summary")
 print("=" * 80)
 print("[OK] Mock data loaded successfully")
-print("[OK] Workflow executed (Node 2-12)")
+print("[OK] Workflow executed (Node 2-11)")
 if final_state:
     print(f"[OK] Final status: {result.get('workflow_status', 'unknown')}")
 print("\nCheck LangSmith dashboard for detailed trace:")

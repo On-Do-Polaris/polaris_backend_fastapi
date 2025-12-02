@@ -82,6 +82,16 @@ def data_collection_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
 	print("[Node 1] 데이터 수집 시작 (Scratch Space 기반)...")
 
+	# Mock 데이터 테스트: scratch_session_id가 이미 있으면 스킵
+	if state.get('scratch_session_id'):
+		existing_session_id = state.get('scratch_session_id')
+		print(f"  [SKIP] Mock 데이터 사용 (session: {existing_session_id})")
+		return {
+			'scratch_session_id': existing_session_id,
+			'data_collection_status': 'skipped',
+			'logs': [f'데이터 수집 스킵 (Mock session: {existing_session_id})']
+		}
+
 	try:
 		# 1. Scratch Space 세션 생성
 		session_id = scratch_manager.create_session(
@@ -91,7 +101,7 @@ def data_collection_node(state: SuperAgentState, config: Any) -> Dict:
 				"analysis_type": "climate_risk"
 			}
 		)
-		print(f"  ✓ Scratch session created: {session_id}")
+		print(f"  [OK] Scratch session created: {session_id}")
 
 		# 2. 데이터 수집
 		agent = DataCollectionAgent(config)
@@ -107,7 +117,7 @@ def data_collection_node(state: SuperAgentState, config: Any) -> Dict:
 			collected_data,
 			format="json"
 		)
-		print(f"  ✓ Raw data saved to scratch space")
+		print(f"  [OK] Raw data saved to scratch space")
 
 		# 4. 요약 통계 계산
 		climate_data = collected_data.get('climate_data', {})
@@ -391,7 +401,7 @@ def report_template_node(state: SuperAgentState, config: Any) -> Dict:
 		)
 
 		# report_profile을 report_template으로 저장
-		print(f"  ✓ Report profile 생성 완료")
+		print(f"  [OK] Report profile 생성 완료")
 		print(f"    - Tone: {report_profile.get('tone', {}).get('style', 'N/A')}")
 		print(f"    - Sections: {len(report_profile.get('section_structure', {}).get('main_sections', []))}")
 		print(f"    - Citations: {len(report_profile.get('citations', []))}")
@@ -399,7 +409,7 @@ def report_template_node(state: SuperAgentState, config: Any) -> Dict:
 		return {
 			'report_template': report_profile,
 			'template_status': 'completed',
-			'current_step': 'impact_analysis',
+			# 'current_step' 제거 (병렬 실행 노드이므로)
 			'logs': [f'리포트 템플릿 생성 완료 (ReportAnalysisAgent, company={company_name or "default"})']
 		}
 
@@ -417,7 +427,7 @@ def report_template_node(state: SuperAgentState, config: Any) -> Dict:
 		return {
 			'report_template': default_profile,
 			'template_status': 'completed_with_fallback',
-			'current_step': 'impact_analysis',
+			# 'current_step' 제거 (병렬 실행 노드이므로)
 			'errors': [f'템플릿 생성 오류 (fallback 사용): {str(e)}'],
 			'logs': ['리포트 템플릿 생성 완료 (기본 템플릿 사용)']
 		}
@@ -502,7 +512,7 @@ def impact_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 		return {
 			'impact_analysis': impact_analysis,
 			'impact_status': 'completed',
-			'current_step': 'strategy_generation',
+			# 'current_step' 제거 (순차 실행이지만 병렬 브랜치 내부이므로)
 			'logs': [f'영향 분석 {"재실행" if retry_count > 0 else ""} 완료 (ImpactAnalysisAgent)']
 		}
 
@@ -591,7 +601,7 @@ def strategy_generation_node(state: SuperAgentState, config: Any) -> Dict:
 		return {
 			'response_strategy': response_strategy,
 			'strategy_status': 'completed',
-			'current_step': 'report_generation',
+			# 'current_step' 제거 (순차 실행이지만 병렬 브랜치 내부이므로)
 			'logs': [f'대응 전략 {"재생성" if retry_count > 0 else "생성"} 완료 (StrategyGenerationAgent)']
 		}
 
@@ -625,8 +635,12 @@ def report_generation_node(state: SuperAgentState, config: Any) -> Dict:
 		from ai_agent.agents.report_generation.utils import markdown_renderer
 
 		llm_client = LLMClient()
+
+		# 언어 파라미터 가져오기 (기본값: 'en')
+		language = state.get('language', 'en')
+
 		# citation_formatter와 markdown_renderer는 모듈이므로 직접 전달
-		report_agent = ReportComposerAgent(llm_client, citation_formatter, markdown_renderer)
+		report_agent = ReportComposerAgent(llm_client, citation_formatter, markdown_renderer, language=language)
 
 		# compose_draft() 메소드의 파라미터에 맞게 변환
 		report_profile = state.get('report_template', {})
@@ -668,7 +682,7 @@ def report_generation_node(state: SuperAgentState, config: Any) -> Dict:
 		return {
 			'generated_report': normalized_report,
 			'report_status': 'completed',
-			'current_step': 'validation',
+			# 'current_step' 제거 (순차 실행이지만 병렬 브랜치 내부이므로)
 			'logs': ['리포트 생성 완료 (ReportComposerAgent)']
 		}
 
@@ -731,6 +745,11 @@ def _validate_building_characteristics(
 
 	# 3. 종합 분석 (comprehensive_analysis) 존재 여부
 	comprehensive = building_characteristics.get('comprehensive_analysis', {})
+
+	# comprehensive가 문자열인 경우 방어 처리
+	if isinstance(comprehensive, str):
+		comprehensive = {}
+
 	if not comprehensive:
 		issues.append({
 			'type': 'completeness',
@@ -831,11 +850,26 @@ def validation_node(state: SuperAgentState, config: Any) -> Dict:
 		# ========== 1. Report Validation ==========
 		print("  [1/2] Report Validation...")
 		generated_report = state.get('generated_report', {})
-		draft_markdown = generated_report.get('markdown', '')
-		draft_json = generated_report.get('json', {})
+
+		# generated_report가 문자열인 경우 방어 처리
+		if isinstance(generated_report, str):
+			draft_markdown = generated_report
+			draft_json = {}
+		else:
+			draft_markdown = generated_report.get('markdown', '')
+			draft_json = generated_report.get('json', {})
+		# 다른 state 값들도 방어 처리
 		report_profile = state.get('report_template', {})
+		if not isinstance(report_profile, dict):
+			report_profile = {}
+
 		impact_summary = state.get('impact_analysis', {})
+		if not isinstance(impact_summary, dict):
+			impact_summary = {}
+
 		strategies = state.get('response_strategy', {})
+		if not isinstance(strategies, dict):
+			strategies = {}
 
 		# Call async validate method for Report
 		report_validation = asyncio.run(validator.validate(
@@ -901,6 +935,8 @@ def validation_node(state: SuperAgentState, config: Any) -> Dict:
 
 	except Exception as e:
 		print(f"[Node 9] 오류: {str(e)}")
+		import traceback
+		traceback.print_exc()
 		return {
 			'validation_status': 'error',
 			'errors': [f'검증 오류: {str(e)}']
@@ -959,7 +995,7 @@ def refiner_node(state: SuperAgentState, config: Any) -> Dict:
 
 		applied_fixes = refine_result.get('applied_fixes', [])
 
-		print(f"  ✓ Refiner 완료")
+		print(f"  [OK] Refiner 완료")
 		print(f"    - 적용된 수정: {len(applied_fixes)}개")
 		for fix in applied_fixes[:3]:  # 처음 3개만 출력
 			print(f"      * {fix}")
@@ -1004,6 +1040,18 @@ def finalization_node(state: SuperAgentState, config: Any) -> Dict:
 		업데이트된 상태 딕셔너리
 	"""
 	print("[Node 10] 최종 리포트 확정 및 파일 저장 (FinalizerNode)...")
+
+	# ========== IDEMPOTENCY GUARD ==========
+	# 이미 finalization이 완료된 경우 스킵 (중복 실행 방지)
+	existing_output_paths = state.get('output_paths', {})
+	if existing_output_paths and existing_output_paths.get('markdown'):
+		print("  [SKIP] Finalization already completed")
+		print(f"    Existing output: {existing_output_paths.get('markdown')}")
+		return {
+			'final_status': 'already_completed',
+			'logs': ['Finalization 중복 호출 방지 - 이미 완료됨']
+		}
+	# ========================================
 
 	try:
 		# FinalizerNode 초기화
@@ -1067,7 +1115,7 @@ def finalization_node(state: SuperAgentState, config: Any) -> Dict:
 			'pdf': finalizer_output.pdf_path
 		}
 
-		print(f"  ✓ 파일 저장 완료")
+		print(f"  [OK] 파일 저장 완료")
 		print(f"    - Markdown: {finalizer_output.md_path}")
 		print(f"    - JSON: {finalizer_output.json_path}")
 		if finalizer_output.pdf_path:
@@ -1133,7 +1181,7 @@ def building_characteristics_node(state: SuperAgentState, config: Any) -> Dict:
 		guideline = additional_data_guidelines.get('building_characteristics', {})
 
 		# 3. LLM 클라이언트 초기화
-		llm_client = LLMClient(config)
+		llm_client = LLMClient()
 
 		# 4. Building Characteristics Agent 실행
 		agent = BuildingCharacteristicsAgent(llm_client=llm_client)
@@ -1146,7 +1194,7 @@ def building_characteristics_node(state: SuperAgentState, config: Any) -> Dict:
 			additional_data_guideline=guideline if guideline.get('relevance', 0.0) >= 0.4 else None
 		)
 
-		print(f"  ✓ 건물 특징 분석 완료")
+		print(f"  [OK] 건물 특징 분석 완료")
 		print(f"    - 구조적 등급: {analysis_result['structural_features'].get('structural_grade', 'Unknown')}")
 		print(f"    - 취약 요인: {len(analysis_result.get('vulnerability_factors', []))}개")
 		print(f"    - 회복력 요인: {len(analysis_result.get('resilience_factors', []))}개")

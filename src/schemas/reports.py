@@ -16,9 +16,16 @@ class ReportType(str, Enum):
     GOVERNANCE = "governance"
 
 
+class ReportLanguage(str, Enum):
+    """보고서 언어"""
+    KOREAN = "ko"
+    ENGLISH = "en"
+
+
 class CreateReportRequest(BaseModel):
     """Spring Boot API 호환 - 리포트 생성 요청"""
     site_id: Optional[UUID] = Field(None, alias="siteId", description="사업장 ID (null이면 전체 사업장 리포트)")
+    language: Optional[ReportLanguage] = Field(ReportLanguage.KOREAN, description="보고서 언어 (ko: 한국어, en: 영어)")
 
     class Config:
         populate_by_name = True

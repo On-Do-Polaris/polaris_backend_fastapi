@@ -107,14 +107,33 @@ class BuildingCharacteristicsAgent:
 		# 6. LLM 기반 종합 분석 (선택적)
 		comprehensive_analysis = None
 		if self.llm_client:
-			comprehensive_analysis = self._llm_comprehensive_analysis(
-				building_info,
+			try:
+				comprehensive_analysis = self._llm_comprehensive_analysis(
+					building_info,
+					structural_features,
+					location_features,
+					risk_interpretation,
+					vulnerability_factors,
+					resilience_factors,
+					additional_data_guideline
+				)
+			except Exception as e:
+				self.logger.error(f"LLM 종합 분석 중 오류 발생: {str(e)}")
+				# 오류 발생 시 기본 분석 결과 생성
+				comprehensive_analysis = self._generate_fallback_analysis(
+					structural_features,
+					vulnerability_factors,
+					resilience_factors,
+					risk_interpretation
+				)
+		else:
+			# LLM 클라이언트가 없을 경우 기본 분석 생성
+			self.logger.warning("LLM 클라이언트가 없어 기본 분석 생성")
+			comprehensive_analysis = self._generate_fallback_analysis(
 				structural_features,
-				location_features,
-				risk_interpretation,
 				vulnerability_factors,
 				resilience_factors,
-				additional_data_guideline
+				risk_interpretation
 			)
 
 		result = {
@@ -128,7 +147,8 @@ class BuildingCharacteristicsAgent:
 				'agent': 'BuildingCharacteristicsAgent',
 				'version': 'v01',
 				'guideline_applied': additional_data_guideline is not None
-			}
+			},
+			'status': 'completed'  # 상태 추가
 		}
 
 		self.logger.info("건물 특징 분석 완료")
@@ -360,6 +380,53 @@ class BuildingCharacteristicsAgent:
 			interpretation += f'주요 리스크: {risk_names}. '
 
 		return interpretation
+
+	def _generate_fallback_analysis(
+		self,
+		structural_features: Dict,
+		vulnerability_factors: list,
+		resilience_factors: list,
+		risk_interpretation: Dict
+	) -> str:
+		"""LLM 실패 시 기본 분석 생성"""
+		analysis = "## 건물 특징 종합 분석\n\n"
+
+		# 1. 건물 특징 요약
+		analysis += "### 1. 건물 특징 요약\n"
+		grade = structural_features.get('structural_grade', 'Unknown')
+		age = structural_features.get('building_age', 0)
+		structure = structural_features.get('structure_type', 'Unknown')
+		analysis += f"이 건물은 {age}년차 {structure} 구조로, 구조적 등급은 {grade}입니다.\n\n"
+
+		# 2. 주요 리스크 요인
+		analysis += "### 2. 주요 리스크 요인\n"
+		if vulnerability_factors:
+			for factor in vulnerability_factors[:3]:  # Top 3
+				analysis += f"- {factor.get('factor', 'Unknown')}: {factor.get('description', 'N/A')}\n"
+		else:
+			analysis += "- 특별한 취약 요인이 발견되지 않았습니다.\n"
+		analysis += "\n"
+
+		# 3. 건물의 강점
+		analysis += "### 3. 건물의 강점\n"
+		if resilience_factors:
+			for factor in resilience_factors[:3]:  # Top 3
+				analysis += f"- {factor.get('factor', 'Unknown')}: {factor.get('description', 'N/A')}\n"
+		else:
+			analysis += "- 구조적 강점이 제한적입니다.\n"
+		analysis += "\n"
+
+		# 4. 통합 리스크 요약
+		analysis += "### 4. 종합 의견\n"
+		integrated = risk_interpretation.get('integrated', {})
+		overall_level = integrated.get('overall_risk_level', 'Unknown')
+		top_risks = integrated.get('top_risks', [])
+		if top_risks:
+			top_3_names = ', '.join([r.get('hazard_type', 'Unknown') for r in top_risks[:3]])
+			analysis += f"전체 리스크 수준은 {overall_level}이며, 주요 리스크는 {top_3_names}입니다. "
+		analysis += "지속적인 모니터링과 적절한 대응 계획이 필요합니다.\n"
+
+		return analysis
 
 	def _llm_comprehensive_analysis(
 		self,

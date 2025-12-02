@@ -18,8 +18,36 @@ FROM python:3.11-slim AS production
 
 WORKDIR /app
 
-# Install curl for health checks
-RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies (curl, wkhtmltopdf, fonts)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    curl \
+    wget \
+    # wkhtmltopdf dependencies
+    fontconfig \
+    libfreetype6 \
+    libjpeg62-turbo \
+    libpng16-16 \
+    libx11-6 \
+    libxcb1 \
+    libxext6 \
+    libxrender1 \
+    xfonts-75dpi \
+    xfonts-base \
+    # Korean fonts for PDF generation
+    fonts-nanum \
+    fonts-nanum-coding \
+    fonts-nanum-extra \
+    fonts-baekmuk \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install wkhtmltopdf (latest version)
+RUN wget https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-2/wkhtmltox_0.12.6.1-2.jammy_amd64.deb && \
+    dpkg -i wkhtmltox_0.12.6.1-2.jammy_amd64.deb || apt-get install -f -y && \
+    rm wkhtmltox_0.12.6.1-2.jammy_amd64.deb && \
+    wkhtmltopdf --version
 
 # Copy installed packages from builder
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
@@ -29,6 +57,9 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY main.py .
 COPY src/ ./src/
 COPY ai_agent/ ./ai_agent/
+
+# Create scratch directory for output files (before changing user)
+RUN mkdir -p /app/scratch && chmod 755 /app/scratch
 
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash appuser && \

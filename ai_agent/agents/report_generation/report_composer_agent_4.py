@@ -35,8 +35,30 @@ Refiner 루프 연계:
 from typing import Dict, Any
 from datetime import datetime
 import logging
+from .utils.prompt_loader import PromptLoader
 
 logger = logging.getLogger("ReportComposerAgent")
+
+
+# 섹션 제목 다국어화
+SECTION_TITLES = {
+    'en': {
+        'executive_summary': 'Executive Summary',
+        'governance': 'Governance',
+        'strategy': 'Strategy',
+        'risk_management': 'Risk Management',
+        'metrics_and_targets': 'Metrics and Targets',
+        'metrics_targets': 'Metrics and Targets',
+    },
+    'ko': {
+        'executive_summary': '경영진 요약',
+        'governance': '거버넌스',
+        'strategy': '전략',
+        'risk_management': '리스크 관리',
+        'metrics_and_targets': '지표 및 목표',
+        'metrics_targets': '지표 및 목표',
+    }
+}
 
 
 class ReportComposerAgent:
@@ -50,17 +72,20 @@ class ReportComposerAgent:
     - Refiner 루프 연계 가능
     """
 
-    def __init__(self, llm_client, citation_formatter, markdown_renderer):
+    def __init__(self, llm_client, citation_formatter, markdown_renderer, language: str = 'en'):
         """
         Args:
             llm_client: async LLM 호출 클라이언트
             citation_formatter: Citation 처리 유틸
             markdown_renderer: Markdown → HTML/PDF 변환 유틸
+            language: 보고서 출력 언어 ('ko', 'en')
         """
         self.llm = llm_client
         self.citation = citation_formatter
         self.render = markdown_renderer
-        logger.info("[ReportComposerAgent] 초기화 완료")
+        self.language = language
+        self.prompt_loader = PromptLoader()
+        logger.info(f"[ReportComposerAgent] 초기화 완료 (output_language={language})")
 
     # ============================================================
     # PUBLIC: LangGraph Node async 실행 진입점
@@ -96,15 +121,29 @@ class ReportComposerAgent:
 
             # 3. Markdown Draft 구성
             # Markdown 문자열 생성
-            md_text = f"# {template.get('title', 'Physical Risk Analysis Report')}\n\n"
-            md_text += f"## Executive Summary\n\n{executive_summary}\n\n"
+            report_title = template.get('title', 'Physical Risk Analysis Report')
+            if self.language == 'ko':
+                report_title = '물리적 리스크 분석 보고서'
+
+            md_text = f"# {report_title}\n\n"
+
+            # Executive Summary 제목 다국어화
+            exec_summary_title = SECTION_TITLES.get(self.language, SECTION_TITLES['en']).get('executive_summary', 'Executive Summary')
+            md_text += f"## {exec_summary_title}\n\n{executive_summary}\n\n"
 
             # sections는 dict {sec_key: content_text} 형태
-            # template의 sections 정의를 참고하여 제목 추가
-            section_defs = template.get("sections", {})
+            # executive_summary는 이미 추가했으므로 제외
             for sec_key, content_text in sections.items():
-                sec_info = section_defs.get(sec_key, {})
-                section_title = sec_info.get("title", sec_key.replace('_', ' ').title())
+                # Executive Summary 중복 방지
+                if sec_key == "executive_summary":
+                    continue
+
+                # 다국어 제목 가져오기
+                section_title = SECTION_TITLES.get(self.language, SECTION_TITLES['en']).get(
+                    sec_key,
+                    sec_key.replace('_', ' ').title()
+                )
+
                 md_text += f"## {section_title}\n\n{content_text}\n\n"
 
             # Markdown → HTML 변환
@@ -160,49 +199,17 @@ class ReportComposerAgent:
         else:
             overall_strategy = ""
 
-        # feature/7-report-agent의 영어 프롬프트 사용
-        prompt = f"""
-<ROLE>
-You are an expert report writer specializing in TCFD and ESG disclosures for investors and regulatory bodies. Your talent lies in synthesizing vast amounts of data into concise, compelling narratives, ensuring readers quickly grasp key messages. Your writing is consistently clear, error-free, and highly persuasive.
-</ROLE>
+        # PromptLoader를 사용하여 프롬프트 로드 및 출력 언어 지시자 추가
+        prompt_template = self.prompt_loader.load('executive_summary', output_language=self.language)
 
-<CONTEXT>
-You are provided with a summary of the company's report profile, key impact analysis findings, and an overview of proposed strategies. Your goal is to distill this into an Executive Summary.
+        # 변수 치환
+        prompt = prompt_template.format(
+            tone=report_profile.get('tone', 'N/A'),
+            top_risks=top3,
+            total_loss=total_loss,
+            overall_strategy=overall_strategy
+        )
 
-<REPORT_PROFILE_TONE>
-{report_profile.get('tone', 'N/A')}
-</REPORT_PROFILE_TONE>
-
-<TOP_RISKS_SUMMARY>
-The top 3 identified climate risks are: {top3}.
-</TOP_RISKS_SUMMARY>
-
-<TOTAL_FINANCIAL_LOSS_SUMMARY>
-The total estimated financial loss (AAL/other metrics) is: {total_loss}.
-</TOTAL_FINANCIAL_LOSS_SUMMARY>
-
-<OVERALL_STRATEGY_SUMMARY>
-The proposed overall strategic approach involves: {overall_strategy}.
-</OVERALL_STRATEGY_SUMMARY>
-</CONTEXT>
-
-<INSTRUCTIONS>
-Your task is to draft a compelling Executive Summary for a TCFD/ESG report.
-</INSTRUCTIONS>
-
-<OUTPUT_FORMAT>
-- The summary must be a Markdown formatted text of 4 to 6 sentences.
-- It must clearly state the most significant climate-related risks and the company's overarching strategic response.
-- The tone and style should align with a formal corporate report.
-</OUTPUT_FORMAT>
-
-<RULES>
-- Output ONLY the Markdown formatted Executive Summary. DO NOT include any explanations, apologies, or text outside the summary itself.
-- DO NOT invent details or go beyond the provided context.
-- Maintain the tone and style of a high-level corporate report, as indicated in the <REPORT_PROFILE_TONE>.
-- Ensure strict adherence to Markdown syntax.
-</RULES>
-"""
         summary = await self.llm.ainvoke(prompt)
         return summary.strip()
 
@@ -226,53 +233,26 @@ Your task is to draft a compelling Executive Summary for a TCFD/ESG report.
         tcfd_structure = template.get("tcfd_structure", {})
 
         for sec_key in main_sections:
+            # Executive Summary는 별도로 생성되므로 스킵
+            if sec_key == "executive_summary":
+                continue
+
             # TCFD 구조에서 설명 가져오기
             sec_description = tcfd_structure.get(sec_key, f"{sec_key} section")
+            section_title = sec_key.replace('_', ' ').title()
 
-            # feature/7-report-agent의 영어 프롬프트 사용
-            prompt = f"""
-<ROLE>
-You are an expert report writer specializing in TCFD and ESG disclosures for investors and regulatory bodies. Your talent lies in synthesizing vast amounts of data into concise, compelling narratives, ensuring readers quickly grasp key messages. Your writing is consistently clear, error-free, and highly persuasive.
-</ROLE>
+            # PromptLoader를 사용하여 프롬프트 로드 및 출력 언어 지시자 추가
+            prompt_template = self.prompt_loader.load('section_generation', output_language=self.language)
 
-<CONTEXT>
-You are tasked with writing a specific section of a comprehensive TCFD/ESG report. You are provided with the overall report style, key impact analysis findings, and detailed proposed strategies.
+            # 변수 치환
+            prompt = prompt_template.format(
+                section_title=section_title,
+                section_description=sec_description,
+                report_profile=report_profile,
+                impact_summary=impact_summary,
+                strategies=strategies
+            )
 
-<SECTION_DETAILS>
-Section Title: {sec_key.replace('_', ' ').title()}
-Section Purpose: {sec_description}
-</SECTION_DETAILS>
-
-<REPORT_PROFILE>
-{report_profile}
-</REPORT_PROFILE>
-
-<IMPACT_ANALYSIS_SUMMARY>
-{impact_summary}
-</IMPACT_ANALYSIS_SUMMARY>
-
-<STRATEGIES_DETAILS>
-{strategies}
-</STRATEGIES_DETAILS>
-</CONTEXT>
-
-<INSTRUCTIONS>
-Your task is to write the content for the section titled "{sec_key.replace('_', ' ').title()}".
-</INSTRUCTIONS>
-
-<OUTPUT_FORMAT>
-- The section content must be in Markdown format.
-- Generate between 2 to 4 concise paragraphs for this section.
-- If relevant and justified by the context, insert citation placeholders in the format "[[ref-id]]".
-</OUTPUT_FORMAT>
-
-<RULES>
-- Output ONLY the Markdown formatted section content. DO NOT include any explanations, apologies, or text outside the section content itself.
-- DO NOT invent details or go beyond the provided context.
-- Maintain the tone and style of a high-level corporate report, as indicated in the <REPORT_PROFILE>.
-- Strictly adhere to Markdown syntax.
-</RULES>
-"""
             result = await self.llm.ainvoke(prompt)
             sections[sec_key] = result.strip()
 

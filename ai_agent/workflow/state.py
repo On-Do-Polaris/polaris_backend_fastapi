@@ -27,6 +27,7 @@ class SuperAgentState(TypedDict, total=False):
 	analysis_params: Dict[str, Any]  # 분석 파라미터 (시간 범위, 시나리오)
 	company_name: Optional[str]  # 회사명 (Report Analysis용)
 	past_reports: Optional[List[str]]  # 기존 보고서 텍스트 리스트 (Report Analysis용)
+	language: Optional[str]  # 보고서 출력 언어 ('ko', 'en') - 기본값: 'en'
 
 	# 추가 데이터 (NEW in v04)
 	additional_data: Optional[Dict[str, Any]]  # 사용자 제공 추가 데이터 (raw_text, metadata)

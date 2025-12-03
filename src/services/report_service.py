@@ -84,16 +84,19 @@ class ReportService:
                 )
                 result = await loop.run_in_executor(self._executor, analyze_func)
 
+                # 리포트 ID 생성 및 결과 캐싱
                 report_id = uuid4()
                 self._report_results[report_id] = {
                     'site_id': request.site_id,
-                    'result': result
+                    'result': result,
+                    'created_at': datetime.now()
                 }
 
                 return {
                     "success": True,
                     "message": "리포트가 생성되었습니다.",
                     "siteId": str(request.site_id),
+                    "reportId": str(report_id),
                 }
 
             return {
@@ -107,8 +110,8 @@ class ReportService:
                 "message": str(e),
             }
 
-    async def get_report_web_view(self) -> ReportWebViewResponse:
-        """Spring Boot API 호환 - 웹 리포트 뷰 조회"""
+    async def get_report_web_view(self, report_id: str) -> dict:
+        """웹 리포트 뷰 조회 - 프론트엔드 렌더링용 데이터 반환"""
         if settings.USE_MOCK_DATA:
             pages = [
                 ReportPage(
@@ -148,10 +151,34 @@ class ReportService:
                 pages=pages,
             )
 
-        return None
+        # 실제 리포트 데이터 조회
+        try:
+            from uuid import UUID
+            report_uuid = UUID(report_id)
+            cached_report = self._report_results.get(report_uuid)
 
-    async def get_report_pdf(self) -> ReportPdfResponse:
-        """Spring Boot API 호환 - PDF 리포트 조회"""
+            if not cached_report:
+                return None
+
+            result = cached_report.get('result', {})
+            final_report = result.get('final_report', {})
+
+            # 웹 렌더링용 데이터 반환
+            return {
+                "siteId": str(cached_report['site_id']) if cached_report.get('site_id') else None,
+                "reportData": {
+                    "markdown": final_report.get('markdown', ''),
+                    "json": final_report.get('json', {}),
+                    "metadata": result.get('metadata', {}),
+                },
+                "createdAt": cached_report.get('created_at').isoformat() if cached_report.get('created_at') else None,
+            }
+        except Exception as e:
+            print(f"Error retrieving web view: {e}")
+            return None
+
+    async def get_report_pdf(self, report_id: str) -> dict:
+        """PDF 리포트 파일 경로 조회"""
         if settings.USE_MOCK_DATA:
             return ReportPdfResponse(
                 downloadUrl="/reports/download/climate-risk-report.pdf",
@@ -159,7 +186,36 @@ class ReportService:
                 expiresAt=datetime.now() + timedelta(hours=24),
             )
 
-        return None
+        # 실제 PDF 파일 경로 조회
+        try:
+            from uuid import UUID
+            import os
+
+            report_uuid = UUID(report_id)
+            cached_report = self._report_results.get(report_uuid)
+
+            if not cached_report:
+                return None
+
+            result = cached_report.get('result', {})
+            output_paths = result.get('output_paths', {})
+            pdf_path = output_paths.get('pdf')
+
+            if not pdf_path or not os.path.exists(pdf_path):
+                return None
+
+            # 파일 크기 계산
+            file_size = os.path.getsize(pdf_path)
+
+            return {
+                "pdfPath": pdf_path,
+                "fileSize": file_size,
+                "siteId": str(cached_report['site_id']) if cached_report.get('site_id') else None,
+                "createdAt": cached_report.get('created_at').isoformat() if cached_report.get('created_at') else None,
+            }
+        except Exception as e:
+            print(f"Error retrieving PDF: {e}")
+            return None
 
     async def delete_report(self) -> dict:
         """Spring Boot API 호환 - 리포트 삭제"""

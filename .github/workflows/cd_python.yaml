@@ -2,9 +2,14 @@ name: CD - Deploy
 
 on:
   workflow_run:
-    workflows: ["CI - Test & Build"]
-    types: [completed]
+    workflows: ['CI - Test & Build']
+    types:
+      - completed
     branches: [main]
+  pull_request:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
 
 env:
   IMAGE_NAME: polaris-backend-fastapi
@@ -14,14 +19,16 @@ jobs:
   deploy:
     name: 서버 배포
     runs-on: ubuntu-22.04
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: |
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
 
     steps:
       - name: 배포 시작 알림
         run: |
           echo "### Starting Deployment" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Image:** ${{ secrets.OCIR_REGISTRY }}/${{ secrets.OCIR_NAMESPACE }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** ${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ARTIFACT_REGISTRY_REPO }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
           echo "**Target:** ${{ secrets.SERVER_HOST }}" >> $GITHUB_STEP_SUMMARY
 
       - name: SSH로 서버 배포
@@ -39,18 +46,19 @@ jobs:
             echo "========================================="
 
             # 변수 설정
-            REGISTRY="${{ secrets.OCIR_REGISTRY }}"
-            NAMESPACE="${{ secrets.OCIR_NAMESPACE }}"
+            REGISTRY="${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev"
+            PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}"
+            REPO="${{ secrets.ARTIFACT_REGISTRY_REPO }}"
             IMAGE_NAME="${{ env.IMAGE_NAME }}"
             CONTAINER_NAME="${{ env.CONTAINER_NAME }}"
-            IMAGE="${REGISTRY}/${NAMESPACE}/${IMAGE_NAME}:latest"
+            IMAGE="${REGISTRY}/${PROJECT_ID}/${REPO}/${IMAGE_NAME}:latest"
 
             # 필요시 네트워크 생성
             docker network create web || true
 
-            # OCIR 로그인
-            echo "1. OCIR 로그인 중..."
-            echo "${{ secrets.OCIR_TOKEN }}" | docker login ${REGISTRY} -u "${{ secrets.OCIR_USERNAME }}" --password-stdin
+            # GCP Artifact Registry 인증
+            echo "1. GCP Artifact Registry 인증 중..."
+            echo '${{ secrets.GCP_SA_KEY }}' | docker login -u _json_key --password-stdin https://${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev
 
             # 최신 이미지 pull
             echo "2. 최신 이미지 다운로드 중..."
@@ -67,19 +75,20 @@ jobs:
               echo "   기존 컨테이너 없음 (최초 배포)"
             fi
 
-            # 새 컨테이너 실행
+            # 새 컨테이너 실행 (환경변수 주입)
             echo "4. 새 컨테이너 실행 중... (이름: ${CONTAINER_NAME})"
             docker run -d \
               --name ${CONTAINER_NAME} \
               --network web \
               --restart unless-stopped \
-              -e USE_MOCK_DATA="${{ secrets.USE_MOCK_DATA }}" \
-              -e OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
-              -e DATABASE_URL="${{ secrets.DATABASE_URL }}" \
-              -e API_KEY="${{ secrets.API_KEY }}" \
-              -e LANGSMITH_ENABLED="${{ secrets.LANGSMITH_ENABLED }}" \
-              -e LANGSMITH_API_KEY="${{ secrets.LANGSMITH_API_KEY }}" \
-              -e LANGSMITH_PROJECT="${{ secrets.LANGSMITH_PROJECT }}" \
+              -p 8000:8000 \
+              -e API_KEY='${{ secrets.API_KEY }}' \
+              -e OPENAI_API_KEY='${{ secrets.OPENAI_API_KEY }}' \
+              -e DATABASE_URL='${{ secrets.DATABASE_URL }}' \
+              -e USE_MOCK_DATA='${{ secrets.USE_MOCK_DATA }}' \
+              -e LANGSMITH_ENABLED='${{ secrets.LANGSMITH_ENABLED }}' \
+              -e LANGSMITH_API_KEY='${{ secrets.LANGSMITH_API_KEY }}' \
+              -e LANGSMITH_PROJECT='${{ secrets.LANGSMITH_PROJECT }}' \
               ${IMAGE}
 
             # Health check - 컨테이너가 준비될 때까지 대기
@@ -121,7 +130,7 @@ jobs:
           echo "배포가 성공적으로 완료되었습니다." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**배포 전략:** Recreate 방식" >> $GITHUB_STEP_SUMMARY
-          echo "- OCIR 로그인 → 이미지 pull → 기존 컨테이너 중지 → 새 컨테이너 실행 → Health Check" >> $GITHUB_STEP_SUMMARY
+          echo "- 기존 컨테이너 중지 → 새 컨테이너 실행 → Health Check" >> $GITHUB_STEP_SUMMARY
 
       - name: 배포 실패 알림
         if: failure()

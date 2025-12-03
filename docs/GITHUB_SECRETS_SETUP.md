@@ -9,20 +9,32 @@
 
 GitHub Repository → Settings → Secrets and variables → Actions → New repository secret
 
-### 1. **OCIR (Oracle Cloud Container Registry) 관련**
+### 1. **GCP (Google Cloud Platform) 관련**
 
 | Secret 이름 | 설명 | 예시 값 |
 |------------|------|---------|
-| `OCIR_REGISTRY` | OCIR 레지스트리 주소 | `yny.ocir.io` (춘천 리전) |
-| `OCIR_NAMESPACE` | OCIR 네임스페이스 | `your-namespace` |
-| `OCIR_USERNAME` | OCIR 로그인 사용자명 | `your-tenancy/oracleidentitycloudservice/user@example.com` |
-| `OCIR_TOKEN` | OCIR 인증 토큰 | `your-auth-token` |
+| `GCP_SA_KEY` | GCP Service Account JSON 키 | `{"type":"service_account",...}` (JSON 전체) |
+| `GCP_PROJECT_ID` | GCP 프로젝트 ID | `your-gcp-project-id` |
+| `ARTIFACT_REGISTRY_LOCATION` | Artifact Registry 위치 | `asia-northeast3` (서울) |
+| `ARTIFACT_REGISTRY_REPO` | Artifact Registry 저장소 이름 | `polaris-containers` |
 
-**OCIR 토큰 생성 방법**:
-1. Oracle Cloud Console 접속
-2. 우측 상단 프로필 → User Settings
-3. Auth Tokens → Generate Token
-4. 토큰 복사 (한 번만 표시됨!)
+**GCP Service Account 키 생성 방법**:
+1. Google Cloud Console 접속 (https://console.cloud.google.com)
+2. IAM & Admin → Service Accounts
+3. Create Service Account
+   - Name: `github-actions-deployer`
+   - Roles:
+     - Artifact Registry Writer
+     - Artifact Registry Reader
+4. Keys → Add Key → Create new key → JSON
+5. JSON 파일 전체 내용을 `GCP_SA_KEY`로 등록
+
+**Artifact Registry 생성 방법**:
+1. Artifact Registry → Repositories → Create Repository
+2. Format: Docker
+3. Location type: Region
+4. Region: asia-northeast3 (Seoul)
+5. Repository name: polaris-containers
 
 ---
 
@@ -93,13 +105,13 @@ LLM 호출 추적 및 모니터링을 위한 설정 (선택사항)
 
 ## 🔧 Secrets 설정 순서
 
-### Step 1: OCIR 관련 설정 (이미지 저장소)
+### Step 1: GCP 관련 설정 (이미지 저장소)
 
 ```bash
-OCIR_REGISTRY=yny.ocir.io
-OCIR_NAMESPACE=your-namespace
-OCIR_USERNAME=your-tenancy/oracleidentitycloudservice/user@example.com
-OCIR_TOKEN=your-auth-token
+GCP_SA_KEY={"type":"service_account",...}  # JSON 전체
+GCP_PROJECT_ID=your-gcp-project-id
+ARTIFACT_REGISTRY_LOCATION=asia-northeast3
+ARTIFACT_REGISTRY_REPO=polaris-containers
 ```
 
 ### Step 2: 서버 배포 설정
@@ -138,14 +150,15 @@ LANGSMITH_PROJECT=skax-physical-risk-prod
 
 ## ✅ 설정 확인 체크리스트
 
-### OCIR 및 배포 (필수)
-- [ ] `OCIR_REGISTRY` 설정됨
-- [ ] `OCIR_NAMESPACE` 설정됨
-- [ ] `OCIR_USERNAME` 설정됨
-- [ ] `OCIR_TOKEN` 설정됨
+### GCP 및 배포 (필수)
+- [ ] `GCP_SA_KEY` 설정됨
+- [ ] `GCP_PROJECT_ID` 설정됨
+- [ ] `ARTIFACT_REGISTRY_LOCATION` 설정됨
+- [ ] `ARTIFACT_REGISTRY_REPO` 설정됨
 - [ ] `SERVER_HOST` 설정됨
 - [ ] `SERVER_USER` 설정됨
 - [ ] `SERVER_SSH_KEY` 설정됨
+- [ ] `SERVER_PORT` 설정됨 (선택)
 
 ### 애플리케이션 기본 (필수)
 - [ ] `USE_MOCK_DATA` 설정됨
@@ -258,19 +271,25 @@ LANGSMITH_PROJECT=skax-physical-risk-prod
 
 ### CI/CD 파이프라인 실패 시
 
-1. **OCIR 로그인 실패**
+1. **GCP Artifact Registry 인증 실패**
    ```
-   Error: login attempt to https://yny.ocir.io/v2/ failed
+   Error: Failed to authenticate with GCP
    ```
-   → `OCIR_USERNAME`, `OCIR_TOKEN` 확인
+   → `GCP_SA_KEY` JSON 형식 확인 (전체 복사 필요)
 
-2. **SSH 연결 실패**
+2. **Artifact Registry push 실패**
+   ```
+   Error: unauthorized: access denied
+   ```
+   → Service Account에 Artifact Registry Writer 권한 확인
+
+3. **SSH 연결 실패**
    ```
    Error: Permission denied (publickey)
    ```
    → `SERVER_SSH_KEY` 형식 확인 (전체 내용 포함되어야 함)
 
-3. **컨테이너 실행 실패**
+4. **컨테이너 실행 실패**
    ```
    Error: container exited with code 1
    ```

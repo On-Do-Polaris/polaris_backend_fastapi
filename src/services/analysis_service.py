@@ -56,25 +56,37 @@ class AnalysisService:
         asset_value: float = 50000000000,
         additional_data: dict = None
     ) -> dict:
-        """ai_agent 분석 실행"""
+        """ai_agent 분석 실행 (ERD 기준)"""
         analyzer = self._get_analyzer()
 
+        # SiteInfo에서 기본 위치 정보만 사용 (ERD 기준)
         target_location = {
             'latitude': site_info.get('lat', site_info.get('latitude', 37.5665)),
             'longitude': site_info.get('lng', site_info.get('longitude', 126.9780)),
-            'name': site_info.get('name', 'Unknown Location')
+            'name': site_info.get('name', 'Unknown Location'),
+            'road_address': site_info.get('road_address'),
+            'jibun_address': site_info.get('jibun_address')
         }
 
-        building_info = {
-            'building_age': site_info.get('building_age', 20),
-            'has_seismic_design': site_info.get('has_seismic_design', True),
-            'fire_access': site_info.get('fire_access', True)
-        }
+        # 건물/자산 정보는 additional_data에서 가져옴
+        building_info = None
+        asset_info = None
 
-        asset_info = {
-            'total_asset_value': asset_value,
-            'insurance_coverage_rate': site_info.get('insurance_coverage_rate', 0.7)
-        }
+        if additional_data:
+            # additional_data.building_info가 있으면 사용
+            building_info = additional_data.get('building_info')
+            asset_info = additional_data.get('asset_info')
+
+        # 기본값 설정 (additional_data가 없을 경우)
+        if not building_info:
+            self.logger.warning("No building_info in additional_data, using minimal defaults")
+            building_info = {}  # 빈 dict로 전달 (workflow에서 처리)
+
+        if not asset_info:
+            self.logger.warning("No asset_info in additional_data, using defaults")
+            asset_info = {
+                'total_asset_value': asset_value
+            }
 
         analysis_params = {
             'time_horizon': '2050',
@@ -106,11 +118,15 @@ class AnalysisService:
             )
 
         try:
+            # SiteInfo에서 ERD 기준 필드만 사용
             site_info = {
                 'id': str(request.site.id),
                 'name': request.site.name,
                 'lat': request.site.latitude,
                 'lng': request.site.longitude,
+                'road_address': request.site.road_address,
+                'jibun_address': request.site.jibun_address,
+                'type': request.site.type
             }
 
             # additional_data 변환 (Pydantic 모델 → dict)
@@ -118,7 +134,11 @@ class AnalysisService:
             if request.additional_data:
                 additional_data_dict = {
                     'raw_text': request.additional_data.raw_text,
-                    'metadata': request.additional_data.metadata or {}
+                    'metadata': request.additional_data.metadata or {},
+                    'building_info': request.additional_data.building_info,
+                    'asset_info': request.additional_data.asset_info,
+                    'power_usage': request.additional_data.power_usage,
+                    'insurance': request.additional_data.insurance
                 }
 
             result = await self._run_agent_analysis(site_info, additional_data=additional_data_dict)

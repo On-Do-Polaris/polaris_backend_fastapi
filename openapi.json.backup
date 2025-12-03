@@ -1,0 +1,3769 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "SKAX Physical Risk AI Agent API",
+    "description": "\n    사업장 기후 물리적 리스크 AI Agent 분석 시스템 API\n\n    Spring Boot 서버로부터 요청을 받아 AI Agent를 통해 기후 리스크를 분석하고 결과를 반환합니다.\n\n    주요 기능:\n    - AI Agent 기반 물리적 리스크 분석\n    - 비동기 작업 처리 및 상태 관리\n    - 과거 재난 이력 분석\n    - SSP 시나리오별 미래 리스크 전망\n    - 재무 영향 분석 (AAL)\n    - 취약성 평가\n    - 사업장 이전 시뮬레이션\n    - LLM 기반 리포트 생성\n    - 사용자 제공 추가 데이터 관리\n    ",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/sites/{site_id}/analysis/start": {
+      "post": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "Start Analysis",
+        "description": "Spring Boot API 호환 - AI 리스크 분석 시작",
+        "operationId": "start_analysis_api_sites__site_id__analysis_start_post",
+        "parameters": [
+          {
+            "name": "site_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Site Id"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartAnalysisRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisJobStatus"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sites/{site_id}/analysis/enhance": {
+      "post": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "Enhance Analysis",
+        "description": "추가 데이터를 반영하여 분석 향상\n\n기존 분석 결과(job_id)에 추가 데이터를 반영하여 Node 5 이후 재실행.\nNode 1~4 (ModelOps 데이터)는 캐시 재사용하여 효율적으로 실행.\n\nArgs:\n    site_id: 사업장 ID\n    body: EnhanceAnalysisRequest\n        - jobId: 원본 분석 작업 ID\n        - additionalData: 추가 데이터 (rawText, metadata)\n\nReturns:\n    새로운 job_id와 함께 향상된 분석 결과",
+        "operationId": "enhance_analysis_api_sites__site_id__analysis_enhance_post",
+        "parameters": [
+          {
+            "name": "site_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Site Id"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnhanceAnalysisRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisJobStatus"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sites/{site_id}/analysis/status/{job_id}": {
+      "get": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "Get Analysis Status",
+        "description": "Spring Boot API 호환 - 분석 작업 상태 조회",
+        "operationId": "get_analysis_status_api_sites__site_id__analysis_status__job_id__get",
+        "parameters": [
+          {
+            "name": "site_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Site Id"
+            }
+          },
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisJobStatus"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sites/{site_id}/analysis/physical-risk-scores": {
+      "get": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "Get Physical Risk Scores",
+        "description": "Spring Boot API 호환 - 시나리오별 물리적 리스크 점수 조회",
+        "operationId": "get_physical_risk_scores_api_sites__site_id__analysis_physical_risk_scores_get",
+        "parameters": [
+          {
+            "name": "site_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Site Id"
+            }
+          },
+          {
+            "name": "hazardType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hazardtype"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhysicalRiskScoreResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sites/{site_id}/analysis/past-events": {
+      "get": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "Get Past Events",
+        "description": "Spring Boot API 호환 - 과거 재난 이력 조회",
+        "operationId": "get_past_events_api_sites__site_id__analysis_past_events_get",
+        "parameters": [
+          {
+            "name": "site_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Site Id"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PastEventsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sites/{site_id}/analysis/financial-impacts": {
+      "get": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "Get Financial Impacts",
+        "description": "Spring Boot API 호환 - 시나리오별 재무 영향(AAL) 조회",
+        "operationId": "get_financial_impacts_api_sites__site_id__analysis_financial_impacts_get",
+        "parameters": [
+          {
+            "name": "site_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Site Id"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FinancialImpactResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sites/{site_id}/analysis/vulnerability": {
+      "get": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "Get Vulnerability",
+        "description": "Spring Boot API 호환 - 취약성 분석",
+        "operationId": "get_vulnerability_api_sites__site_id__analysis_vulnerability_get",
+        "parameters": [
+          {
+            "name": "site_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Site Id"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VulnerabilityResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sites/{site_id}/analysis/total": {
+      "get": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "Get Total Analysis",
+        "description": "Spring Boot API 호환 - 특정 Hazard 기준 통합 분석 결과",
+        "operationId": "get_total_analysis_api_sites__site_id__analysis_total_get",
+        "parameters": [
+          {
+            "name": "site_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Site Id"
+            }
+          },
+          {
+            "name": "hazardType",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Hazardtype"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisTotalResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reports": {
+      "post": {
+        "tags": [
+          "Reports"
+        ],
+        "summary": "Create Report",
+        "description": "Spring Boot API 호환 - 리포트 생성",
+        "operationId": "create_report_api_reports_post",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Reports"
+        ],
+        "summary": "Delete Report",
+        "description": "Spring Boot API 호환 - 리포트 삭제",
+        "operationId": "delete_report_api_reports_delete",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reports/web": {
+      "get": {
+        "tags": [
+          "Reports"
+        ],
+        "summary": "Get Report Web View",
+        "description": "Spring Boot API 호환 - 웹 리포트 뷰 조회",
+        "operationId": "get_report_web_view_api_reports_web_get",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportWebViewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reports/pdf": {
+      "get": {
+        "tags": [
+          "Reports"
+        ],
+        "summary": "Get Report Pdf",
+        "description": "Spring Boot API 호환 - PDF 리포트 조회",
+        "operationId": "get_report_pdf_api_reports_pdf_get",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportPdfResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/relocation/compare": {
+      "post": {
+        "tags": [
+          "Simulation"
+        ],
+        "summary": "Compare Relocation",
+        "description": "Spring Boot API 호환 - 사업장 이전 시뮬레이션 (비교)",
+        "operationId": "compare_relocation_api_simulation_relocation_compare_post",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RelocationSimulationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RelocationSimulationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/climate": {
+      "post": {
+        "tags": [
+          "Simulation"
+        ],
+        "summary": "Run Climate Simulation",
+        "description": "Spring Boot API 호환 - 기후 시뮬레이션",
+        "operationId": "run_climate_simulation_api_simulation_climate_post",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClimateSimulationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClimateSimulationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/meta/hazards": {
+      "get": {
+        "tags": [
+          "Meta"
+        ],
+        "summary": "Get Hazards",
+        "description": "지원하는 기후 리스크(위험요인) 목록",
+        "operationId": "get_hazards_api_v1_meta_hazards_get",
+        "parameters": [
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "enum": [
+                "temperature",
+                "water",
+                "wind",
+                "other"
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/HazardTypeInfo"
+                  },
+                  "title": "Response Get Hazards Api V1 Meta Hazards Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "tags": [
+          "Meta"
+        ],
+        "summary": "Health Check",
+        "description": "헬스체크",
+        "operationId": "health_check_api_v1_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthCheckResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/recommendation/batch/start": {
+      "post": {
+        "tags": [
+          "Site Recommendation"
+        ],
+        "summary": "Start Batch Recommendation",
+        "description": "후보지 추천 배치 작업 시작\n\n전체 격자에 대해 E, V, AAL을 계산하여 리스크가 가장 낮은 상위 N개 격자를 추천합니다.\n\n**처리 흐름**:\n1. ModelOps API에 배치 작업 요청\n2. 배치 작업 ID 반환 (202 Accepted)\n3. 클라이언트는 진행 상태 조회 API를 폴링\n4. 완료 후 결과 조회 API로 추천 후보지 목록 획득\n\n**예상 소요 시간**: 약 30분 (10,000개 격자 기준)",
+        "operationId": "start_batch_recommendation_api_recommendation_batch_start_post",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SiteRecommendationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteRecommendationBatchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/recommendation/batch/{batch_id}/progress": {
+      "get": {
+        "tags": [
+          "Site Recommendation"
+        ],
+        "summary": "Get Batch Progress",
+        "description": "배치 작업 진행 상태 조회\n\n**폴링 권장 간격**: 5초\n\n**진행률 예시**:\n- 10%: 1,000개 격자 완료\n- 30%: 3,000개 격자 완료\n- 50%: 5,000개 격자 완료\n- 70%: 7,000개 격자 완료\n- 90%: 9,000개 격자 완료\n- 100%: 전체 완료 (결과 조회 가능)",
+        "operationId": "get_batch_progress_api_recommendation_batch__batch_id__progress_get",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchProgressResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/recommendation/batch/{batch_id}/result": {
+      "get": {
+        "tags": [
+          "Site Recommendation"
+        ],
+        "summary": "Get Batch Result",
+        "description": "배치 작업 완료 후 결과 조회\n\n**주의**: 배치 작업이 완료(100%)된 후에만 결과를 조회할 수 있습니다.\n\n**응답 내용**:\n- 추천 후보지 목록 (상위 N개, 요청 시 지정한 top_n 개수)\n- 격자별 H, E, V, AAL 점수\n- 종합 리스크 점수 (낮을수록 좋음)\n- 예상 손실액",
+        "operationId": "get_batch_result_api_recommendation_batch__batch_id__result_get",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteRecommendationResultResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/recommendation/batch/{batch_id}": {
+      "delete": {
+        "tags": [
+          "Site Recommendation"
+        ],
+        "summary": "Cancel Batch Job",
+        "description": "배치 작업 취소\n\n**주의**: 이미 완료된 작업은 취소할 수 없습니다.",
+        "operationId": "cancel_batch_job_api_recommendation_batch__batch_id__delete",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sites/{site_id}/additional-data": {
+      "post": {
+        "tags": [
+          "Additional Data"
+        ],
+        "summary": "Upload Additional Data",
+        "description": "사이트별 추가 데이터 업로드\n\n사용자가 제공하는 자유 형식 텍스트 데이터를 저장합니다.\n이 데이터는 AI Agent의 분석 시 컨텍스트로 활용됩니다.\n\n예시:\n- 건물의 특수한 상황 설명\n- 과거 재난 경험\n- 내부 대응 계획\n- 기타 참고 사항",
+        "operationId": "upload_additional_data_api_sites__site_id__additional_data_post",
+        "parameters": [
+          {
+            "name": "site_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Site Id"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdditionalDataUploadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdditionalDataUploadResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Additional Data"
+        ],
+        "summary": "Get Additional Data",
+        "description": "사이트별 추가 데이터 조회",
+        "operationId": "get_additional_data_api_sites__site_id__additional_data_get",
+        "parameters": [
+          {
+            "name": "site_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Site Id"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdditionalDataGetResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Additional Data"
+        ],
+        "summary": "Delete Additional Data",
+        "description": "사이트별 추가 데이터 삭제",
+        "operationId": "delete_additional_data_api_sites__site_id__additional_data_delete",
+        "parameters": [
+          {
+            "name": "site_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Site Id"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sites/{site_id}/additional-data/file": {
+      "post": {
+        "tags": [
+          "Additional Data"
+        ],
+        "summary": "Upload Additional Data File",
+        "description": "사이트별 추가 데이터 파일 업로드\n\n텍스트 파일을 업로드하여 추가 데이터로 저장합니다.",
+        "operationId": "upload_additional_data_file_api_sites__site_id__additional_data_file_post",
+        "parameters": [
+          {
+            "name": "site_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Site Id"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_additional_data_file_api_sites__site_id__additional_data_file_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdditionalDataUploadResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/disaster-history": {
+      "get": {
+        "tags": [
+          "Disaster History"
+        ],
+        "summary": "Get Disaster History",
+        "description": "재해이력 목록 조회\n\n- **site_id**: 사업장 ID로 필터링 (선택)\n- **disaster_type**: 재해 유형으로 필터링 (선택)\n- **severity**: 심각도로 필터링 (선택)\n- **start_date**: 시작 날짜 이후 발생한 재해만 조회 (선택)\n- **end_date**: 종료 날짜 이전 발생한 재해만 조회 (선택)\n- **limit**: 한 번에 조회할 개수 (기본: 100, 최대: 1000)\n- **offset**: 조회 시작 위치 (페이징용, 기본: 0)\n\nReturns:\n    전체 재해이력 수와 필터링된 재해이력 목록",
+        "operationId": "get_disaster_history_api_disaster_history_get",
+        "parameters": [
+          {
+            "name": "siteId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "사업장 ID로 필터링",
+              "title": "Siteid"
+            },
+            "description": "사업장 ID로 필터링"
+          },
+          {
+            "name": "disasterType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/HazardType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "재해 유형으로 필터링",
+              "title": "Disastertype"
+            },
+            "description": "재해 유형으로 필터링"
+          },
+          {
+            "name": "severity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/DisasterSeverity"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "심각도로 필터링",
+              "title": "Severity"
+            },
+            "description": "심각도로 필터링"
+          },
+          {
+            "name": "startDate",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "시작 날짜 (이후 발생)",
+              "title": "Startdate"
+            },
+            "description": "시작 날짜 (이후 발생)"
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "종료 날짜 (이전 발생)",
+              "title": "Enddate"
+            },
+            "description": "종료 날짜 (이전 발생)"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "description": "조회 개수 제한",
+              "default": 100,
+              "title": "Limit"
+            },
+            "description": "조회 개수 제한"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "조회 시작 위치",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "조회 시작 위치"
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisasterHistoryListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/disaster-history/{disaster_id}": {
+      "get": {
+        "tags": [
+          "Disaster History"
+        ],
+        "summary": "Get Disaster By Id",
+        "description": "특정 재해이력 상세 조회\n\n- **disaster_id**: 재해이력 ID\n\nReturns:\n    재해이력 상세 정보",
+        "operationId": "get_disaster_by_id_api_disaster_history__disaster_id__get",
+        "parameters": [
+          {
+            "name": "disaster_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Disaster Id"
+            }
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisasterHistoryRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/disaster-history/statistics/summary": {
+      "get": {
+        "tags": [
+          "Disaster History"
+        ],
+        "summary": "Get Disaster Statistics",
+        "description": "재해 통계 조회\n\n- **site_id**: 사업장 ID로 필터링 (None이면 전체 통계)\n\nReturns:\n    재해 통계 (총 건수, 총 피해액, 인명피해, 유형별/심각도별 통계)",
+        "operationId": "get_disaster_statistics_api_disaster_history_statistics_summary_get",
+        "parameters": [
+          {
+            "name": "siteId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "사업장 ID (전체 통계는 생략)",
+              "title": "Siteid"
+            },
+            "description": "사업장 ID (전체 통계는 생략)"
+          },
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisasterStatistics"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "summary": "Root",
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AdditionalDataGetResponse": {
+        "properties": {
+          "siteId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Siteid"
+          },
+          "rawText": {
+            "type": "string",
+            "title": "Rawtext"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "uploadedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Uploadedat"
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updatedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "siteId",
+          "rawText",
+          "uploadedAt"
+        ],
+        "title": "AdditionalDataGetResponse",
+        "description": "추가 데이터 조회 응답"
+      },
+      "AdditionalDataInput": {
+        "properties": {
+          "rawText": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rawtext",
+            "description": "자유 형식 텍스트 (사용자 제공)"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata",
+            "description": "메타데이터 (선택)"
+          }
+        },
+        "type": "object",
+        "title": "AdditionalDataInput",
+        "description": "추가 데이터 입력 (사용자 제공 컨텍스트)"
+      },
+      "AdditionalDataUploadRequest": {
+        "properties": {
+          "rawText": {
+            "type": "string",
+            "title": "Rawtext",
+            "description": "자유 형식 텍스트"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata",
+            "description": "메타데이터 (선택)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rawText"
+        ],
+        "title": "AdditionalDataUploadRequest",
+        "description": "추가 데이터 업로드 요청"
+      },
+      "AdditionalDataUploadResponse": {
+        "properties": {
+          "siteId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Siteid"
+          },
+          "uploadedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Uploadedat"
+          },
+          "textLength": {
+            "type": "integer",
+            "title": "Textlength",
+            "description": "텍스트 길이 (문자 수)"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": "Additional data uploaded successfully"
+          }
+        },
+        "type": "object",
+        "required": [
+          "siteId",
+          "uploadedAt",
+          "textLength"
+        ],
+        "title": "AdditionalDataUploadResponse",
+        "description": "추가 데이터 업로드 응답"
+      },
+      "AnalysisJobStatus": {
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Jobid"
+          },
+          "siteId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Siteid"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "progress": {
+            "type": "integer",
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Progress"
+          },
+          "currentNode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currentnode"
+          },
+          "currentHazard": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currenthazard"
+          },
+          "startedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startedat"
+          },
+          "completedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completedat"
+          },
+          "estimatedCompletionTime": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimatedcompletiontime"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "jobId",
+          "siteId",
+          "status",
+          "progress"
+        ],
+        "title": "AnalysisJobStatus"
+      },
+      "AnalysisOptions": {
+        "properties": {
+          "includeFinancialImpact": {
+            "type": "boolean",
+            "title": "Includefinancialimpact",
+            "default": true
+          },
+          "includeVulnerability": {
+            "type": "boolean",
+            "title": "Includevulnerability",
+            "default": true
+          },
+          "includePastEvents": {
+            "type": "boolean",
+            "title": "Includepastevents",
+            "default": true
+          },
+          "sspScenarios": {
+            "items": {
+              "$ref": "#/components/schemas/SSPScenario"
+            },
+            "type": "array",
+            "title": "Sspscenarios",
+            "default": [
+              "SSP2-4.5",
+              "SSP5-8.5"
+            ]
+          }
+        },
+        "type": "object",
+        "title": "AnalysisOptions"
+      },
+      "AnalysisTotalResponse": {
+        "properties": {
+          "siteId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Siteid",
+            "description": "사업장 ID"
+          },
+          "siteName": {
+            "type": "string",
+            "title": "Sitename",
+            "description": "사업장 이름"
+          },
+          "physicalRisks": {
+            "items": {
+              "$ref": "#/components/schemas/PhysicalRiskBarItem"
+            },
+            "type": "array",
+            "title": "Physicalrisks",
+            "description": "9대 물리적 리스크 분석 결과"
+          }
+        },
+        "type": "object",
+        "required": [
+          "siteId",
+          "siteName",
+          "physicalRisks"
+        ],
+        "title": "AnalysisTotalResponse",
+        "description": "Spring Boot API 호환 - 사업장 상세 분석 결과"
+      },
+      "BatchProgressResponse": {
+        "properties": {
+          "batch_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Batch Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BatchStatus"
+          },
+          "progress_percentage": {
+            "type": "integer",
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Progress Percentage",
+            "description": "진행률 (%)"
+          },
+          "processed_grids": {
+            "type": "integer",
+            "title": "Processed Grids",
+            "description": "처리 완료된 격자 수"
+          },
+          "total_grids": {
+            "type": "integer",
+            "title": "Total Grids",
+            "description": "전체 격자 수"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "estimated_completion": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Completion"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "batch_id",
+          "status",
+          "progress_percentage",
+          "processed_grids",
+          "total_grids",
+          "started_at"
+        ],
+        "title": "BatchProgressResponse",
+        "description": "배치 작업 진행 상태 응답",
+        "example": {
+          "batch_id": "550e8400-e29b-41d4-a716-446655440000",
+          "estimated_completion": "2025-12-01T11:00:00Z",
+          "processed_grids": 4500,
+          "progress_percentage": 45,
+          "started_at": "2025-12-01T10:30:00Z",
+          "status": "processing",
+          "total_grids": 10000
+        }
+      },
+      "BatchStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "processing",
+          "completed",
+          "failed"
+        ],
+        "title": "BatchStatus"
+      },
+      "Body_upload_additional_data_file_api_sites__site_id__additional_data_file_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "title": "File",
+            "description": "텍스트 파일 (txt, md, csv 등)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_additional_data_file_api_sites__site_id__additional_data_file_post"
+      },
+      "ClimateSimulationRequest": {
+        "properties": {
+          "scenario": {
+            "$ref": "#/components/schemas/SSPScenario",
+            "description": "SSP 시나리오"
+          },
+          "hazardType": {
+            "type": "string",
+            "title": "Hazardtype",
+            "description": "위험 유형"
+          },
+          "siteIds": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Siteids",
+            "description": "시뮬레이션 대상 사업장 ID 목록"
+          },
+          "startYear": {
+            "type": "integer",
+            "title": "Startyear",
+            "description": "시작 연도"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scenario",
+          "hazardType",
+          "siteIds",
+          "startYear"
+        ],
+        "title": "ClimateSimulationRequest",
+        "description": "Spring Boot API 호환 - 기후 시뮬레이션 요청"
+      },
+      "ClimateSimulationResponse": {
+        "properties": {
+          "scenario": {
+            "$ref": "#/components/schemas/SSPScenario",
+            "description": "SSP 시나리오"
+          },
+          "riskType": {
+            "type": "string",
+            "title": "Risktype",
+            "description": "리스크 유형"
+          },
+          "yearlyData": {
+            "items": {
+              "$ref": "#/components/schemas/YearlyData"
+            },
+            "type": "array",
+            "title": "Yearlydata",
+            "description": "연도별 시뮬레이션 데이터"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scenario",
+          "riskType",
+          "yearlyData"
+        ],
+        "title": "ClimateSimulationResponse",
+        "description": "Spring Boot API 호환 - 기후 시뮬레이션 결과"
+      },
+      "CreateReportRequest": {
+        "properties": {
+          "siteId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Siteid",
+            "description": "사업장 ID (null이면 전체 사업장 리포트)"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReportLanguage"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "보고서 언어 (ko: 한국어, en: 영어)",
+            "default": "ko"
+          }
+        },
+        "type": "object",
+        "title": "CreateReportRequest",
+        "description": "Spring Boot API 호환 - 리포트 생성 요청"
+      },
+      "DisasterEvent": {
+        "properties": {
+          "disasterType": {
+            "type": "string",
+            "title": "Disastertype",
+            "description": "재난 유형"
+          },
+          "year": {
+            "type": "integer",
+            "title": "Year",
+            "description": "발생 연도"
+          },
+          "warningDays": {
+            "type": "integer",
+            "title": "Warningdays",
+            "description": "주의 일수"
+          },
+          "severeDays": {
+            "type": "integer",
+            "title": "Severedays",
+            "description": "심각 일수"
+          },
+          "overallStatus": {
+            "type": "string",
+            "enum": [
+              "경미",
+              "주의",
+              "심각"
+            ],
+            "title": "Overallstatus",
+            "description": "통합 상태"
+          }
+        },
+        "type": "object",
+        "required": [
+          "disasterType",
+          "year",
+          "warningDays",
+          "severeDays",
+          "overallStatus"
+        ],
+        "title": "DisasterEvent",
+        "description": "재난 이벤트"
+      },
+      "DisasterHistoryListResponse": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "전체 재해이력 수"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/DisasterHistoryRecord"
+            },
+            "type": "array",
+            "title": "Data",
+            "description": "재해이력 목록"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "data"
+        ],
+        "title": "DisasterHistoryListResponse",
+        "description": "재해이력 목록 응답"
+      },
+      "DisasterHistoryRecord": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "재해이력 ID"
+          },
+          "siteId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Siteid",
+            "description": "사업장 ID"
+          },
+          "disasterType": {
+            "$ref": "#/components/schemas/HazardType",
+            "description": "재해 유형"
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Occurredat",
+            "description": "발생 일시"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/DisasterSeverity",
+            "description": "심각도"
+          },
+          "damageAmount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Damageamount",
+            "description": "피해 금액 (원)"
+          },
+          "casualties": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Casualties",
+            "description": "인명 피해 (명)"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "상세 설명"
+          },
+          "recoveryDuration": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recoveryduration",
+            "description": "복구 기간 (일)"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location",
+            "description": "발생 위치"
+          },
+          "weatherCondition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weathercondition",
+            "description": "기상 상황"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Createdat",
+            "description": "생성 일시"
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updatedat",
+            "description": "수정 일시"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "siteId",
+          "disasterType",
+          "occurredAt",
+          "severity"
+        ],
+        "title": "DisasterHistoryRecord",
+        "description": "재해이력 레코드"
+      },
+      "DisasterSeverity": {
+        "type": "string",
+        "enum": [
+          "경미",
+          "보통",
+          "심각",
+          "재앙적"
+        ],
+        "title": "DisasterSeverity",
+        "description": "재해 심각도"
+      },
+      "DisasterStatistics": {
+        "properties": {
+          "totalDisasters": {
+            "type": "integer",
+            "title": "Totaldisasters",
+            "description": "총 재해 건수"
+          },
+          "totalDamage": {
+            "type": "number",
+            "title": "Totaldamage",
+            "description": "총 피해 금액 (원)"
+          },
+          "totalCasualties": {
+            "type": "integer",
+            "title": "Totalcasualties",
+            "description": "총 인명 피해 (명)"
+          },
+          "mostCommonType": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HazardType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "가장 빈번한 재해 유형"
+          },
+          "byType": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Bytype",
+            "description": "재해 유형별 통계"
+          },
+          "bySeverity": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Byseverity",
+            "description": "심각도별 통계"
+          }
+        },
+        "type": "object",
+        "required": [
+          "totalDisasters",
+          "totalDamage",
+          "totalCasualties"
+        ],
+        "title": "DisasterStatistics",
+        "description": "재해 통계"
+      },
+      "EnhanceAnalysisRequest": {
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Jobid",
+            "description": "원본 분석 작업 ID"
+          },
+          "additionalData": {
+            "$ref": "#/components/schemas/AdditionalDataInput",
+            "description": "추가 데이터 (필수)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "jobId",
+          "additionalData"
+        ],
+        "title": "EnhanceAnalysisRequest",
+        "description": "추가 데이터를 반영하여 분석 향상"
+      },
+      "FinancialImpactResponse": {
+        "properties": {
+          "scenarios": {
+            "items": {
+              "$ref": "#/components/schemas/SSPScenarioImpact"
+            },
+            "type": "array",
+            "title": "Scenarios",
+            "description": "SSP 시나리오별 재무 영향 목록 (4개 시나리오)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scenarios"
+        ],
+        "title": "FinancialImpactResponse",
+        "description": "Spring Boot API 호환 - 시나리오별 재무 영향 분석"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HazardType": {
+        "type": "string",
+        "enum": [
+          "태풍",
+          "내륙침수",
+          "해안침수",
+          "도시침수",
+          "가뭄",
+          "산불",
+          "폭염",
+          "한파",
+          "물부족"
+        ],
+        "title": "HazardType"
+      },
+      "HazardTypeInfo": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "nameEn": {
+            "type": "string",
+            "title": "Nameen"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "availableMetrics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Availablemetrics",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "name",
+          "nameEn",
+          "category",
+          "description"
+        ],
+        "title": "HazardTypeInfo"
+      },
+      "HealthCheckResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "agentStatus": {
+            "type": "string",
+            "title": "Agentstatus"
+          },
+          "activeJobs": {
+            "type": "integer",
+            "title": "Activejobs"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "version",
+          "agentStatus",
+          "activeJobs",
+          "timestamp"
+        ],
+        "title": "HealthCheckResponse"
+      },
+      "LocationData": {
+        "properties": {
+          "risks": {
+            "items": {
+              "$ref": "#/components/schemas/RiskData"
+            },
+            "type": "array",
+            "title": "Risks",
+            "description": "리스크별 분석 결과"
+          }
+        },
+        "type": "object",
+        "required": [
+          "risks"
+        ],
+        "title": "LocationData",
+        "description": "위치별 리스크 데이터"
+      },
+      "LongTermAAL": {
+        "properties": {
+          "year2020s": {
+            "type": "number",
+            "title": "Year2020S"
+          },
+          "year2030s": {
+            "type": "number",
+            "title": "Year2030S"
+          },
+          "year2040s": {
+            "type": "number",
+            "title": "Year2040S"
+          },
+          "year2050s": {
+            "type": "number",
+            "title": "Year2050S"
+          }
+        },
+        "type": "object",
+        "required": [
+          "year2020s",
+          "year2030s",
+          "year2040s",
+          "year2050s"
+        ],
+        "title": "LongTermAAL",
+        "description": "장기 AAL (연대별)"
+      },
+      "LongTermScore": {
+        "properties": {
+          "year2020s": {
+            "type": "integer",
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Year2020S"
+          },
+          "year2030s": {
+            "type": "integer",
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Year2030S"
+          },
+          "year2040s": {
+            "type": "integer",
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Year2040S"
+          },
+          "year2050s": {
+            "type": "integer",
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Year2050S"
+          }
+        },
+        "type": "object",
+        "required": [
+          "year2020s",
+          "year2030s",
+          "year2040s",
+          "year2050s"
+        ],
+        "title": "LongTermScore",
+        "description": "장기 리스크 점수 (연대별)"
+      },
+      "MidTermAAL": {
+        "properties": {
+          "year2026": {
+            "type": "number",
+            "title": "Year2026"
+          },
+          "year2027": {
+            "type": "number",
+            "title": "Year2027"
+          },
+          "year2028": {
+            "type": "number",
+            "title": "Year2028"
+          },
+          "year2029": {
+            "type": "number",
+            "title": "Year2029"
+          },
+          "year2030": {
+            "type": "number",
+            "title": "Year2030"
+          }
+        },
+        "type": "object",
+        "required": [
+          "year2026",
+          "year2027",
+          "year2028",
+          "year2029",
+          "year2030"
+        ],
+        "title": "MidTermAAL",
+        "description": "중기 AAL (연도별)"
+      },
+      "MidTermScore": {
+        "properties": {
+          "year2026": {
+            "type": "integer",
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Year2026"
+          },
+          "year2027": {
+            "type": "integer",
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Year2027"
+          },
+          "year2028": {
+            "type": "integer",
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Year2028"
+          },
+          "year2029": {
+            "type": "integer",
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Year2029"
+          },
+          "year2030": {
+            "type": "integer",
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Year2030"
+          }
+        },
+        "type": "object",
+        "required": [
+          "year2026",
+          "year2027",
+          "year2028",
+          "year2029",
+          "year2030"
+        ],
+        "title": "MidTermScore",
+        "description": "중기 리스크 점수 (연도별)"
+      },
+      "PastEventsResponse": {
+        "properties": {
+          "siteId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Siteid",
+            "description": "사업장 ID"
+          },
+          "siteName": {
+            "type": "string",
+            "title": "Sitename",
+            "description": "사업장 이름"
+          },
+          "disasters": {
+            "items": {
+              "$ref": "#/components/schemas/DisasterEvent"
+            },
+            "type": "array",
+            "title": "Disasters",
+            "description": "재난별 이력"
+          }
+        },
+        "type": "object",
+        "required": [
+          "siteId",
+          "siteName",
+          "disasters"
+        ],
+        "title": "PastEventsResponse",
+        "description": "Spring Boot API 호환 - 과거 재난 이력"
+      },
+      "PhysicalRiskBarItem": {
+        "properties": {
+          "riskType": {
+            "$ref": "#/components/schemas/HazardType",
+            "description": "리스크 유형"
+          },
+          "riskScore": {
+            "type": "integer",
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Riskscore",
+            "description": "리스크 점수 (0-100)"
+          },
+          "financialLossRate": {
+            "type": "number",
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Financiallossrate",
+            "description": "재무 손실률 (AAL, 0.0-1.0)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "riskType",
+          "riskScore",
+          "financialLossRate"
+        ],
+        "title": "PhysicalRiskBarItem",
+        "description": "Spring Boot API 호환 - 물리적 리스크 점수"
+      },
+      "PhysicalRiskScoreResponse": {
+        "properties": {
+          "scenarios": {
+            "items": {
+              "$ref": "#/components/schemas/SSPScenarioScore"
+            },
+            "type": "array",
+            "title": "Scenarios",
+            "description": "SSP 시나리오별 리스크 점수 목록 (4개 시나리오)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scenarios"
+        ],
+        "title": "PhysicalRiskScoreResponse",
+        "description": "Spring Boot API 호환 - 시나리오별 물리적 리스크 점수"
+      },
+      "Priority": {
+        "type": "string",
+        "enum": [
+          "low",
+          "normal",
+          "high"
+        ],
+        "title": "Priority"
+      },
+      "RecommendedSite": {
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "minimum": 1,
+            "title": "Rank",
+            "description": "순위"
+          },
+          "grid_id": {
+            "type": "integer",
+            "title": "Grid Id"
+          },
+          "latitude": {
+            "type": "number",
+            "title": "Latitude"
+          },
+          "longitude": {
+            "type": "number",
+            "title": "Longitude"
+          },
+          "location_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Name"
+          },
+          "total_risk_score": {
+            "type": "number",
+            "title": "Total Risk Score",
+            "description": "종합 리스크 점수 (낮을수록 좋음)"
+          },
+          "hazard_scores": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Hazard Scores",
+            "description": "9개 리스크별 Hazard 점수"
+          },
+          "exposure_scores": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Exposure Scores",
+            "description": "9개 리스크별 Exposure 점수"
+          },
+          "vulnerability_scores": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Vulnerability Scores",
+            "description": "9개 리스크별 Vulnerability 점수"
+          },
+          "aal_total": {
+            "type": "number",
+            "title": "Aal Total",
+            "description": "총 AAL (%)"
+          },
+          "expected_loss": {
+            "type": "number",
+            "title": "Expected Loss",
+            "description": "예상 손실액 (원)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rank",
+          "grid_id",
+          "latitude",
+          "longitude",
+          "total_risk_score",
+          "hazard_scores",
+          "exposure_scores",
+          "vulnerability_scores",
+          "aal_total",
+          "expected_loss"
+        ],
+        "title": "RecommendedSite",
+        "description": "추천 후보지 정보",
+        "example": {
+          "aal_total": 1.25,
+          "expected_loss": 625000000,
+          "exposure_scores": {
+            "drought": 0.55,
+            "extreme_cold": 0.6,
+            "extreme_heat": 0.65,
+            "river_flood": 0.48,
+            "sea_level_rise": 0.4,
+            "typhoon": 0.62,
+            "urban_flood": 0.68,
+            "water_stress": 0.52,
+            "wildfire": 0.3
+          },
+          "grid_id": 12345,
+          "hazard_scores": {
+            "drought": 0.28,
+            "extreme_cold": 0.38,
+            "extreme_heat": 0.45,
+            "river_flood": 0.25,
+            "sea_level_rise": 0.15,
+            "typhoon": 0.38,
+            "urban_flood": 0.42,
+            "water_stress": 0.33,
+            "wildfire": 0.12
+          },
+          "latitude": 37.5665,
+          "location_name": "서울특별시 중구",
+          "longitude": 126.978,
+          "rank": 1,
+          "total_risk_score": 35.2,
+          "vulnerability_scores": {
+            "drought": 50,
+            "extreme_cold": 55,
+            "extreme_heat": 65,
+            "river_flood": 52,
+            "sea_level_rise": 40,
+            "typhoon": 60,
+            "urban_flood": 70,
+            "water_stress": 48,
+            "wildfire": 35
+          }
+        }
+      },
+      "RelocationSimulationRequest": {
+        "properties": {
+          "currentSiteId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Currentsiteid",
+            "description": "현재 사업장 ID"
+          },
+          "latitude": {
+            "type": "number",
+            "title": "Latitude",
+            "description": "이전될 위치의 위도"
+          },
+          "longitude": {
+            "type": "number",
+            "title": "Longitude",
+            "description": "이전될 위치의 경도"
+          },
+          "roadAddress": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roadaddress",
+            "description": "이전될 위치의 도로명 주소"
+          },
+          "jibunAddress": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jibunaddress",
+            "description": "이전될 위치의 지번 주소"
+          }
+        },
+        "type": "object",
+        "required": [
+          "currentSiteId",
+          "latitude",
+          "longitude"
+        ],
+        "title": "RelocationSimulationRequest",
+        "description": "Spring Boot API 호환 - 사업장 이전 시뮬레이션 요청"
+      },
+      "RelocationSimulationResponse": {
+        "properties": {
+          "currentLocation": {
+            "$ref": "#/components/schemas/LocationData"
+          },
+          "newLocation": {
+            "$ref": "#/components/schemas/LocationData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "currentLocation",
+          "newLocation"
+        ],
+        "title": "RelocationSimulationResponse",
+        "description": "Spring Boot API 호환 - 사업장 이전 시뮬레이션 결과"
+      },
+      "ReportLanguage": {
+        "type": "string",
+        "enum": [
+          "ko",
+          "en"
+        ],
+        "title": "ReportLanguage",
+        "description": "보고서 언어"
+      },
+      "ReportPage": {
+        "properties": {
+          "pageNumber": {
+            "type": "integer",
+            "title": "Pagenumber",
+            "description": "페이지 번호"
+          },
+          "imageUrl": {
+            "type": "string",
+            "title": "Imageurl",
+            "description": "이미지 URL"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "description": "페이지 제목"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pageNumber",
+          "imageUrl",
+          "title"
+        ],
+        "title": "ReportPage",
+        "description": "리포트 페이지"
+      },
+      "ReportPdfResponse": {
+        "properties": {
+          "downloadUrl": {
+            "type": "string",
+            "title": "Downloadurl",
+            "description": "PDF 다운로드 URL"
+          },
+          "fileSize": {
+            "type": "integer",
+            "title": "Filesize",
+            "description": "파일 크기 (bytes)"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expiresat",
+            "description": "만료 시간"
+          }
+        },
+        "type": "object",
+        "required": [
+          "downloadUrl",
+          "fileSize",
+          "expiresAt"
+        ],
+        "title": "ReportPdfResponse",
+        "description": "Spring Boot API 호환 - PDF 리포트"
+      },
+      "ReportWebViewResponse": {
+        "properties": {
+          "siteId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Siteid",
+            "description": "사업장 ID (전체 리포트인 경우 null)"
+          },
+          "pages": {
+            "items": {
+              "$ref": "#/components/schemas/ReportPage"
+            },
+            "type": "array",
+            "title": "Pages",
+            "description": "리포트 페이지 이미지 목록"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pages"
+        ],
+        "title": "ReportWebViewResponse",
+        "description": "Spring Boot API 호환 - 웹 리포트 뷰"
+      },
+      "RiskData": {
+        "properties": {
+          "riskType": {
+            "type": "string",
+            "title": "Risktype",
+            "description": "리스크 유형"
+          },
+          "riskScore": {
+            "type": "integer",
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Riskscore",
+            "description": "리스크 점수 (0-100)"
+          },
+          "aal": {
+            "type": "number",
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Aal",
+            "description": "AAL (연평균 자산 손실률, 0.0-1.0)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "riskType",
+          "riskScore",
+          "aal"
+        ],
+        "title": "RiskData",
+        "description": "리스크별 데이터"
+      },
+      "RiskVulnerability": {
+        "properties": {
+          "riskType": {
+            "type": "string",
+            "title": "Risktype",
+            "description": "리스크 유형"
+          },
+          "vulnerabilityScore": {
+            "type": "integer",
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Vulnerabilityscore",
+            "description": "취약성 점수 (0-100)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "riskType",
+          "vulnerabilityScore"
+        ],
+        "title": "RiskVulnerability",
+        "description": "리스크별 취약성"
+      },
+      "SSPScenario": {
+        "type": "string",
+        "enum": [
+          "SSP1-2.6",
+          "SSP2-4.5",
+          "SSP3-7.0",
+          "SSP5-8.5"
+        ],
+        "title": "SSPScenario"
+      },
+      "SSPScenarioImpact": {
+        "properties": {
+          "scenario": {
+            "$ref": "#/components/schemas/SSPScenario"
+          },
+          "riskType": {
+            "$ref": "#/components/schemas/HazardType",
+            "description": "리스크 종류"
+          },
+          "shortTerm": {
+            "$ref": "#/components/schemas/ShortTermAAL"
+          },
+          "midTerm": {
+            "$ref": "#/components/schemas/MidTermAAL"
+          },
+          "longTerm": {
+            "$ref": "#/components/schemas/LongTermAAL"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scenario",
+          "riskType",
+          "shortTerm",
+          "midTerm",
+          "longTerm"
+        ],
+        "title": "SSPScenarioImpact",
+        "description": "SSP 시나리오별 재무 영향"
+      },
+      "SSPScenarioScore": {
+        "properties": {
+          "scenario": {
+            "$ref": "#/components/schemas/SSPScenario"
+          },
+          "riskType": {
+            "$ref": "#/components/schemas/HazardType",
+            "description": "리스크 종류"
+          },
+          "shortTerm": {
+            "$ref": "#/components/schemas/ShortTermScore"
+          },
+          "midTerm": {
+            "$ref": "#/components/schemas/MidTermScore"
+          },
+          "longTerm": {
+            "$ref": "#/components/schemas/LongTermScore"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scenario",
+          "riskType",
+          "shortTerm",
+          "midTerm",
+          "longTerm"
+        ],
+        "title": "SSPScenarioScore",
+        "description": "SSP 시나리오별 리스크 점수"
+      },
+      "ShortTermAAL": {
+        "properties": {
+          "q1": {
+            "type": "number",
+            "title": "Q1",
+            "description": "1분기 AAL"
+          },
+          "q2": {
+            "type": "number",
+            "title": "Q2",
+            "description": "2분기 AAL"
+          },
+          "q3": {
+            "type": "number",
+            "title": "Q3",
+            "description": "3분기 AAL"
+          },
+          "q4": {
+            "type": "number",
+            "title": "Q4",
+            "description": "4분기 AAL"
+          }
+        },
+        "type": "object",
+        "required": [
+          "q1",
+          "q2",
+          "q3",
+          "q4"
+        ],
+        "title": "ShortTermAAL",
+        "description": "단기 AAL (분기별)"
+      },
+      "ShortTermScore": {
+        "properties": {
+          "q1": {
+            "type": "integer",
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Q1",
+            "description": "1분기 점수"
+          },
+          "q2": {
+            "type": "integer",
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Q2",
+            "description": "2분기 점수"
+          },
+          "q3": {
+            "type": "integer",
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Q3",
+            "description": "3분기 점수"
+          },
+          "q4": {
+            "type": "integer",
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Q4",
+            "description": "4분기 점수"
+          }
+        },
+        "type": "object",
+        "required": [
+          "q1",
+          "q2",
+          "q3",
+          "q4"
+        ],
+        "title": "ShortTermScore",
+        "description": "단기 리스크 점수 (분기별)"
+      },
+      "SiteData": {
+        "properties": {
+          "siteId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Siteid",
+            "description": "사업장 ID"
+          },
+          "siteName": {
+            "type": "string",
+            "title": "Sitename",
+            "description": "사업장 이름"
+          },
+          "riskScore": {
+            "type": "integer",
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Riskscore",
+            "description": "리스크 점수 (0-100)"
+          },
+          "localAverageTemperature": {
+            "type": "number",
+            "title": "Localaveragetemperature",
+            "description": "사업장 위치 평균 기온 (°C)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "siteId",
+          "siteName",
+          "riskScore",
+          "localAverageTemperature"
+        ],
+        "title": "SiteData",
+        "description": "사업장 데이터"
+      },
+      "SiteInfo": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "latitude": {
+            "type": "number",
+            "title": "Latitude"
+          },
+          "longitude": {
+            "type": "number",
+            "title": "Longitude"
+          },
+          "industry": {
+            "type": "string",
+            "title": "Industry"
+          },
+          "buildingAge": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buildingage"
+          },
+          "buildingType": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buildingtype"
+          },
+          "seismicDesign": {
+            "type": "boolean",
+            "title": "Seismicdesign",
+            "default": false
+          },
+          "floorArea": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Floorarea"
+          },
+          "assetValue": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assetvalue"
+          },
+          "employeeCount": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Employeecount"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "latitude",
+          "longitude",
+          "industry"
+        ],
+        "title": "SiteInfo"
+      },
+      "SiteRecommendationBatchResponse": {
+        "properties": {
+          "batch_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Batch Id",
+            "description": "배치 작업 ID"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BatchStatus",
+            "description": "작업 상태"
+          },
+          "estimated_duration_minutes": {
+            "type": "integer",
+            "title": "Estimated Duration Minutes",
+            "description": "예상 소요 시간 (분)"
+          },
+          "status_url": {
+            "type": "string",
+            "title": "Status Url",
+            "description": "진행 상태 조회 URL"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "batch_id",
+          "status",
+          "estimated_duration_minutes",
+          "status_url"
+        ],
+        "title": "SiteRecommendationBatchResponse",
+        "description": "배치 작업 시작 응답",
+        "example": {
+          "batch_id": "550e8400-e29b-41d4-a716-446655440000",
+          "created_at": "2025-12-01T10:30:00Z",
+          "estimated_duration_minutes": 30,
+          "status": "queued",
+          "status_url": "/api/recommendation/batch/550e8400-e29b-41d4-a716-446655440000/progress"
+        }
+      },
+      "SiteRecommendationRequest": {
+        "properties": {
+          "scenario_id": {
+            "type": "integer",
+            "maximum": 4,
+            "minimum": 1,
+            "title": "Scenario Id",
+            "description": "SSP 시나리오 ID (1-4)"
+          },
+          "start_year": {
+            "type": "integer",
+            "maximum": 2100,
+            "minimum": 2025,
+            "title": "Start Year",
+            "default": 2025
+          },
+          "end_year": {
+            "type": "integer",
+            "maximum": 2100,
+            "minimum": 2025,
+            "title": "End Year",
+            "default": 2050
+          },
+          "building_info": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Building Info",
+            "description": "건물 정보 (취약성 계산용)"
+          },
+          "asset_info": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Asset Info",
+            "description": "자산 정보"
+          },
+          "top_n": {
+            "type": "integer",
+            "maximum": 10,
+            "minimum": 1,
+            "title": "Top N",
+            "description": "추천할 상위 격자 수",
+            "default": 3
+          },
+          "additional_data": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Additional Data",
+            "description": "추가 데이터 (자유 형식)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scenario_id",
+          "building_info",
+          "asset_info"
+        ],
+        "title": "SiteRecommendationRequest",
+        "description": "후보지 추천 배치 작업 시작 요청",
+        "example": {
+          "additional_data": {
+            "metadata": {
+              "source": "user_input",
+              "timestamp": "2025-12-01"
+            },
+            "raw_text": "건물 리모델링 2023년 완료, 태양광 패널 200kW 설치 예정"
+          },
+          "asset_info": {
+            "floor_area": 5000,
+            "insurance_coverage_rate": 0.7,
+            "total_asset_value": 50000000000
+          },
+          "building_info": {
+            "building_age": 25,
+            "fire_access": true,
+            "floors_above": 10,
+            "floors_below": 2,
+            "has_piloti": false,
+            "has_seismic_design": true,
+            "main_purpose": "업무시설",
+            "structure": "철근콘크리트"
+          },
+          "end_year": 2050,
+          "scenario_id": 2,
+          "start_year": 2025,
+          "top_n": 3
+        }
+      },
+      "SiteRecommendationResultResponse": {
+        "properties": {
+          "batch_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Batch Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BatchStatus"
+          },
+          "scenario_id": {
+            "type": "integer",
+            "title": "Scenario Id"
+          },
+          "scenario_name": {
+            "type": "string",
+            "title": "Scenario Name"
+          },
+          "total_grids_analyzed": {
+            "type": "integer",
+            "title": "Total Grids Analyzed"
+          },
+          "recommended_sites": {
+            "items": {
+              "$ref": "#/components/schemas/RecommendedSite"
+            },
+            "type": "array",
+            "title": "Recommended Sites"
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Completed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "batch_id",
+          "status",
+          "scenario_id",
+          "scenario_name",
+          "total_grids_analyzed",
+          "recommended_sites",
+          "completed_at"
+        ],
+        "title": "SiteRecommendationResultResponse",
+        "description": "후보지 추천 결과 응답",
+        "example": {
+          "batch_id": "550e8400-e29b-41d4-a716-446655440000",
+          "completed_at": "2025-12-01T11:00:00Z",
+          "recommended_sites": [
+            {
+              "aal_total": 1.25,
+              "expected_loss": 625000000,
+              "grid_id": 12345,
+              "latitude": 37.5665,
+              "longitude": 126.978,
+              "rank": 1,
+              "total_risk_score": 35.2
+            },
+            {
+              "aal_total": 1.35,
+              "expected_loss": 675000000,
+              "grid_id": 12346,
+              "latitude": 37.57,
+              "longitude": 126.98,
+              "rank": 2,
+              "total_risk_score": 36.8
+            },
+            {
+              "aal_total": 1.42,
+              "expected_loss": 710000000,
+              "grid_id": 12347,
+              "latitude": 37.573,
+              "longitude": 126.985,
+              "rank": 3,
+              "total_risk_score": 38.1
+            }
+          ],
+          "scenario_id": 2,
+          "scenario_name": "SSP2-4.5",
+          "status": "completed",
+          "total_grids_analyzed": 10000
+        }
+      },
+      "StartAnalysisRequest": {
+        "properties": {
+          "site": {
+            "$ref": "#/components/schemas/SiteInfo"
+          },
+          "hazardTypes": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/HazardType"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hazardtypes"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/Priority",
+            "default": "normal"
+          },
+          "options": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "additionalData": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdditionalDataInput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "사용자 제공 추가 데이터"
+          }
+        },
+        "type": "object",
+        "required": [
+          "site"
+        ],
+        "title": "StartAnalysisRequest"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "VulnerabilityResponse": {
+        "properties": {
+          "siteId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Siteid",
+            "description": "사업장 ID"
+          },
+          "vulnerabilities": {
+            "items": {
+              "$ref": "#/components/schemas/RiskVulnerability"
+            },
+            "type": "array",
+            "title": "Vulnerabilities",
+            "description": "리스크별 취약성 점수"
+          }
+        },
+        "type": "object",
+        "required": [
+          "siteId",
+          "vulnerabilities"
+        ],
+        "title": "VulnerabilityResponse",
+        "description": "Spring Boot API 호환 - 취약성 분석"
+      },
+      "YearlyData": {
+        "properties": {
+          "year": {
+            "type": "integer",
+            "title": "Year",
+            "description": "연도"
+          },
+          "nationalAverageTemperature": {
+            "type": "number",
+            "title": "Nationalaveragetemperature",
+            "description": "전국 평균 기온 (°C)"
+          },
+          "sites": {
+            "items": {
+              "$ref": "#/components/schemas/SiteData"
+            },
+            "type": "array",
+            "title": "Sites",
+            "description": "사업장별 데이터"
+          }
+        },
+        "type": "object",
+        "required": [
+          "year",
+          "nationalAverageTemperature",
+          "sites"
+        ],
+        "title": "YearlyData",
+        "description": "연도별 데이터"
+      }
+    }
+  }
+}

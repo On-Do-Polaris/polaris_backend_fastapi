@@ -155,7 +155,11 @@ class BuildingCharacteristicsAgent:
 		return result
 
 	def _analyze_structural_features(self, building_info: Dict) -> Dict:
-		"""구조적 특징 분석"""
+		"""구조적 특징 분석 (building_info가 비어있을 수 있음)"""
+		if not building_info:
+			self.logger.warning("building_info가 비어있음. 기본값 사용")
+			building_info = {}
+
 		return {
 			'building_age': building_info.get('building_age', 0),
 			'structure_type': building_info.get('structure', 'Unknown'),
@@ -167,7 +171,10 @@ class BuildingCharacteristicsAgent:
 		}
 
 	def _analyze_location_features(self, building_info: Dict) -> Dict:
-		"""위치적 특징 분석"""
+		"""위치적 특징 분석 (building_info가 비어있을 수 있음)"""
+		if not building_info:
+			building_info = {}
+
 		location = building_info.get('location', {})
 		return {
 			'latitude': location.get('latitude', 0),
@@ -221,8 +228,11 @@ class BuildingCharacteristicsAgent:
 		physical_risk_results: Dict,
 		aal_results: Dict
 	) -> list:
-		"""주요 취약 요인 추출"""
+		"""주요 취약 요인 추출 (building_info가 비어있을 수 있음)"""
 		factors = []
+
+		if not building_info:
+			building_info = {}
 
 		# 건물 연식
 		age = building_info.get('building_age', 0)
@@ -260,8 +270,11 @@ class BuildingCharacteristicsAgent:
 		building_info: Dict,
 		physical_risk_results: Dict
 	) -> list:
-		"""주요 회복력 요인 추출"""
+		"""주요 회복력 요인 추출 (building_info가 비어있을 수 있음)"""
 		factors = []
+
+		if not building_info:
+			building_info = {}
 
 		# 내진 설계
 		if building_info.get('seismic_design', False):

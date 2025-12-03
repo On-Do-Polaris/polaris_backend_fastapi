@@ -70,7 +70,11 @@ async def enhance_analysis(
     # additional_data 변환 (Pydantic 모델 → dict)
     additional_data_dict = {
         'raw_text': body.additional_data.raw_text,
-        'metadata': body.additional_data.metadata or {}
+        'metadata': body.additional_data.metadata or {},
+        'building_info': body.additional_data.building_info,
+        'asset_info': body.additional_data.asset_info,
+        'power_usage': body.additional_data.power_usage,
+        'insurance': body.additional_data.insurance
     }
 
     return await service.enhance_analysis(

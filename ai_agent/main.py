@@ -80,26 +80,35 @@ class SKAXPhysicalRiskAnalyzer:
 		language: str = 'ko'
 	) -> dict:
 		"""
-		전체 물리적 리스크 분석 실행
+		전체 물리적 리스크 분석 실행 (ERD 기준)
 
 		Args:
-			target_location: 분석 대상 위치 정보
+			target_location: 분석 대상 위치 정보 (ERD sites 기준)
 				- latitude: 위도
 				- longitude: 경도
 				- name: 위치명
-			building_info: 건물 정보
-				- building_age: 건물 연식 (년)
-				- has_seismic_design: 내진 설계 여부 (bool)
-				- fire_access: 소방차 진입 가능 여부 (bool)
-			asset_info: 자산 정보
+				- road_address: 도로명 주소 (선택)
+				- jibun_address: 지번 주소 (선택)
+			building_info: 건물 정보 (additional_data에서 전달, 없으면 빈 dict)
+				- building_age: 건물 연식 (년) (선택)
+				- structure: 구조 (선택)
+				- seismic_design: 내진 설계 여부 (bool) (선택)
+				- gross_floor_area: 연면적 (선택)
+			asset_info: 자산 정보 (additional_data에서 전달, 없으면 기본값)
 				- total_asset_value: 총 자산 가치 (원)
-				- insurance_coverage_rate: 보험보전율 (0.0 ~ 1.0)
+				- floor_area: 바닥 면적 (선택)
+				- asset_value: 자산 가치 (선택)
+				- employee_count: 직원 수 (선택)
 			analysis_params: 분석 파라미터
 				- time_horizon: 분석 시점 (예: '2050')
 				- analysis_period: 분석 기간 (예: '2025-2050')
 			additional_data: 추가 데이터 (선택사항)
 				- raw_text: 자유 형식 텍스트
 				- metadata: 메타데이터
+				- building_info: 건물 상세 정보 (dict)
+				- asset_info: 자산 상세 정보 (dict)
+				- power_usage: 전력 사용량 (it_power_kwh, cooling_power_kwh, total_power_kwh)
+				- insurance: 보험 정보 (coverage_rate)
 			language: 보고서 언어 ('ko' 또는 'en', 기본값: 'ko')
 
 		Returns:

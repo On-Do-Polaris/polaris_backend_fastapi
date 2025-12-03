@@ -1,0 +1,1690 @@
+# 기후 리스크 발생확률 및 AAL 산출 로직
+
+**버전**: v3.0
+**최종 수정일**: 2025-11-25
+**작성자**: AIOps Risk Analysis Agents
+
+---
+
+## 목차
+
+1. [개요](#개요)
+2. [공통 프레임워크](#공통-프레임워크)
+3. [리스크별 계산 로직](#리스크별-계산-로직)
+   - [1. 극심한 고온 (Extreme Heat)](#1-극심한-고온-extreme-heat)
+   - [2. 극심한 한파 (Extreme Cold)](#2-극심한-한파-extreme-cold)
+   - [3. 산불 (Wildfire)](#3-산불-wildfire)
+   - [4. 가뭄 (Drought)](#4-가뭄-drought)
+   - [5. 물부족 (Water Stress)](#5-물부족-water-stress)
+   - [6. 해수면 상승 (Sea Level Rise)](#6-해수면-상승-sea-level-rise)
+   - [7. 내륙 홍수 (River Flood)](#7-내륙-홍수-river-flood)
+   - [8. 도시홍수 (Urban Flood)](#8-도시-홍수-urban-flood)
+   - [9. 태풍 (Typhoon)](#9-태풍-typhoon)
+4. [참고문헌](#참고문헌)
+
+---
+
+## 개요
+
+본 문서는 9개 기후 리스크에 대한 **발생확률 P(H)**, **bin별 기본 손상률 DR_intensity**, 그리고 **최종 AAL(연평균 재무 손실률) 산출** 로직을 설명합니다. 각 리스크는 국제 표준 기후지수 및 학술 연구를 기반으로 설계되었습니다.
+
+### 계산 목적
+
+- **리스크 강도지표 X_r(t)**: 각 연도(또는 월)별 위험 강도 정량화
+- **bin 분류**: 강도를 위험 등급(bin)으로 구간화
+- **발생확률 P_r[i]**: 각 bin에 속할 확률 계산
+- **기본 손상률 DR_intensity[i]**: 각 bin의 자산 손상률 (취약성 스케일링 적용 전)
+
+---
+
+## 공통 프레임워크
+
+모든 리스크 Agent는 `BaseProbabilityAgent`를 상속하며, 다음 공통 구조를 따릅니다:
+
+### 1. 강도지표 계산
+```python
+X_r(t) = calculate_intensity_indicator(collected_data)
+```
+- 각 리스크별로 특화된 강도 지표 계산
+- 입력: 수집된 기후/환경 데이터
+- 출력: 연도별(또는 월별) 강도값 배열
+
+### 2. Bin 분류
+```python
+bin_indices = _classify_into_bins(intensity_values)
+```
+- 강도값을 위험 등급(bin) 구간으로 분류
+- 고정 임계값 또는 분위수 기반 동적 설정
+
+### 3. 발생확률 계산 (KDE 기반)
+```python
+P_r[i] = _calculate_bin_probabilities(intensity_values)
+```
+
+**방법론**: Kernel Density Estimation (KDE)
+
+**수식**:
+```
+P_r[i] = ∫[bin_min to bin_max] f_KDE(x) dx
+```
+- `f_KDE(x)`: Gaussian KDE로 추정한 확률밀도함수
+- Bandwidth: Scott's rule 자동 선택
+- 정규화: ΣP_r[i] = 1
+
+**근거**:
+- 이산적 bin 카운팅 대비 연속적 확률 분포 제공
+- 적은 샘플에서도 부드러운 확률 추정
+- 표준 통계 라이브러리 (`scipy.stats.gaussian_kde`) 활용
+
+**Fallback**: 샘플 < 3개 시 전통적 빈도 계산
+```python
+P_r[i] = (해당 bin 샘플 수) / (전체 샘플 수)
+```
+
+---
+
+### 4. 최종 AAL 산출 (공통 로직)
+
+발생확률과 손상률이 계산된 후, 자산별 취약성을 반영하여 최종 AAL을 산출합니다.
+
+#### 4-1. 기본 AAL 계산 (DB 처리)
+
+```
+base_aal_r = Σ[P_r[i] × DR_intensity_r[i]]
+```
+
+**설명**:
+- `P_r[i]`: 리스크 r의 bin i 발생확률 (위 3단계에서 계산)
+- `DR_intensity_r[i]`: bin i의 기본 손상률 (리스크별 고정값, 아래 리스크별 섹션 참조)
+- DB에서 bin별로 계산하여 합산
+
+#### 4-2. 취약성 스케일 계수 계산 (AAL Agent)
+
+```
+F_vuln_r(j) = s_min + (s_max - s_min) × (V_score / 100)
+```
+
+**파라미터**:
+- `V_score`: 자산(j)의 취약성 점수 (0~100점)
+- `s_min`: 최소 스케일 계수 (기본값: 0.9)
+- `s_max`: 최대 스케일 계수 (기본값: 1.1)
+
+**물리적 의미**:
+- V_score = 0 (강건) → F_vuln = 0.9 (손상률 10% 감소)
+- V_score = 50 (보통) → F_vuln = 1.0 (손상률 변화 없음)
+- V_score = 100 (취약) → F_vuln = 1.1 (손상률 10% 증가)
+
+#### 4-3. 최종 AAL 계산 (AAL Agent)
+
+```
+AAL_r(j) = base_aal_r × F_vuln_r(j) × (1 - IR_r)
+```
+
+**파라미터**:
+- `base_aal_r`: 4-1에서 계산된 기본 AAL
+- `F_vuln_r(j)`: 4-2에서 계산된 취약성 스케일 계수
+- `IR_r`: 보험 보전율 (Insurance Rate, 기본값: 0.0)
+
+#### 4-4. 위험 수준 분류
+
+| 위험 수준 | AAL 범위 | 설명 |
+|----------|----------|------|
+| **Minimal** | < 1.0% | 매우 낮은 위험 |
+| **Low** | 1.0~5.0% | 낮은 위험 |
+| **Moderate** | 5.0~10.0% | 중간 위험 |
+| **High** | 10.0~20.0% | 높은 위험 |
+| **Critical** | ≥ 20.0% | 매우 높은 위험 |
+
+**학술 근거**:
+- [ISO 31000:2018]: 리스크 관리 지침
+- [TCFD, 2017]: 기후 관련 재무 정보 공개 권고안
+- [IPCC AR6 WGII, 2022]: 핵심 리스크 평가
+
+---
+
+## 리스크별 계산 로직
+
+---
+
+## 1. 극심한 고온 (Extreme Heat)
+
+### 1-1. 강도지표 계산
+
+```
+X_heat(t) = WSDI(t)
+```
+- **WSDI**: Warm Spell Duration Index (고온 지속 기간 지수, 일)
+- **정의**: 기준기간 대비 상위 90% 이상 고온이 연속 6일 이상 지속된 연간 누적 일수
+
+### 📊 계산 상세
+
+#### WSDI 정의 (ETCCDI)
+```
+WSDI = Σ[연속 6일 이상 Tmax > T90(day)]
+```
+- **T90(day)**: 기준기간(1991-2020) 각 날짜의 90% 분위수
+- **조건**: 최고기온이 T90을 초과하는 날이 6일 이상 연속
+- **누적**: 조건을 만족하는 모든 날을 연간 합산
+
+**예시**:
+- 7월 1~8일: 연속 8일 폭염 → WSDI += 8
+- 8월 15~21일: 연속 7일 폭염 → WSDI += 7
+- 연간 WSDI = 15일
+
+#### 분위수 기반 동적 bin 설정
+
+**기준기간 데이터 필요성**:
+- 고정 임계값(예: 3일, 8일) 사용 시 지역적 차이 무시
+- 서울과 대구의 "극한 더위" 기준이 동일할 수 없음
+
+**분위수 계산 알고리즘**:
+```python
+baseline_data = WSDI[1991-2020]  # 30개 연도
+Q80 = np.percentile(baseline_data, 80)  # 예: 3.5일
+Q90 = np.percentile(baseline_data, 90)  # 예: 8.2일
+Q95 = np.percentile(baseline_data, 95)  # 예: 15.1일
+Q99 = np.percentile(baseline_data, 99)  # 예: 24.8일
+```
+
+**bin 동적 업데이트**:
+```python
+bins = [
+    (0, Q80),           # bin1: 일반 수준
+    (Q80, Q90),         # bin2: 상위 20%
+    (Q90, Q95),         # bin3: 상위 10%
+    (Q95, Q99),         # bin4: 상위 5%
+    (Q99, float('inf')) # bin5: 극한 1%
+]
+```
+
+#### 손상률 설정 근거
+
+| Bin | WSDI 범위 | 건강 영향 | 경제 피해 | DR_intensity |
+|-----|-----------|----------|----------|--------------|
+| 1 | < Q80 | 거의 없음 | 미미 | 0.1% |
+| 2 | Q80-Q90 | 열성 질환 증가 | 에어컨 가동 증가 | 0.3% |
+| 3 | Q90-Q95 | 온열 질환 급증 | 생산성 저하 시작 | 1.0% |
+| 4 | Q95-Q99 | 초과 사망 발생 | 인프라 과부하 | 2.0% |
+| 5 | ≥ Q99 | 대규모 인명 피해 | 전력망 마비 가능 | 3.5% |
+
+**문헌 근거**:
+- [Gasparrini et al., 2015, Lancet]: 2°C 온도 상승 시 사망률 2.3% 증가
+- [Burke et al., 2015, Nature]: 1°C 온도 상승 시 GDP 1.4% 감소
+
+### 데이터 출처
+- **KMA 연간 극값 지수** (기상청)
+- 기준기간: 1991-2020 (30년 평년값)
+
+### Bin 구간 (분위수 기반 - 동적)
+
+| Bin | 구간 | 설명 | DR_intensity |
+|-----|------|------|--------------|
+| 1 | WSDI < Q80 | 일반적 수준 | 0.1% |
+| 2 | Q80 ≤ WSDI < Q90 | 상위 20% 더위 | 0.3% |
+| 3 | Q90 ≤ WSDI < Q95 | 상위 10% 더위 | 1.0% |
+| 4 | Q95 ≤ WSDI < Q99 | 상위 5% 더위 | 2.0% |
+| 5 | WSDI ≥ Q99 | 극한 1% 더위 | 3.5% |
+
+### 1-2. 발생확률 계산
+
+```
+P_heat[i] = (해당 bin 연도 수) / (전체 연도 수)
+```
+- 시간 단위: **yearly** (연 기반)
+
+### 1-3. 최종 AAL 산출
+
+#### Step 1: 기본 AAL 계산 (DB)
+
+```
+base_aal_heat = Σ[P_heat[i] × DR_intensity[i]]
+```
+
+**계산 예시** (서울, SSP5-8.5, 2050년):
+
+| Bin | P_heat[i] | DR_intensity[i] | P × DR |
+|-----|-----------|-----------------|--------|
+| 1 | 0.45 | 0.001 | 0.00045 |
+| 2 | 0.25 | 0.003 | 0.00075 |
+| 3 | 0.15 | 0.010 | 0.00150 |
+| 4 | 0.10 | 0.020 | 0.00200 |
+| 5 | 0.05 | 0.035 | 0.00175 |
+
+```
+base_aal_heat = 0.00645 (0.645%)
+```
+
+#### Step 2: 취약성 스케일 적용 (AAL Agent)
+
+**입력**:
+- base_aal = 0.00645
+- vulnerability_score = 75 (노후 건물)
+- s_min = 0.9, s_max = 1.1
+
+**계산**:
+```
+F_vuln = 0.9 + (1.1 - 0.9) × (75/100) = 1.05
+```
+
+#### Step 3: 최종 AAL (보험 적용)
+
+**입력**:
+- insurance_rate = 0.3 (30% 보험)
+
+**계산**:
+```
+AAL_final = 0.00645 × 1.05 × (1 - 0.3) = 0.00474 (0.474%)
+```
+
+**결과 해석**:
+- **최종 AAL**: 0.474%
+- **위험 수준**: Minimal
+- **경제적 의미**: 건물 가치 100억원 → 연평균 4,740만원 손실
+
+### 1-4. 학술 근거
+1. **ETCCDI (Expert Team on Climate Change Detection and Indices)**
+   - WMO/WCRP 공식 극값 지수 프레임워크
+   - WSDI 정의: [Zhang et al., 2011]
+   - 출처: [ETCCDI Indices Definition](http://etccdi.pacificclimate.org/list_27_indices.shtml)
+
+2. **분위수 기반 임계값**
+   - IPCC AR6 (2021): 극한 기후 평가에 분위수 기준 권장
+   - 출처: IPCC AR6 WG1, Chapter 11 (Weather and Climate Extreme Events)
+
+3. **손상률 추정**
+   - 열파 건강 영향: [Gasparrini et al., 2015, Lancet]
+   - 경제적 피해: [Burke et al., 2015, Nature]
+
+---
+
+## 2. 극심한 한파 (Extreme Cold)
+
+### 강도지표
+```
+X_cold(t) = CSDI(t)
+```
+- **CSDI**: Cold Spell Duration Index (한파 지속 기간 지수, 일)
+- **정의**: 기준기간 대비 하위 10% 이하 저온이 연속 6일 이상 지속된 연간 누적 일수
+
+### 데이터 출처
+- **KMA 연간 극값 지수** (기상청)
+- 기준기간: 1991-2020 (30년 평년값)
+
+### Bin 구간 (분위수 기반 - 동적)
+
+| Bin | 구간 | 설명 | DR_intensity |
+|-----|------|------|--------------|
+| 1 | CSDI < Q80 | 거의 한파 아님 | 0.05% |
+| 2 | Q80 ≤ CSDI < Q90 | 약한 한파 | 0.20% |
+| 3 | Q90 ≤ CSDI < Q95 | 중간 한파 | 0.60% |
+| 4 | Q95 ≤ CSDI < Q99 | 강한 한파 | 1.50% |
+| 5 | CSDI ≥ Q99 | 극한 한파 | 2.50% |
+
+**참고**: CSDI는 값이 클수록 한파가 심함 (고온과 반대 방향)
+
+### 2-2. 발생확률 계산
+
+```
+P_cold[i] = (해당 bin 연도 수) / (전체 연도 수)
+```
+- 시간 단위: **yearly** (연 기반)
+
+### 2-3. 최종 AAL 산출
+
+#### Step 1: 기본 AAL 계산 (DB)
+
+```
+base_aal_cold = Σ[P_cold[i] × DR_intensity[i]]
+```
+
+**계산 예시**:
+
+| Bin | P_cold[i] | DR_intensity[i] | P × DR |
+|-----|-----------|-----------------|--------|
+| 1 | 0.60 | 0.0005 | 0.00030 |
+| 2 | 0.20 | 0.0020 | 0.00040 |
+| 3 | 0.12 | 0.0060 | 0.00072 |
+| 4 | 0.06 | 0.0150 | 0.00090 |
+| 5 | 0.02 | 0.0250 | 0.00050 |
+
+```
+base_aal_cold = 0.00282 (0.282%)
+```
+
+#### Step 2: 취약성 스케일 적용
+
+```
+F_vuln = 0.9 + (1.1 - 0.9) × (V_score/100)
+```
+
+#### Step 3: 최종 AAL
+
+```
+AAL_final = base_aal_cold × F_vuln × (1 - IR)
+```
+
+### 2-4. 학술 근거
+
+1. **ETCCDI 한파 지수**
+   - CSDI 정의: [Zhang et al., 2011]
+   - 출처: [ETCCDI Indices Definition](http://etccdi.pacificclimate.org/list_27_indices.shtml)
+
+2. **한파 피해 연구**
+   - 에너지 수요 급증: [Sailor & Muñoz, 1997, Energy and Buildings]
+   - 인프라 손상: [Makkonen & Tikanmäki, 2019, Cold Regions Science]
+
+---
+## 3. 산불 (Wildfire)
+
+### 강도지표
+```
+FWI(t,m) = (1 - RHM/100)^0.5 × exp(0.05039 × WS_kmh)
+           × exp(0.08 × (TA - 5)) × exp(-0.0005 × RN) × 5
+```
+- **FWI**: Fire Weather Index (캐나다 ISI 방식 근사)
+- **변수**:
+  - TA: 평균 기온 (°C)
+  - RHM: 상대습도 (%)
+  - WS: 평균 풍속 (m/s → km/h 변환)
+  - RN: 강수량 (mm)
+
+### 📊 계산 상세
+
+#### FWI 공식 구성요소 설명
+
+**1. 습도 영향 (Moisture Term)**
+```python
+humidity_factor = (1 - RHM/100)^0.5
+```
+
+**물리적 의미**:
+- RHM = 20% → factor = (0.8)^0.5 = 0.894 (건조, 산불 위험 높음)
+- RHM = 50% → factor = (0.5)^0.5 = 0.707 (보통)
+- RHM = 80% → factor = (0.2)^0.5 = 0.447 (습함, 산불 위험 낮음)
+
+**제곱근 사용 이유**:
+- 선형 관계 `(1 - RHM/100)` 대비 완화된 영향
+- 높은 습도(>70%)에서도 일정 위험도 유지 (산불 가능)
+
+**근거**: [Van Wagner, 1987] - Fine Fuel Moisture Code (FFMC) 간소화
+
+---
+
+**2. 풍속 영향 (Wind Term)**
+```python
+ws_kmh = ws_ms × 3.6           # m/s → km/h 변환
+wind_factor = exp(0.05039 × ws_kmh)
+```
+
+**물리적 의미**:
+- WS = 5 m/s (18 km/h) → factor = exp(0.907) = 2.48
+- WS = 10 m/s (36 km/h) → factor = exp(1.814) = 6.14 (2.5배 증가)
+- WS = 15 m/s (54 km/h) → factor = exp(2.721) = 15.20 (6배 증가)
+
+**지수적 증가 이유**:
+- 풍속이 2배 → 산불 확산 속도 6배 이상 증가
+- 산소 공급 증가 + 불씨 비산 + 선제 가열 효과
+
+**계수 0.05039 근거**:
+- 캐나다 ISI (Initial Spread Index) 공식에서 유도
+- `ISI = 0.208 × f(W) × f(M)`, f(W) = exp(0.05039 × W)
+
+**문헌**: [Van Wagner, 1987, Equation 10]
+```
+f(W) = exp(0.05039 × W)  # W: 풍속 (km/h at 10m)
+```
+
+---
+
+**3. 온도 영향 (Temperature Term)**
+```python
+temp_factor = exp(0.08 × (TA - 5))
+```
+
+**물리적 의미**:
+- TA = 5°C → factor = exp(0) = 1.00 (기준)
+- TA = 15°C → factor = exp(0.8) = 2.23 (2.2배)
+- TA = 25°C → factor = exp(1.6) = 4.95 (5배)
+- TA = 35°C → factor = exp(2.4) = 11.02 (11배)
+
+**지수적 증가 이유**:
+- 온도 상승 → 증발산 증가 (연료 건조)
+- 온도 상승 → 점화 온도 도달 시간 단축
+
+**기준 온도 5°C 설정**:
+- 산불 발생 최저 온도 (~5°C)
+- 이하 온도에서는 산불 위험 거의 없음
+
+**계수 0.08 근거**:
+- v1.0 대비 강화 (0.05 → 0.08)
+- 한국 산불 발생 통계 기반 캘리브레이션
+- [Kwon et al., 2019]: 한국 산불 80%가 기온 15°C 이상에서 발생
+
+---
+
+**4. 강수 영향 (Precipitation Term)**
+```python
+rain_factor = exp(-0.0005 × RN)
+```
+
+**물리적 의미**:
+- RN = 0 mm → factor = exp(0) = 1.00 (건조, 최대 위험)
+- RN = 10 mm → factor = exp(-0.005) = 0.995 (거의 영향 없음)
+- RN = 50 mm → factor = exp(-0.025) = 0.975
+- RN = 200 mm → factor = exp(-0.1) = 0.905
+
+**완만한 감쇠 이유**:
+- 월 누적 강수량 사용 (일 강수와 다름)
+- 200mm 강수도 월 초 집중 → 월 말 건조 가능
+- 실제 산불 위험은 최근 3-7일 강수에 의존
+
+**계수 -0.0005 근거**:
+- v1.0 대비 완화 (-0.001 → -0.0005)
+- 월별 데이터 특성 반영
+
+---
+
+**5. 스케일링 계수 (× 5)**
+
+**목적**: EFFIS FWI bin 임계값과 호환
+
+캐나다 원본 FWI는 0-100 스케일이지만, 본 구현은 간소화된 근사식 사용:
+```python
+FWI_simplified = humidity × wind × temp × rain
+# 스케일: 일반적으로 0-10 범위
+
+FWI_final = FWI_simplified × 5
+# 스케일: 0-50 범위 (EFFIS 호환)
+```
+
+**EFFIS bin 호환**:
+- Low: 11.2 이하
+- Moderate: 11.2-21.3
+- High: 21.3-38
+- Very High: 38-50
+- Extreme: 50 이상
+
+#### 계산 예시
+
+**건조한 봄철 (산불 위험 높음)**:
+- TA = 20°C, RHM = 30%, WS = 8 m/s (28.8 km/h), RN = 5 mm
+
+```python
+humidity = (1 - 0.3)^0.5 = 0.837
+wind = exp(0.05039 × 28.8) = exp(1.451) = 4.27
+temp = exp(0.08 × (20 - 5)) = exp(1.2) = 3.32
+rain = exp(-0.0005 × 5) = exp(-0.0025) = 0.998
+
+FWI = 0.837 × 4.27 × 3.32 × 0.998 × 5 = 59.0
+```
+→ **Extreme 등급** (bin5)
+
+---
+
+**습한 여름철 (산불 위험 낮음)**:
+- TA = 25°C, RHM = 70%, WS = 3 m/s (10.8 km/h), RN = 150 mm
+
+```python
+humidity = (1 - 0.7)^0.5 = 0.548
+wind = exp(0.05039 × 10.8) = exp(0.544) = 1.72
+temp = exp(0.08 × (25 - 5)) = exp(1.6) = 4.95
+rain = exp(-0.0005 × 150) = exp(-0.075) = 0.928
+
+FWI = 0.548 × 1.72 × 4.95 × 0.928 × 5 = 21.6
+```
+→ **Moderate-High 경계** (bin2-3)
+
+### 데이터 출처
+- **KMA 월별 기상 데이터**: TA, RHM, WS, RN
+
+### Bin 구간 (EFFIS FWI 기준)
+
+| Bin | 구간 | 설명 | DR_intensity |
+|-----|------|------|--------------|
+| 1 | 0 ≤ FWI < 11.2 | Low | 0% |
+| 2 | 11.2 ≤ FWI < 21.3 | Moderate | 1% |
+| 3 | 21.3 ≤ FWI < 38 | High | 3% |
+| 4 | 38 ≤ FWI < 50 | Very High | 10% |
+| 5 | FWI ≥ 50 | Extreme | 25% |
+
+### 3-2. 발생확률 계산
+
+```
+P_fire[i] = (해당 bin 월 수) / (총 월 수)
+```
+- 시간 단위: **monthly** (월 기반)
+
+### 3-3. 최종 AAL 산출
+
+#### Step 1: 기본 AAL 계산 (DB)
+
+```
+base_aal_fire = Σ[P_fire[i] × DR_intensity[i]]
+```
+
+**계산 예시**:
+
+| Bin | P_fire[i] | DR_intensity[i] | P × DR |
+|-----|-----------|-----------------|--------|
+| 1 | 0.50 | 0.00 | 0.00000 |
+| 2 | 0.30 | 0.01 | 0.00300 |
+| 3 | 0.15 | 0.03 | 0.00450 |
+| 4 | 0.04 | 0.10 | 0.00400 |
+| 5 | 0.01 | 0.25 | 0.00250 |
+
+```
+base_aal_fire = 0.01400 (1.40%)
+```
+
+#### Step 2: 취약성 스케일 적용
+
+```
+F_vuln = 0.9 + (1.1 - 0.9) × (V_score/100)
+```
+
+#### Step 3: 최종 AAL
+
+```
+AAL_final = base_aal_fire × F_vuln × (1 - IR)
+```
+
+### 3-4. 학술 근거
+
+1. **캐나다 산불 기상 지수 시스템 (CFFDRS)**
+   - [Van Wagner, 1987, Canadian Forestry Service]: FWI 체계 개발
+   - ISI (Initial Spread Index) 공식: 풍속의 지수적 영향 반영
+   - 출처: [Natural Resources Canada - FWI](https://cwfis.cfs.nrcan.gc.ca/background/summary/fwi)
+
+2. **유럽 산불 정보 시스템 (EFFIS)**
+   - [San-Miguel-Ayanz et al., 2013, Natural Hazards and Earth System Sciences]
+   - FWI bin 임계값: Low(11.2), Moderate(21.3), High(38), Very High(50)
+   - 출처: [EFFIS Fire Danger](https://effis.jrc.ec.europa.eu/)
+
+3. **한국 산불 연구**
+   - [Kwon et al., 2019, Forests]: 한국 산불 발생과 FWI 상관관계 분석
+
+---
+
+## 4. 가뭄 (Drought)
+
+### 강도지표
+```
+X_drought(t,m) = SPEI12(t,m)
+```
+- **SPEI12**: Standardized Precipitation-Evapotranspiration Index (12개월 누적)
+- **정의**: 강수량과 증발산량 차이를 정규화한 표준 지수 (음수 = 가뭄)
+
+### 데이터 출처
+- **KMA SPEI12** (기상청)
+- 기준기간: 1991-2020
+
+### Bin 구간 (McKee et al., 1993 가뭄 등급)
+
+| Bin | 구간 | 설명 | DR_intensity |
+|-----|------|------|--------------|
+| 1 | SPEI12 > -1.0 | 정상~약한 가뭄 | 0% |
+| 2 | -1.5 < SPEI12 ≤ -1.0 | 중간 가뭄 | 2% |
+| 3 | -2.0 < SPEI12 ≤ -1.5 | 심각 가뭄 | 7% |
+| 4 | SPEI12 ≤ -2.0 | 극심 가뭄 | 20% |
+
+#### Bin 설정 근거
+
+**McKee et al. (1993) 표준 가뭄 등급**:
+
+SPI/SPEI 값은 표준정규분포를 따르므로, 음수 값이 클수록 가뭄 심화:
+
+| SPEI 범위 | 가뭄 등급 | 누적 확률 | 재현기간 | 농업 영향 |
+|-----------|----------|----------|----------|----------|
+| > -1.0 | Near Normal ~ Mild | > 15.9% | < 6년 | 경미한 수분 부족 |
+| -1.0 ~ -1.5 | Moderate Drought | 6.7~15.9% | 6~15년 | 수확량 10~20% 감소 |
+| -1.5 ~ -2.0 | Severe Drought | 2.3~6.7% | 15~43년 | 수확량 30~50% 감소 |
+| < -2.0 | Extreme Drought | < 2.3% | > 43년 | 작물 고사, 물 공급 제한 |
+
+**손상률 설정 근거**:
+- bin1 (0%): 정상 범위, 농업 피해 없음
+- bin2 (2%): [Lobell et al., 2011, Science] - 중간 가뭄 시 곡물 수확량 10% 감소
+- bin3 (7%): [Naumann et al., 2021] - 심각 가뭄 시 GDP 2~4% 감소
+- bin4 (20%): [Stagge et al., 2015] - 극심 가뭄 시 다부문 경제 피해 20% 이상
+
+**글로벌 표준 채택**:
+- WMO (World Meteorological Organization)
+- FAO (Food and Agriculture Organization)
+- U.S. Drought Monitor
+
+### 4-2. 발생확률 계산
+
+```
+P_drought[i] = (해당 bin 월 수) / (총 월 수)
+```
+- 시간 단위: **monthly** (월 기반)
+
+### 4-3. 최종 AAL 산출
+
+#### Step 1: 기본 AAL 계산 (DB)
+
+```
+base_aal_drought = Σ[P_drought[i] × DR_intensity[i]]
+```
+
+**계산 예시**:
+
+| Bin | P_drought[i] | DR_intensity[i] | P × DR |
+|-----|--------------|-----------------|--------|
+| 1 | 0.70 | 0.00 | 0.00000 |
+| 2 | 0.15 | 0.02 | 0.00300 |
+| 3 | 0.10 | 0.07 | 0.00700 |
+| 4 | 0.05 | 0.20 | 0.01000 |
+
+```
+base_aal_drought = 0.02000 (2.00%)
+```
+
+#### Step 2: 취약성 스케일 적용
+
+```
+F_vuln = 0.9 + (1.1 - 0.9) × (V_score/100)
+```
+
+#### Step 3: 최종 AAL
+
+```
+AAL_final = base_aal_drought × F_vuln × (1 - IR)
+```
+
+### 4-4. 학술 근거
+
+1. **SPEI 방법론**
+   - 개발: [Vicente-Serrano et al., 2010, Journal of Climate]
+   - 장점: 온도 증가에 따른 증발산 반영 (SPI 대비)
+   - 글로벌 표준: WMO, FAO 공식 채택
+
+2. **가뭄 임계값**
+   - [McKee et al., 1993]: SPI/SPEI 등급 체계 제안
+     - -1.0 ~ -1.5: Moderate drought
+     - -1.5 ~ -2.0: Severe drought
+     - < -2.0: Extreme drought
+
+3. **농업 피해 추정**
+   - [Stagge et al., 2015, Hydrology and Earth System Sciences]
+   - [Naumann et al., 2021, Nature Sustainability]
+
+---
+## 5. 물부족 (Water Stress)
+
+### 강도지표
+```
+WSI(t) = Withdrawal(t) / ARWR(t)
+ARWR(t) = TRWR(t) × 0.63
+```
+- **WSI**: Water Stress Index (물스트레스 지수)
+- **Withdrawal**: 용수이용량 (m³/year)
+- **TRWR**: Total Renewable Water Resources (총 재생 가능 수자원)
+- **ARWR**: Available Renewable Water Resources (이용가능 수자원, 환경유지유량 37% 차감)
+
+### 📊 계산 상세
+
+#### WSI 공식 구조
+
+```
+WSI(t) = Withdrawal(t) / [TRWR(t) × (1 - α_EFR)]
+       = Withdrawal(t) / [TRWR(t) × 0.63]
+```
+
+**α_EFR = 0.37** (Environmental Flow Requirements): 생태계 유지 필수 유량 비율
+
+**WSI 해석**:
+- WSI < 0.2: 용수 이용이 가용 수자원의 20% 미만 (안전)
+- WSI = 0.5: 가용 수자원의 50% 사용 (중간 스트레스)
+- WSI = 1.0: 가용 수자원을 전부 사용 (매우 위험)
+- WSI > 1.0: 지하수 고갈 또는 타 유역 의존 (지속 불가능)
+
+---
+
+#### TRWR 계산 (Total Renewable Water Resources)
+
+**기준기간 TRWR 계산**:
+```
+TRWR_baseline = mean[Volume_y for y in baseline_years]
+Volume_y = Σ[Q_daily × 86400 seconds]
+```
+
+**1단계: 유량 관측소 일유량 데이터 처리**
+
+```python
+for year in baseline_years:  # 예: 1991-2020
+    daily_flows = [Q1, Q2, ..., Q365]  # m³/s
+
+    # 결측값 처리
+    valid_flows = [Q for Q in daily_flows if Q >= 0]
+    missing_ratio = 1 - len(valid_flows) / 365
+
+    if missing_ratio > 0.25:
+        skip  # 결측 25% 이상 시 제외
+
+    # 결측값 평균으로 보정
+    mean_flow = mean(valid_flows)
+    filled_flows = [Q if Q >= 0 else mean_flow for Q in daily_flows]
+
+    # 연간 총 유량 (m³/year)
+    Volume_y = sum(filled_flows) × 86400
+```
+
+**예시** (서울 중랑천 관측소):
+- 평균 일유량: 5.2 m³/s
+- 연간 유량: 5.2 × 86400 × 365 = 1.64×10⁸ m³/year
+
+**2단계: 기준기간 평균 계산**
+```python
+volumes = [Volume_1991, Volume_1992, ..., Volume_2020]
+TRWR_baseline = mean(volumes)  # 30년 평균
+```
+
+---
+
+#### 미래 TRWR 스케일링 (기후변화 반영)
+
+**스케일링 공식**:
+```
+TRWR(t) = TRWR_baseline × [P_eff(t) / P_eff_baseline]
+P_eff(t) = P(t) - ET0(t)  # 유효강수량
+```
+
+**물리적 근거**:
+- 강수량 증가 → 수자원 증가
+- 증발산 증가 → 수자원 감소
+- 유효강수량 = 실제 하천 유량 기여분
+
+**Penman-Monteith ET0 계산** (FAO-56 표준):
+
+```python
+# 1. 포화수증기압 (kPa)
+es = 0.6108 × exp(17.27 × T / (T + 237.3))
+
+# 2. 실제수증기압 (kPa)
+ea = es × (RH / 100)
+
+# 3. 수증기압곡선 기울기 (kPa/°C)
+Δ = 4098 × es / (T + 237.3)²
+
+# 4. 풍속 보정 (10m → 2m)
+u2 = u10 × 4.87 / ln(67.8 × 10 - 5.42)
+
+# 5. 순복사량 (MJ/m²/day)
+Rs = SI × 0.0864  # W/m² → MJ/m²/day
+Rns = (1 - 0.23) × Rs  # 순단파복사 (알베도 0.23)
+Rnl = σ × T_k⁴ × (0.34 - 0.14√ea) × (1.35×Rs/Rso - 0.35)
+Rn = Rns - Rnl
+
+# 6. ET0 계산 (mm/day)
+numerator = 0.408 × Δ × (Rn - G) + γ × (900/(T+273)) × u2 × (es - ea)
+denominator = Δ + γ × (1 + 0.34 × u2)
+ET0_daily = numerator / denominator
+
+# 7. 월별 ET0 (mm/month)
+ET0_monthly = ET0_daily × 30
+```
+
+**변수**:
+- T: 기온 (°C)
+- RH: 상대습도 (%)
+- u10: 풍속 10m 기준 (m/s)
+- SI: 일사량 (W/m²)
+- σ: Stefan-Boltzmann 상수 (4.903×10⁻⁹ MJ/K⁴/m²/day)
+- γ: 심리계수 (0.067 kPa/°C)
+- G: 지면열 (≈0, 월 기준)
+
+**예시 계산**:
+- 기준기간: P_baseline = 1200 mm/year, ET0_baseline = 800 mm/year
+  - P_eff_baseline = 400 mm/year
+- 2050년: P = 1300 mm/year, ET0 = 900 mm/year
+  - P_eff = 400 mm/year
+  - scale_factor = 400/400 = 1.0 (변화 없음)
+- 2080년: P = 1100 mm/year, ET0 = 950 mm/year
+  - P_eff = 150 mm/year
+  - scale_factor = 150/400 = 0.375 (62.5% 감소)
+  - TRWR(2080) = TRWR_baseline × 0.375
+
+---
+
+#### 미래 용수이용량 추정 (Aqueduct BWS 기반)
+
+**Aqueduct 4.0 BWS 선형 보간**:
+
+```python
+# 앵커 연도: 2019, 2030, 2050, 2080
+BWS_baseline = 0.25  # 2019년 BWS
+BWS_2030 = 0.30
+BWS_2050 = 0.38
+BWS_2080 = 0.52
+
+# 1년 단위 선형 보간
+if year <= 2030:
+    rate = (BWS_2030 - BWS_baseline) / 11
+    BWS(year) = BWS_baseline + (year - 2019) × rate
+elif year <= 2050:
+    rate = (BWS_2050 - BWS_2030) / 20
+    BWS(year) = BWS_2030 + (year - 2030) × rate
+# ... (2080까지 유사)
+
+# 용수이용량 계산
+Withdrawal(year) = Withdrawal_baseline × [BWS(year) / BWS_baseline]
+```
+
+**SSP 시나리오 매핑**:
+
+| SSP 시나리오 | Aqueduct 시나리오 | 설명 |
+|--------------|-------------------|------|
+| SSP1-2.6 | opt (optimistic) | 물 효율 개선, 인구 감소 |
+| SSP2-4.5 | (opt + bau) / 2 | 중간 경로 (보간) |
+| SSP3-7.0 | bau (business-as-usual) | 현재 추세 지속 |
+| SSP5-8.5 | pes (pessimistic) | 고성장, 물 수요 급증 |
+
+**예시** (SSP5-8.5, 2050년):
+- Withdrawal_baseline (2019) = 5.0×10⁸ m³/year
+- BWS_baseline (2019) = 0.25
+- BWS_pes_2050 = 0.45
+- BWS_ratio = 0.45 / 0.25 = 1.8
+- Withdrawal(2050) = 5.0×10⁸ × 1.8 = 9.0×10⁸ m³/year (80% 증가)
+
+---
+
+#### 최종 WSI 계산 예시
+
+**2050년 SSP3-7.0 시나리오** (서울):
+
+```python
+# 1. 기준 TRWR
+TRWR_baseline = 1.5×10⁹ m³/year  # 기준기간 평균
+
+# 2. 기후변화 스케일링
+P_eff_2050 = 350 mm/year
+P_eff_baseline = 400 mm/year
+scale_factor = 350 / 400 = 0.875
+
+TRWR(2050) = 1.5×10⁹ × 0.875 = 1.31×10⁹ m³/year
+
+# 3. ARWR 계산
+ARWR(2050) = 1.31×10⁹ × 0.63 = 8.27×10⁸ m³/year
+
+# 4. 용수이용량
+Withdrawal_baseline = 5.0×10⁸ m³/year
+BWS_ratio = 1.35  # SSP3-7.0 bau 시나리오
+Withdrawal(2050) = 5.0×10⁸ × 1.35 = 6.75×10⁸ m³/year
+
+# 5. WSI 계산
+WSI(2050) = 6.75×10⁸ / 8.27×10⁸ = 0.82
+```
+
+→ **bin4: 극심한 물 스트레스** (WSI ≥ 0.8)
+
+### TRWR 계산
+```
+TRWR(t) = TRWR_baseline × scale_factor(t)
+scale_factor(t) = (P - ET0)_t / (P - ET0)_baseline
+```
+- P: 강수량 (mm)
+- ET0: Penman-Monteith 잠재증발산량 (mm)
+
+### 데이터 출처
+- **WAMIS 용수이용량** (과거)
+- **Aqueduct 4.0 BWS** (미래 추정)
+- **KMA 기상 데이터**: TA, RHM, WS, SI, RN
+
+### Bin 구간 (WRI Aqueduct 기준)
+
+| Bin | 구간 | 설명 | DR_intensity |
+|-----|------|------|--------------|
+| 1 | WSI < 0.2 | 낮은 물 스트레스 | 1% |
+| 2 | 0.2 ≤ WSI < 0.4 | 중간 물 스트레스 | 3% |
+| 3 | 0.4 ≤ WSI < 0.8 | 높은 물 스트레스 | 7% |
+| 4 | WSI ≥ 0.8 | 극심한 물 스트레스 | 15% |
+
+#### Bin 설정 근거
+
+**WRI Aqueduct 4.0 표준 임계값**:
+
+WSI (Water Stress Index) = Withdrawal / Available Supply 비율로 물부족 정도 정량화
+
+| WSI 범위 | 등급 | 물리적 의미 | 글로벌 사례 |
+|----------|------|------------|------------|
+| < 0.1 | Low | 수자원 매우 풍부 | 북유럽, 캐나다 |
+| 0.1~0.2 | Low-Medium | 수자원 충분 | 한국 (과거 평균 0.15) |
+| 0.2~0.4 | Medium-High | 계절적 물부족 시작 | 중국 동부 |
+| 0.4~0.8 | High | 반복적 물부족 | 인도, 스페인 |
+| ≥ 0.8 | Extremely High | 지속불가능 | 중동, 북아프리카 |
+
+**Falkenmark Indicator와 비교**:
+
+전통적 물부족 지표 (1인당 수자원량):
+- 1,700 m³/capita/year: Water Stress ≈ WSI 0.3
+- 1,000 m³/capita/year: Water Scarcity ≈ WSI 0.5
+- 500 m³/capita/year: Absolute Scarcity ≈ WSI 0.8
+
+**손상률 설정 근거**:
+
+| Bin | WSI | 경제적 영향 | 문헌 근거 |
+|-----|-----|------------|----------|
+| 1 | < 0.2 | 영향 미미 | 1% - 기저 관리 비용 |
+| 2 | 0.2~0.4 | 농업 제약 시작 | 3% - [Schewe et al., 2014, PNAS] 관개 제한 |
+| 3 | 0.4~0.8 | 산업/도시 용수 제한 | 7% - [Kummu et al., 2016, Science Advances] |
+| 4 | ≥ 0.8 | 경제 전반 타격 | 15% - [Wada et al., 2011, GRL] 지하수 고갈 |
+
+**bin1에도 1% 손상률 부여 이유**:
+- 완전한 물 스트레스 0 상태는 현실적으로 불가능
+- 수질 관리, 배수 처리, 인프라 유지 등 기본 비용 존재
+- [Vörösmarty et al., 2010, Nature]: 선진국도 수자원 관리 비용 GDP 0.5~1%
+
+**한국의 물 스트레스 추이**:
+- 1990년대: WSI ≈ 0.12 (Low)
+- 2010년대: WSI ≈ 0.18 (Low-Medium)
+- 2050년 전망 (SSP3-7.0): WSI ≈ 0.35~0.45 (Medium-High)
+
+### 미래 용수이용량 추정
+
+**Aqueduct 4.0 BWS 기반 선형 보간** (1년 단위):
+```
+Withdrawal(t) = Withdrawal_baseline × (BWS(t) / BWS_baseline)
+```
+
+**앵커 연도**: 2019, 2030, 2050, 2080
+
+**SSP 시나리오 매핑**:
+- SSP1-2.6 → Aqueduct 'opt' (optimistic)
+- SSP2-4.5 → (opt + bau) / 2 (interpolated)
+- SSP3-7.0 → Aqueduct 'bau' (business-as-usual)
+- SSP5-8.5 → Aqueduct 'pes' (pessimistic)
+
+### 5-2. 발생확률 계산
+
+```
+P_wst[i] = (해당 bin 연도 수) / (전체 연도 수)
+```
+- 시간 단위: **yearly** (연 기반)
+
+### 5-3. 최종 AAL 산출
+
+#### Step 1: 기본 AAL 계산 (DB)
+
+```
+base_aal_wst = Σ[P_wst[i] × DR_intensity[i]]
+```
+
+**계산 예시**:
+
+| Bin | P_wst[i] | DR_intensity[i] | P × DR |
+|-----|----------|-----------------|--------|
+| 1 | 0.40 | 0.01 | 0.00400 |
+| 2 | 0.35 | 0.03 | 0.01050 |
+| 3 | 0.20 | 0.07 | 0.01400 |
+| 4 | 0.05 | 0.15 | 0.00750 |
+
+```
+base_aal_wst = 0.03600 (3.60%)
+```
+
+#### Step 2: 취약성 스케일 적용
+
+```
+F_vuln = 0.9 + (1.1 - 0.9) × (V_score/100)
+```
+
+#### Step 3: 최종 AAL
+
+```
+AAL_final = base_aal_wst × F_vuln × (1 - IR)
+```
+
+### 5-4. 학술 근거
+
+1. **WRI Aqueduct Water Risk Atlas**
+   - [Hofste et al., 2019, WRI Technical Note]: Aqueduct 4.0 방법론
+   - BWS (Baseline Water Stress) 정의: Withdrawal / Available Supply
+   - 출처: [WRI Aqueduct](https://www.wri.org/aqueduct)
+
+2. **환경유지유량 (Environmental Flow Requirements)**
+   - [Pastor et al., 2014, Hydrology and Earth System Sciences]: EFR = 37% (글로벌 평균)
+   - Variable Monthly Flow (VMF) 방법: [Smakhtin et al., 2004, Water SA]
+
+3. **Penman-Monteith ET0**
+   - [Allen et al., 1998, FAO Irrigation and Drainage Paper 56]: FAO 표준 공식
+   - 출처: [FAO-56](http://www.fao.org/3/x0490e/x0490e00.htm)
+
+4. **미래 수자원 시나리오**
+   - IPCC AR6 WG2 (2022), Chapter 4: "Water"
+   - [Wada et al., 2016, Environmental Research Letters]: SSP 시나리오별 물부족 전망
+
+---
+
+## 6. 해수면 상승 (Sea Level Rise)
+
+### 강도지표
+```
+X_slr(t,j) = max over τ in year t [inundation_depth(t,τ,j)]
+inundation_depth(t,τ,j) = max(zos(t,τ) - ground_level(j), 0)
+```
+- **zos**: 해수면 높이 (m, CMIP6)
+- **ground_level**: 사이트 지반고도 (m, DEM 기반)
+- **inundation_depth**: 침수 깊이 (m)
+
+### 데이터 출처
+- **CMIP6 zos** (해수면 높이 시계열)
+- **DEM**: Digital Elevation Model (수치표고모델)
+
+### Bin 구간 (침수 깊이)
+
+| Bin | 구간 | 설명 | DR_intensity |
+|-----|------|------|--------------|
+| 1 | 0 m | 침수 없음 | 0% |
+| 2 | 0 ~ 0.3 m | 경미 피해 | 2% |
+| 3 | 0.3 ~ 1.0 m | 중간 피해 | 15% |
+| 4 | ≥ 1.0 m | 심각 피해 | 35% |
+
+#### Bin 설정 근거
+
+**침수 깊이 기반 피해 등급** (국제 표준):
+
+IPCC SROCC (2019) 및 EU JRC 연안 홍수 피해 곡선:
+
+| 침수 깊이 | 건물 피해 | 인프라 영향 | 경제 활동 | 근거 문헌 |
+|-----------|----------|------------|----------|----------|
+| 0 m | 없음 | 정상 | 정상 | - |
+| 0~0.3 m | 1층 바닥 침수 | 도로 통행 가능 | 일부 영업 중단 | [Vousdoukas et al., 2018] |
+| 0.3~1.0 m | 1층 전체 침수 | 차량 통행 불가 | 대부분 영업 중단 | [Hinkel et al., 2014] |
+| ≥ 1.0 m | 구조물 손상 | 장기 복구 필요 | 광역 마비 | [Tiggeloven et al., 2020] |
+
+**0.3m 임계값 선정**:
+- **"무릎 높이"** 기준: 보행 및 차량 통행 한계
+- 유럽 침수 피해 데이터: 0.3m에서 피해율 급증
+- [Huizinga et al., 2017, EU JRC]:
+  - < 0.3m: 평균 피해율 2~5%
+  - 0.3~1.0m: 평균 피해율 15~25%
+  - > 1.0m: 평균 피해율 35~60%
+
+**1.0m 임계값 선정**:
+- **"1층 천장 높이"** 근처: 구조적 손상 시작
+- [Hinkel et al., 2014, PNAS]:
+  - 1m 침수 시 건물 구조 손상, 장기 복구 필요
+  - 전기/가스 설비 침수로 2차 피해 확대
+
+**손상률 설정**:
+
+| Bin | 깊이 | 주거용 건물 | 상업용 건물 | 인프라 | DR_intensity |
+|-----|------|------------|------------|--------|--------------|
+| 1 | 0 m | 0% | 0% | 0% | **0%** |
+| 2 | 0~0.3m | 1~3% | 2~5% | 1~2% | **2%** (중간값) |
+| 3 | 0.3~1.0m | 10~20% | 15~30% | 10~15% | **15%** (중간값) |
+| 4 | ≥1.0m | 30~50% | 35~60% | 25~40% | **35%** (보수적 중간값) |
+
+**국제 Damage Curve 데이터**:
+- **[Vousdoukas et al., 2018, Earth's Future]**: 유럽 32개 도시 침수 피해 분석
+  - 침수 깊이-피해율 관계 비선형 (지수적 증가)
+- **[Tiggeloven et al., 2020, Nature Communications]**: 글로벌 연안 홍수 리스크
+  - 침수 0.5m: 평균 피해율 10%
+  - 침수 1.5m: 평균 피해율 45%
+
+**IPCC SROCC (2019) Chapter 4 권고**:
+- 해수면 상승 영향 평가 시 침수 깊이 기반 접근 권장
+- 0.3m, 1.0m 임계값은 다수 연구에서 공통적으로 사용
+
+### 6-2. 발생확률 계산
+
+```
+P_slr[i] = (해당 bin 연도 수) / (전체 연도 수)
+```
+- 시간 단위: **yearly** (연 기반)
+
+### 6-3. 최종 AAL 산출
+
+#### Step 1: 기본 AAL 계산 (DB)
+
+```
+base_aal_slr = Σ[P_slr[i] × DR_intensity[i]]
+```
+
+**계산 예시**:
+
+| Bin | P_slr[i] | DR_intensity[i] | P × DR |
+|-----|----------|-----------------|--------|
+| 1 | 0.90 | 0.00 | 0.00000 |
+| 2 | 0.07 | 0.02 | 0.00140 |
+| 3 | 0.02 | 0.15 | 0.00300 |
+| 4 | 0.01 | 0.35 | 0.00350 |
+
+```
+base_aal_slr = 0.00790 (0.79%)
+```
+
+#### Step 2: 취약성 스케일 적용
+
+```
+F_vuln = 0.9 + (1.1 - 0.9) × (V_score/100)
+```
+
+#### Step 3: 최종 AAL
+
+```
+AAL_final = base_aal_slr × F_vuln × (1 - IR)
+```
+
+### 6-4. 한계점 및 개선 필요사항
+
+**⚠️ 현재 구현의 문제점**:
+1. **DEM 최저값 사용**: 전체 지역의 최저 고도 하나만 사용 (공간적 variation 무시)
+2. **해안 방어시설 미고려**: 제방, 방파제 높이 미반영
+3. **내륙 지역 과대평가**: 해안선 거리 필터링 없음
+
+**권장 개선 방향**:
+1. 격자별 고도 사용 (`grid_elevations[grid_id]`)
+2. 해안 방어 고도 추가 (`ground_level + coastal_defense_height`)
+3. 해안선 거리 기반 필터링 (예: 10km 이내만 평가)
+
+### 학술 근거
+1. **CMIP6 zos 데이터**
+   - [Eyring et al., 2016, Geoscientific Model Development]: CMIP6 프로토콜
+   - 출처: [ESGF CMIP6 Data](https://esgf-node.llnl.gov/projects/cmip6/)
+
+2. **IPCC 해수면 상승 전망**
+   - IPCC AR6 WG1 (2021), Chapter 9: "Ocean, Cryosphere and Sea Level Change"
+     - SSP1-2.6: 2100년까지 0.28-0.55m 상승
+     - SSP5-8.5: 2100년까지 0.63-1.01m 상승
+
+3. **침수 피해 곡선**
+   - [Hinkel et al., 2014, PNAS]: 연안 홍수 피해 함수
+   - [Vousdoukas et al., 2018, Earth's Future]: 유럽 연안 손상률 데이터
+   - 국제 Damage Curve 중간값 적용 (0%, 2%, 15%, 35%)
+
+---
+## 7. 하천 홍수 (River Flood)
+
+### 강도지표
+```
+X_rflood(t) = RX1DAY(t)
+```
+- **RX1DAY**: 연 최대 일 강수량 (mm)
+
+### 데이터 출처
+- **KMA 연간 극값 지수** (기상청)
+
+### Bin 구간 (분위수 기반 - 동적)
+
+| Bin | 구간 | 설명 | DR_intensity |
+|-----|------|------|--------------|
+| 1 | RX1DAY < Q80 | 평범한 강우 | 0% |
+| 2 | Q80 ≤ RX1DAY < Q95 | 상위 20% 강우 | 2% |
+| 3 | Q95 ≤ RX1DAY < Q99 | 상위 5% 강우 | 8% |
+| 4 | RX1DAY ≥ Q99 | 상위 1% 극한 강우 | 20% |
+
+**분위수 계산**: 기준기간(1991-2020) 데이터 기반
+
+#### Bin 설정 근거
+
+**분위수 기반 임계값 사용 이유**:
+- 하천 홍수는 **지역별 하천 특성**에 크게 의존
+  - 한강 유역 100mm vs 섬진강 유역 100mm의 의미가 다름
+  - 유역 면적, 경사, 토양 특성, 댐/저수지 유무
+- 고정 임계값(예: 100mm, 200mm) 사용 시 지역 편향
+
+**재현기간과 분위수 관계**:
+
+| 분위수 | 재현기간 | RX1DAY 예시 (서울) | 홍수 등급 |
+|--------|----------|-------------------|----------|
+| Q80 (80%) | 5년 | ~150mm | 평범한 강우 |
+| Q90 (90%) | 10년 | ~200mm | 주의보 수준 |
+| Q95 (95%) | 20년 | ~250mm | 경보 수준 |
+| Q99 (99%) | 100년 | ~350mm | 특보 수준 (대홍수) |
+
+**물리적 의미**:
+- **Q80 미만**: 하천 유량 정상 범위, 홍수 위험 없음
+- **Q80~Q95**: 수위 상승, 소하천 범람 가능
+- **Q95~Q99**: 본류 범람 위험, 제방 월류 가능
+- **Q99 이상**: 대규모 홍수, 제방 붕괴 가능
+
+**손상률 설정 근거**:
+- **bin1 (0%)**: 정상 유량, 피해 없음
+- **bin2 (2%)**: [Winsemius et al., 2016, Nature Climate Change]
+  - 10년 빈도 홍수: 농경지 침수, 경미한 피해
+- **bin3 (8%)**: [Ward et al., 2013, Climatic Change]
+  - 20년 빈도 홍수: 주거지 침수, 주요 도로 차단
+- **bin4 (20%)**: [Hirabayashi et al., 2013, Nature Climate Change]
+  - 100년 빈도 홍수: 광역 침수, 인프라 마비
+
+**IPCC AR6 근거**:
+- Chapter 11.5: 극한 강수는 분위수 기반 평가 권장
+- 기후변화로 Q99 임계값이 낮아지는 경향 (같은 재현기간, 더 강한 강우)
+
+### 7-2. 발생확률 계산
+
+```
+P_rflood[i] = (해당 bin 연도 수) / (전체 연도 수)
+```
+- 시간 단위: **yearly** (연 기반)
+
+### 7-3. 최종 AAL 산출
+
+#### Step 1: 기본 AAL 계산 (DB)
+
+```
+base_aal_rflood = Σ[P_rflood[i] × DR_intensity[i]]
+```
+
+**계산 예시**:
+
+| Bin | P_rflood[i] | DR_intensity[i] | P × DR |
+|-----|-------------|-----------------|--------|
+| 1 | 0.60 | 0.00 | 0.00000 |
+| 2 | 0.25 | 0.02 | 0.00500 |
+| 3 | 0.10 | 0.08 | 0.00800 |
+| 4 | 0.05 | 0.20 | 0.01000 |
+
+```
+base_aal_rflood = 0.02300 (2.30%)
+```
+
+#### Step 2: 취약성 스케일 적용
+
+```
+F_vuln = 0.9 + (1.1 - 0.9) × (V_score/100)
+```
+
+#### Step 3: 최종 AAL
+
+```
+AAL_final = base_aal_rflood × F_vuln × (1 - IR)
+```
+
+### 7-4. 학술 근거
+
+1. **RX1DAY 지수**
+   - [ETCCDI Definition](http://etccdi.pacificclimate.org/list_27_indices.shtml)
+   - 하천 홍수 발생과 높은 상관관계: [Westra et al., 2013, Water Resources Research]
+
+2. **극한 강수 재현기간**
+   - [Myhre et al., 2019, Geophysical Research Letters]: 기후변화와 극한 강수 빈도 증가
+   - 분위수 기반 재현기간 추정: [Coles, 2001, Springer]
+
+---
+## 8. 도시 홍수 (Urban Flood)
+
+### 강도지표
+```
+X_pflood(t) = RAIN80(t)
+```
+- **RAIN80**: 연간 80mm 이상 호우일수 (일)
+
+### 데이터 출처
+- **KMA 극값 지수** (기상청)
+
+### Bin 구간 (호우일수 기준)
+
+| Bin | 구간 | 설명 | DR_intensity |
+|-----|------|------|--------------|
+| 1 | 0일 | 위험 거의 없음 | 0% |
+| 2 | 1-2일 | 저빈도 호우, 국지적 침수 가능 | 3% |
+| 3 | 3-4일 | 중간 위험, 배수 용량 초과 가능 | 10% |
+| 4 | 5-7일 | 반복적 도시침수 영역 | 25% |
+| 5 | ≥8일 | 고빈도 홍수 지역 | 45% |
+
+#### Bin 설정 근거
+
+**80mm 임계값 선정**:
+- **한국 도시 배수시설 설계 기준** (국토교통부):
+  - 우수관거 설계빈도: 10~30년 재현기간
+  - 80mm/day 이상: 대부분 도시의 배수 용량 초과
+- **[Yin et al., 2016, Environmental Research Letters]**:
+  - 글로벌 도시 침수 임계값 분석: 60~100mm/day
+  - 아시아 도시 평균: 80mm/day
+
+**호우일수별 위험도**:
+
+| Bin | RAIN80 | 연간 상황 | 배수시설 부하 | 침수 빈도 | DR_intensity 근거 |
+|-----|--------|-----------|---------------|-----------|------------------|
+| 1 | 0일 | 호우 없음 | 정상 | 없음 | 0% |
+| 2 | 1-2일 | 저빈도 집중호우 | 일시적 포화 | 국지적 | 3% - 지하공간 침수 |
+| 3 | 3-4일 | 중간 빈도 | 반복 초과 | 주요 도로 | 10% - 교통 마비 |
+| 4 | 5-7일 | 고빈도 취약지역 | 설계 용량 부족 | 반복 침수 | 25% - 주택/상가 침수 |
+| 5 | ≥8일 | 극심 홍수 지역 | 시스템 실패 | 상습 침수 | 45% - 대규모 피해 |
+
+**손상률 설정 문헌**:
+- **[Huizinga et al., 2017, EU JRC]**: 유럽 도시 홍수 피해 곡선
+  - 침수 깊이 < 0.5m: 건물 피해율 5~10%
+  - 침수 깊이 > 1m: 건물 피해율 30~50%
+- **[MLIT, 2012, 일본 국토교통성]**: 도시침수 피해율 조사
+  - 연 3회 침수: 평균 피해율 12%
+  - 연 7회 이상: 평균 피해율 35%
+
+**한국 사례**:
+- 서울 강남역 일대: RAIN80 연평균 4~6일 (상습 침수 지역)
+- 부산 해운대구: RAIN80 연평균 7~9일 (태풍 영향)
+
+### 8-2. 발생확률 계산
+
+```
+P_pflood[i] = (해당 bin 연도 수) / (전체 연도 수)
+```
+- 시간 단위: **yearly** (연 기반)
+
+### 8-3. 최종 AAL 산출
+
+#### Step 1: 기본 AAL 계산 (DB)
+
+```
+base_aal_pflood = Σ[P_pflood[i] × DR_intensity[i]]
+```
+
+**계산 예시**:
+
+| Bin | P_pflood[i] | DR_intensity[i] | P × DR |
+|-----|-------------|-----------------|--------|
+| 1 | 0.50 | 0.00 | 0.00000 |
+| 2 | 0.30 | 0.03 | 0.00900 |
+| 3 | 0.15 | 0.10 | 0.01500 |
+| 4 | 0.04 | 0.25 | 0.01000 |
+| 5 | 0.01 | 0.45 | 0.00450 |
+
+```
+base_aal_pflood = 0.03850 (3.85%)
+```
+
+#### Step 2: 취약성 스케일 적용
+
+```
+F_vuln = 0.9 + (1.1 - 0.9) × (V_score/100)
+```
+
+#### Step 3: 최종 AAL
+
+```
+AAL_final = base_aal_pflood × F_vuln × (1 - IR)
+```
+
+### 8-4. 학술 근거
+
+1. **도시 홍수 임계값 연구**
+   - [Yin et al., 2016, Environmental Research Letters]: 도시 배수 용량 초과 기준
+   - 80mm 임계값: 한국 도시 배수시설 설계 기준 (국토교통부)
+
+2. **피해 함수**
+   - [Huizinga et al., 2017, EU JRC Flood Damage Functions]: 유럽 도시 홍수 피해 곡선
+   - [MLIT, 2012, 일본 국토교통성]: 도시침수 피해율 조사
+
+---
+
+## 9. 열대성 태풍 (Typhoon)
+
+### 강도지표
+```
+S_tc(t,j) = Σ[storm,τ in year t] w_tc[bin_inst(storm,τ,j)]
+```
+- **S_tc**: 연도별 누적 태풍 노출 지수
+- **bin_inst**: 시점별 태풍 영향 등급 (0-3)
+- **w_tc**: bin별 가중치 `[0, 1, 3, 7]`
+
+### 📊 계산 상세
+
+#### bin_inst 판정 로직 (시점별)
+
+**KMA Best Track 데이터 구조**:
+```python
+track_point = {
+    'lon': 127.5,        # 태풍 중심 경도 (°E)
+    'lat': 35.2,         # 태풍 중심 위도 (°N)
+    'grade': 'TY',       # 태풍 등급 (TD/TS/STS/TY)
+    'gale_long': 300,    # 강풍(15m/s) 장반경 (km)
+    'gale_short': 200,   # 강풍 단반경 (km)
+    'gale_dir': 45,      # 강풍 타원 방향각 (°)
+    'storm_long': 150,   # 폭풍(25m/s) 장반경 (km)
+    'storm_short': 100,  # 폭풍 단반경 (km)
+    'storm_dir': 45      # 폭풍 타원 방향각 (°)
+}
+```
+
+**1단계: 태풍 중심-사이트 거리 계산** (위경도 → km 변환)
+```python
+# 평균 위도 계산
+avg_lat = (site_lat + typhoon_lat) / 2
+
+# km 변환 계수
+km_per_deg_lon = 111.0 × cos(radians(avg_lat))  # 경도: 위도에 따라 변화
+km_per_deg_lat = 111.0                           # 위도: 상수
+
+# 거리 벡터 (km)
+dx_km = (site_lon - typhoon_lon) × km_per_deg_lon
+dy_km = (site_lat - typhoon_lat) × km_per_deg_lat
+```
+
+**예시**:
+- 서울(37.5°N, 127°E)과 태풍 중심(35°N, 129°E)
+- avg_lat = 36.25°, cos(36.25°) ≈ 0.806
+- dx_km = (127 - 129) × 111 × 0.806 ≈ -179 km
+- dy_km = (37.5 - 35) × 111 ≈ 278 km
+- 거리 = √(179² + 278²) ≈ 331 km
+
+**2단계: 타원 영향권 판정**
+
+타원 방정식 (회전 변환):
+```python
+θ = radians(direction)  # 방향각 (°→rad)
+
+# 좌표 회전
+x_rot = dx × cos(θ) + dy × sin(θ)
+y_rot = -dx × sin(θ) + dy × cos(θ)
+
+# 타원 내부 판정
+ellipse_value = (x_rot / semi_major)² + (y_rot / semi_minor)²
+is_inside = (ellipse_value ≤ 1.0)
+```
+
+**3단계: bin_inst 판정 순서**
+
+```python
+if is_inside_STORM_ellipse:
+    if grade == 'TY':
+        return 3  # TY급: 최대풍속 ≥ 33 m/s
+    else:
+        return 2  # STS급: 25-32 m/s
+elif is_inside_GALE_ellipse:
+    if grade in ['TS', 'STS', 'TY']:
+        return 1  # TS급: 17-24 m/s
+    else:
+        return 0  # TD급은 영향 없음
+else:
+    return 0  # 영향권 밖
+```
+
+#### 가중치 w_tc 설정 근거
+
+| bin_inst | 풍속 범위 | 물리적 피해 | 가중치 w_tc | 근거 |
+|----------|----------|------------|-------------|------|
+| 0 | < 15 m/s | 영향 없음 | 0 | - |
+| 1 | 15-24 m/s | 나뭇가지 부러짐, 간판 날림 | 1 | 기준값 |
+| 2 | 25-32 m/s | 기와 날림, 유리창 파손 | 3 | 피해 3배 증가 |
+| 3 | ≥ 33 m/s | 지붕 파괴, 나무 뿌리째 뽑힘 | 7 | 피해 7배 증가 |
+
+**물리적 근거** (풍압 ∝ 풍속²):
+- 25 m/s vs 17 m/s: (25/17)² ≈ 2.2배 → 가중치 3
+- 33 m/s vs 17 m/s: (33/17)² ≈ 3.8배 → 가중치 7 (구조물 파괴 임계점)
+
+**문헌**:
+- [Saffir-Simpson Scale]: 풍속에 따른 피해 등급 체계
+- [Emanuel, 2005, Nature]: 태풍 파괴력 지수 (PDI) ∝ V³
+
+#### 연도별 누적 지수 S_tc 계산 예시
+
+**2020년 태풍 시나리오** (서울):
+- 태풍 A: 8월 1일 00시-18시 (3개 시점)
+  - 00시: bin_inst=1 → +1
+  - 06시: bin_inst=2 → +3
+  - 12시: bin_inst=3 → +7
+  - 18시: bin_inst=1 → +1
+- 태풍 B: 9월 5일 06시-12시 (2개 시점)
+  - 06시: bin_inst=2 → +3
+  - 12시: bin_inst=1 → +1
+
+**S_tc(2020) = 1+3+7+1+3+1 = 16** → bin4 (매우 강한 노출)
+
+#### bin_year 구간 설정 근거
+
+| Bin | S_tc 범위 | 연간 상황 | DR_intensity |
+|-----|-----------|-----------|--------------|
+| 1 | 0 | 태풍 미도달 | 0% |
+| 2 | 1-5 | TS급 1-2회 스침 | 2% |
+| 3 | 6-15 | STS급 직접 통과 또는 TY급 스침 | 10% |
+| 4 | > 15 | TY급 직접 타격 또는 복수 강한 태풍 | 30% |
+
+### bin_inst 판정 로직
+
+| bin_inst | 조건 | 설명 | 가중치 w_tc |
+|----------|------|------|-------------|
+| 0 | 영향권 밖 | 영향 없음 | 0 |
+| 1 | GALE 타원 내 | TS급 영향 (15-24 m/s) | 1 |
+| 2 | STORM 타원 내 (비TY) | STS급 영향 (25-32 m/s) | 3 |
+| 3 | STORM 타원 내 (TY) | TY급 영향 (≥33 m/s) | 7 |
+
+### 데이터 출처
+- **KMA 태풍 Best Track API** (과거)
+- **SSP 시나리오 기온 데이터** (미래 추정)
+
+### Bin 구간 (연도별 누적 S_tc)
+
+| Bin | 구간 | 설명 | DR_intensity |
+|-----|------|------|--------------|
+| 1 | S_tc = 0 | 영향 없음 | 0% |
+| 2 | 0 < S_tc ≤ 5 | 약한 노출 | 2% |
+| 3 | 5 < S_tc ≤ 15 | 중간~강한 노출 | 10% |
+| 4 | S_tc > 15 | 매우 강한 노출 | 30% |
+
+### 미래 시나리오 추정 (Hybrid Approach)
+
+**1단계: 과거 통계 추출 (Gamma 분포 피팅)**
+```
+shape = (μ_baseline / σ_baseline)²
+scale = σ_baseline² / μ_baseline
+```
+
+**2단계: 기온 스케일링 (IPCC AR6 기반)**
+```
+intensity_scale = 1.0 + 0.04 × (T_year - T_baseline)
+```
+- 1°C 온난화 시 태풍 강도 4% 증가 (보수적 중간값)
+
+**3단계: 확률적 샘플링**
+```
+S_tc(t) ~ Gamma(shape, expected_mean / shape)
+expected_mean = μ_baseline × intensity_scale
+```
+
+### 9-2. 발생확률 계산
+
+```
+P_typhoon[i] = (해당 bin 연도 수) / (전체 연도 수)
+```
+- 시간 단위: **yearly** (연 기반)
+
+### 9-3. 최종 AAL 산출
+
+#### Step 1: 기본 AAL 계산 (DB)
+
+```
+base_aal_typhoon = Σ[P_typhoon[i] × DR_intensity[i]]
+```
+
+**계산 예시**:
+
+| Bin | P_typhoon[i] | DR_intensity[i] | P × DR |
+|-----|--------------|-----------------|--------|
+| 1 | 0.40 | 0.00 | 0.00000 |
+| 2 | 0.35 | 0.02 | 0.00700 |
+| 3 | 0.20 | 0.10 | 0.02000 |
+| 4 | 0.05 | 0.30 | 0.01500 |
+
+```
+base_aal_typhoon = 0.04200 (4.20%)
+```
+
+#### Step 2: 취약성 스케일 적용
+
+```
+F_vuln = 0.9 + (1.1 - 0.9) × (V_score/100)
+```
+
+#### Step 3: 최종 AAL
+
+```
+AAL_final = base_aal_typhoon × F_vuln × (1 - IR)
+```
+
+**전체 계산 예시** (부산, 노후 건물):
+- base_aal = 0.04200
+- V_score = 80 (노후 건물)
+- F_vuln = 0.9 + 0.2 × 0.8 = 1.06
+- insurance_rate = 0.2 (20% 보험)
+- AAL_final = 0.04200 × 1.06 × 0.8 = 0.03562 (3.56%)
+- 위험 수준: **Moderate** (5% 미만)
+
+### 9-4. 학술 근거
+
+1. **태풍 Best Track 데이터**
+   - [WMO International Best Track Archive for Climate Stewardship (IBTrACS)](https://www.ncdc.noaa.gov/ibtracs/)
+   - KMA 태풍센터: [기상청 태풍정보](https://www.weather.go.kr/w/typhoon/index.do)
+
+2. **기후변화와 태풍 강도**
+   - IPCC AR6 WG1 (2021), Chapter 11.7.1: "Tropical Cyclones"
+     - 인용: "1°C 온난화 시 태풍 강도 1-10% 증가 가능성"
+   - [Knutson et al., 2020, Science Advances]: 온난화와 태풍 강도 증가 메타분석
+
+3. **Gamma 분포 기반 확률적 모델링**
+   - [Emanuel, 2006, Bulletin of the American Meteorological Society]
+   - 태풍 빈도 및 강도의 확률적 시뮬레이션 표준 기법
+
+---
+
+## 참고문헌
+
+### 국제 기후 지수
+- **ETCCDI**: [Expert Team on Climate Change Detection and Indices](http://etccdi.pacificclimate.org/)
+- **CMIP6**: [Coupled Model Intercomparison Project Phase 6](https://www.wcrp-climate.org/wgcm-cmip/wgcm-cmip6)
+
+### IPCC 보고서
+- **IPCC AR6 WG1** (2021): [Climate Change 2021: The Physical Science Basis](https://www.ipcc.ch/report/ar6/wg1/)
+- **IPCC AR6 WG2** (2022): [Climate Change 2022: Impacts, Adaptation and Vulnerability](https://www.ipcc.ch/report/ar6/wg2/)
+
+### 주요 학술 논문
+1. **Zhang, X., et al. (2011)**. Indices for monitoring changes in extremes based on daily temperature and precipitation data. *WIREs Climate Change*, 2(6), 851-870.
+
+2. **Vicente-Serrano, S. M., et al. (2010)**. A multiscalar drought index sensitive to global warming: the standardized precipitation evapotranspiration index. *Journal of Climate*, 23(7), 1696-1718.
+
+3. **Knutson, T., et al. (2020)**. Tropical cyclones and climate change assessment: Part II. *Science Advances*, 6(10), eaaz6418.
+
+4. **Van Wagner, C. E. (1987)**. Development and structure of the Canadian Forest Fire Weather Index System. *Canadian Forestry Service Technical Report 35*.
+
+5. **Hofste, R. W., et al. (2019)**. Aqueduct 4.0: Updated decision-relevant global water risk indicators. *WRI Technical Note*. [Link](https://www.wri.org/aqueduct)
+
+6. **Allen, R. G., et al. (1998)**. Crop evapotranspiration - Guidelines for computing crop water requirements. *FAO Irrigation and Drainage Paper 56*. [Link](http://www.fao.org/3/x0490e/x0490e00.htm)
+
+7. **Hinkel, J., et al. (2014)**. Coastal flood damage and adaptation costs under 21st century sea-level rise. *PNAS*, 111(9), 3292-3297.
+
+### 데이터 출처
+- **기상청 (KMA)**: [기후통계지도](https://www.weather.go.kr/w/climate/index.do)
+- **환경부 물환경정보시스템 (WAMIS)**: [http://www.wamis.go.kr](http://www.wamis.go.kr)
+- **WRI Aqueduct**: [https://www.wri.org/aqueduct](https://www.wri.org/aqueduct)
+- **EFFIS**: [https://effis.jrc.ec.europa.eu/](https://effis.jrc.ec.europa.eu/)
+
+---
+
+## 버전 이력
+
+- **v3.0** (2025-11-25): 리스크별 AAL 산출 로직 통합
+  - 각 리스크별로 발생확률 → 기본 AAL → 취약성 스케일 → 최종 AAL 전체 흐름 추가
+  - 취약성 점수 기반 스케일링 (F_vuln) 설명 추가
+  - 보험 보전율 적용 로직 추가
+  - 위험 수준 분류 기준 (Minimal~Critical) 추가
+- **v2.2** (2025-11-25): 모든 리스크 bin 설정 근거 추가 (McKee 가뭄 등급, 도시 배수 기준, 재현기간, WRI 임계값, 침수 깊이 피해 곡선)
+- **v2.1** (2025-11-25): 상세 계산 로직 추가 (고온 분위수, 태풍 가중치, 산불 FWI, 물부족 WSI)
+- **v2.0** (2025-11-25): 9개 리스크 통합 문서 작성, 학술 근거 추가
+- **v1.1** (2025-11-24): 고온/한파 분위수 기반 bin, 산불 FWI v2.0 반영
+- **v1.0** (2025-11-21): 초기 문서 작성 (AAL에서 확률 계산 분리)
+
+---
+
+**문의**: AIOps Team
+**라이센스**: Internal Use Only

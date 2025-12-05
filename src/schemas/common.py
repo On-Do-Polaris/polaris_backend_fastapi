@@ -44,19 +44,14 @@ class Priority(str, Enum):
 
 
 class SiteInfo(BaseModel):
+    """사업장 정보 (ERD sites 테이블 기준)"""
     id: UUID
     name: str
-    address: Optional[str] = None
-    city: Optional[str] = None
+    road_address: Optional[str] = Field(None, alias="roadAddress", description="도로명 주소")
+    jibun_address: Optional[str] = Field(None, alias="jibunAddress", description="지번 주소")
     latitude: float
     longitude: float
-    industry: str
-    building_age: Optional[int] = Field(None, alias="buildingAge")
-    building_type: Optional[str] = Field(None, alias="buildingType")
-    seismic_design: bool = Field(False, alias="seismicDesign")
-    floor_area: Optional[float] = Field(None, alias="floorArea")
-    asset_value: Optional[float] = Field(None, alias="assetValue")
-    employee_count: Optional[int] = Field(None, alias="employeeCount")
+    type: str = Field(..., description="업종/유형")
 
     class Config:
         populate_by_name = True

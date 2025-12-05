@@ -1,42 +1,46 @@
 '''
 파일명: graph.py
-최종 수정일: 2025-11-13
-버전: v04
-파일 개요: LangGraph 워크플로우 그래프 정의 (Super Agent 계층적 구조)
+최종 수정일: 2025-12-02
+버전: v07
+파일 개요: LangGraph 워크플로우 그래프 정의 (Phase 2: 리포트 생성 전용)
 변경 이력:
 	- 2025-11-11: v01 - Super Agent 계층적 구조로 전면 개편, 검증 재시도 루프 추가
 	- 2025-11-11: v02 - 워크플로우 순서 변경 (AAL 분석 → 물리적 리스크 점수), 100점 스케일 적용
 	- 2025-11-13: v03 - AAL과 물리적 리스크 점수를 병렬 실행으로 변경 (H×E×V 방식 복원)
 	- 2025-11-13: v04 - 영향 분석 노드 추가 (report_template → impact_analysis → strategy)
+	- 2025-12-01: v05 - Node 2 역할 변경 (Vulnerability → Building Characteristics)
+	                   - Node 5 이후 병렬 분기 구조 추가 (2 ∥ [6→7→8→9→10→11])
+	- 2025-12-01: v06 - vulnerability_analysis 노드 삭제 (ModelOps가 V 계산)
+	                   - Data Collection → 직접 ModelOps (Node 1 → 2 ∥ 3)
+	- 2025-12-02: v07 - Phase 1/2 분리: Node 2, 3, 4 제거 (Physical Risk Score, AAL, Risk Integration)
+	                   - Node 1 (Data Collection) 유지
+	                   - DB에서 H, E, V, risk_scores, AAL 로드하여 사용
 '''
 from langgraph.graph import StateGraph, END
 from .state import SuperAgentState
 from .nodes import (
 	data_collection_node,
-	vulnerability_analysis_node,
-	physical_risk_score_node,
-	aal_analysis_node,
-	risk_integration_node,
 	report_template_node,
 	impact_analysis_node,
 	strategy_generation_node,
 	report_generation_node,
 	validation_node,
 	refiner_node,
-	finalization_node
+	finalization_node,
+	building_characteristics_node
 )
 
 
 def should_retry_validation(state: SuperAgentState) -> str:
 	"""
-	검증 재시도 판단 함수 (Refiner Loop 포함)
-	검증 실패 시 먼저 Refiner로 자동 보완 시도, 이후 재실행 결정
+	검증 재시도 판단 함수 (Refiner Loop 포함, Building Characteristics 재실행 지원)
+	검증 실패 시 이슈 유형에 따라 적절한 노드로 분기
 
 	Args:
 		state: 현재 워크플로우 상태
 
 	Returns:
-		다음 노드 이름 ('refiner', 'impact_analysis', 'strategy_generation', 'finalization')
+		다음 노드 이름 ('building_characteristics', 'refiner', 'impact_analysis', 'strategy_generation', 'finalization')
 	"""
 	validation_status = state.get('validation_status')
 	retry_count = state.get('retry_count', 0)
@@ -60,6 +64,16 @@ def should_retry_validation(state: SuperAgentState) -> str:
 
 	# 검증 실패 - 이슈 유형 분석
 	issues_found = validation_result.get('issues_found', [])
+
+	# Building Characteristics 관련 이슈 (재실행 필요) - NEW
+	building_characteristics_issues = [
+		'building_characteristics_missing',
+		'building_characteristics_incomplete',
+		'comprehensive_analysis_missing',
+		'bc_quality_low',
+		'consistency',  # ModelOps 결과 불일치
+		'completeness'  # BC 필수 섹션 누락
+	]
 
 	# 텍스트/구조 관련 이슈 (Refiner로 자동 수정 가능)
 	refiner_fixable_issues = [
@@ -88,6 +102,13 @@ def should_retry_validation(state: SuperAgentState) -> str:
 	]
 
 	# 이슈 분류
+	has_bc_issues = any(
+		issue.get('type') in building_characteristics_issues or
+		'building' in issue.get('type', '').lower() or
+		issue.get('description', '').lower().find('building characteristics') >= 0
+		for issue in issues_found
+	)
+
 	has_refiner_issues = any(
 		issue.get('type') in refiner_fixable_issues or
 		any(keyword in issue.get('type', '').lower() for keyword in ['text', 'structure', 'format', 'tcfd', 'citation'])
@@ -104,8 +125,11 @@ def should_retry_validation(state: SuperAgentState) -> str:
 		for issue in issues_found
 	)
 
-	# 분기 결정 (우선순위: Refiner > Impact > Strategy)
-	if has_refiner_issues and refiner_loop_count < 3:
+	# 분기 결정 (우선순위: Building Characteristics > Refiner > Impact > Strategy)
+	if has_bc_issues:
+		print(f"[조건부 분기] 검증 실패 (Building Characteristics 이슈) -> Building Characteristics 재실행 (재시도 {retry_count + 1}/3)")
+		return 'building_characteristics'
+	elif has_refiner_issues and refiner_loop_count < 3:
 		print(f"[조건부 분기] 검증 실패 (텍스트/구조 이슈) -> Refiner 자동 보완 (Loop {refiner_loop_count + 1}/3)")
 		return 'refiner'
 	elif has_impact_issues and not has_strategy_issues:
@@ -122,10 +146,26 @@ def should_retry_validation(state: SuperAgentState) -> str:
 
 def create_workflow_graph(config):
 	"""
-	Super Agent 워크플로우 그래프 생성
-	12개 노드를 연결하고 검증 재시도 루프 포함
-	AAL과 물리적 리스크 점수는 병렬 실행 (개념적)
-	report_template → impact_analysis → strategy 흐름
+	Phase 2 워크플로우 그래프 생성 (리포트 생성, Node 1 유지)
+
+	새로운 구조 (v07 - Phase 1/2 분리):
+	START → DataCollection → (BC ∥ [Template→Impact→Strategy→Report]) → Validation → Refiner → Finalization → END
+
+	노드 설명:
+	- Node 1 (Data Collection): 데이터 수집 (Phase 1 유일한 유지 노드)
+	- Node BC (Building Characteristics): 건물 특징 분석 (LLM 기반, 각 사업장별)
+	- Node Template: Report Template (report_profile 생성)
+	- Node Impact: Impact Analysis (영향 분석, 단일/다중 사업장 지원)
+	- Node Strategy: Strategy Generation (전략 생성, 단일/다중 사업장 지원)
+	- Node Report: Report Generation (리포트 생성)
+	- Node Validation: 검증
+	- Node Refiner: 개선 (선택적)
+	- Node Finalization: 최종화
+
+	Phase 1 제거된 노드 (DB에서 로드):
+	- Node 2: Physical Risk Score (제거 - DB에서 risk_scores 로드)
+	- Node 3: AAL Analysis (제거 - DB에서 AAL 로드)
+	- Node 4: Risk Integration (제거 - DB에서 H, E, V 로드)
 
 	Args:
 		config: 설정 객체
@@ -136,12 +176,9 @@ def create_workflow_graph(config):
 	# StateGraph 초기화
 	workflow = StateGraph(SuperAgentState)
 
-	# ========== 노드 추가 ==========
+	# ========== 노드 추가 (Node 1 유지 + Phase 2) ==========
 	workflow.add_node('data_collection', lambda state: data_collection_node(state, config))
-	workflow.add_node('vulnerability_analysis', lambda state: vulnerability_analysis_node(state, config))
-	workflow.add_node('physical_risk_score', lambda state: physical_risk_score_node(state, config))
-	workflow.add_node('aal_analysis', lambda state: aal_analysis_node(state, config))
-	workflow.add_node('risk_integration', lambda state: risk_integration_node(state, config))
+	workflow.add_node('building_characteristics', lambda state: building_characteristics_node(state, config))
 	workflow.add_node('report_template', lambda state: report_template_node(state, config))
 	workflow.add_node('impact_analysis', lambda state: impact_analysis_node(state, config))
 	workflow.add_node('strategy_generation', lambda state: strategy_generation_node(state, config))
@@ -152,44 +189,40 @@ def create_workflow_graph(config):
 
 	# ========== 엣지 추가 (워크플로우 흐름) ==========
 
-	# 시작점: 데이터 수집
+	# 시작점: Data Collection (Node 1)
 	workflow.set_entry_point('data_collection')
 
-	# 1. 데이터 수집 -> 취약성 분석
-	workflow.add_edge('data_collection', 'vulnerability_analysis')
+	# 1. Data Collection -> Report Template (Phase 2 진입)
+	workflow.add_edge('data_collection', 'report_template')
 
-	# 2. 취약성 분석 -> 물리적 리스크 점수 (H×E×V 기반, 병렬 실행 개념)
-	workflow.add_edge('vulnerability_analysis', 'physical_risk_score')
+	# 2. Report Template -> Building Characteristics (병렬 브랜치 1)
+	workflow.add_edge('report_template', 'building_characteristics')
 
-	# 3. 취약성 분석 -> AAL 분석 (병렬 실행 개념)
-	workflow.add_edge('vulnerability_analysis', 'aal_analysis')
-
-	# 4. 물리적 리스크 점수 -> 리스크 통합
-	workflow.add_edge('physical_risk_score', 'risk_integration')
-
-	# 5. AAL 분석 -> 리스크 통합
-	workflow.add_edge('aal_analysis', 'risk_integration')
-
-	# 6. 리스크 통합 -> 리포트 템플릿 생성
-	workflow.add_edge('risk_integration', 'report_template')
-
-	# 7. 리포트 템플릿 생성 -> 영향 분석
+	# 3. Report Template -> Impact Analysis (병렬 브랜치 2 시작)
 	workflow.add_edge('report_template', 'impact_analysis')
 
-	# 8. 영향 분석 -> 대응 전략 생성
+	# ========== 리포트 체인 (순차 실행 Template→Impact→Strategy→Report) ==========
+
+	# 4. 영향 분석 -> 대응 전략 생성
 	workflow.add_edge('impact_analysis', 'strategy_generation')
 
-	# 9. 대응 전략 생성 -> 리포트 생성
+	# 5. 대응 전략 생성 -> 리포트 생성
 	workflow.add_edge('strategy_generation', 'report_generation')
 
-	# 10. 리포트 생성 -> 검증
+	# ========== 병합: Building Characteristics와 Report Generation이 모두 완료되면 Validation으로 ==========
+
+	# 10. Building Characteristics -> 검증 (병렬 브랜치 1 완료)
+	workflow.add_edge('building_characteristics', 'validation')
+
+	# 11. 리포트 생성 -> 검증 (병렬 브랜치 2 완료)
 	workflow.add_edge('report_generation', 'validation')
 
-	# 11. 검증 -> 조건부 분기 (Refiner Loop 포함)
+	# 12. 검증 -> 조건부 분기 (Building Characteristics, Refiner Loop 포함)
 	workflow.add_conditional_edges(
 		'validation',
 		should_retry_validation,
 		{
+			'building_characteristics': 'building_characteristics',  # NEW: BC 이슈 -> BC 재실행
 			'refiner': 'refiner',  # 텍스트/구조 이슈 -> Refiner 자동 보완
 			'impact_analysis': 'impact_analysis',  # 영향 분석 이슈 -> 영향 분석 재실행
 			'strategy_generation': 'strategy_generation',  # 전략 이슈 -> 전략 재생성
@@ -197,16 +230,16 @@ def create_workflow_graph(config):
 		}
 	)
 
-	# 11a. Refiner -> 검증 (재검증 루프)
+	# 13. Refiner -> 검증 (재검증 루프)
 	workflow.add_edge('refiner', 'validation')
 
-	# 12. 최종화 -> 종료
+	# 14. 최종화 -> 종료 (단일 종료점)
 	workflow.add_edge('finalization', END)
 
 	# 그래프 컴파일
 	compiled_graph = workflow.compile()
 
-	print("=== Super Agent 워크플로우 그래프 컴파일 완료 ===")
+	print("=== Super Agent 워크플로우 그래프 컴파일 완료 (v07 Phase 1/2 분리) ===")
 	print_workflow_structure()
 
 	return compiled_graph
@@ -218,7 +251,7 @@ def print_workflow_structure():
 	"""
 	structure = """
 	==============================================================
-	     SKAX Physical Risk Analysis Workflow (Super Agent)
+	     SKAX Physical Risk Analysis Workflow (v07)
 	==============================================================
 
 	START
@@ -228,104 +261,87 @@ def print_workflow_structure():
 	|  Node 1: 데이터 수집 (data_collection)                |
 	|  - 대상 위치 기후 데이터 수집                           |
 	|  - 과거~현재 전력 사용량 데이터 수집                    |
+	|  - DB에서 H, E, V, risk_scores, AAL 로드 (Phase 1 결과)|
 	+-------------------------------------------------------+
 	  |
 	  v
 	+-------------------------------------------------------+
-	|  Node 2: 취약성 분석 (vulnerability_analysis)          |
-	|  - 건물 연식, 내진 설계, 소방차 진입 가능성             |
-	|  - 9개 리스크 선정                                      |
-	+-------------------------------------------------------+
-	  |
-	  +------------------------+------------------------+
-	  |                        |                        |
-	  v                        v                        |
-	+------------------+ +------------------+           |
-	| Node 3a: 물리적  | | Node 3b: AAL    |           |
-	| 리스크 점수 산출 | | 분석 (병렬실행) |           |
-	| (H×E×V 기반)     | | (P×D 기반)      |           |
-	| • 9개 Sub Agent | | • 9개 Sub Agent |           |
-	| • Hazard        | | • 확률×손상률   |           |
-	| • Exposure      | | • 재무손실액    |           |
-	| • Vulnerability | |                 |           |
-	+------------------+ +------------------+           |
-	  |                        |                        |
-	  +------------------------+------------------------+
-	  |
-	  v
-	+-------------------------------------------------------+
-	|  Node 4: 리스크 통합 (risk_integration)               |
-	|  - 물리적 리스크 점수 + AAL 분석 결과 통합             |
-	+-------------------------------------------------------+
-	  |
-	  v
-	+-------------------------------------------------------+
-	|  Node 5: 리포트 템플릿 형성 (report_template)          |
+	|  Node 5: 리포트 템플릿 (report_template)             |
 	|  - RAG 엔진 활용                                       |
-	|  - 유사 기존 보고서 검색 및 참조                        |
+	|  - 보고서 구조 설정                                    |
 	+-------------------------------------------------------+
+	  |
+	  +---------------------------+---------------------------+
+	  |                           |                           |
+	  v (병렬 브랜치 1)           v (병렬 브랜치 2)           |
+	+---------------------------+ +---------------------------+
+	| Node BC: 건물 특징 분석   | | Node 6: 영향 분석         |
+	| (Building Characteristics)| | (impact_analysis)        |
+	| • LLM 기반 정성 분석      | | • 전력 사용량 기반 영향   |
+	| • Score/AAL 결과 해석     | | • 단일/다중 사업장 지원   |
+	| • 취약점/회복력 분석      | +---------------------------+
+	+---------------------------+   |
+	  |                             v
+	  |                           +---------------------------+
+	  |                           | Node 7: 대응 전략 생성    |
+	  |                           | (strategy_generation)    |
+	  |                           | • LLM + RAG 활용         |
+	  |                           | • 단일/다중 사업장 지원   |
+	  |                           +---------------------------+
+	  |                             |
+	  |                             v
+	  |                           +---------------------------+
+	  |                           | Node 8: 리포트 생성       |
+	  |                           | (report_generation)      |
+	  |                           +---------------------------+
+	  |                             |
+	  +-----------------------------+-----------------------------+
+	  |                                                           |
+	  v                                                           v
+	+---------------------------------------------------------------+
+	|  Node 9: 검증 (병합 노드)                                    |
+	|  - 정확성 검증 (데이터 일치 여부)                             |
+	|  - 일관성 검증 (논리적 모순 확인)                             |
+	|  - 완전성 검증 (필수 섹션 포함 확인)                          |
+	|  - Building Characteristics 결과 활용                       |
+	+---------------------------------------------------------------+
+	  |
+	  +---> [재시도 루프: building_characteristics / refiner /
+	  |      impact_analysis / strategy_generation]
 	  |
 	  v
 	+-------------------------------------------------------+
-	|  Node 6: 영향 분석 (impact_analysis)                  |
-	|  - 전력 사용량 기반 구체적 영향 분석                    |
-	|  - 리스크별 과거 데이터 패턴 분석                       |
-	|  - 운영 비용 및 설비 영향 평가                         |
+	|  Node 10: 최종화 (finalization)                       |
+	|  - 검증 통과한 리포트 확정                             |
+	|  - Building Characteristics 결과 포함                |
 	+-------------------------------------------------------+
 	  |
 	  v
-	+-------------------------------------------------------+
-	|  Node 7: 대응 전략 생성 (strategy_generation)          |
-	|  - LLM + RAG 활용                                     |
-	|  - 물리적 리스크, AAL, 영향 분석 기반 전략 수립         |
-	|  - 맞춤형 대응 전략 및 권고 사항 생성                   |
-	+-------------------------------------------------------+
-	  |
-	  v
-	+-------------------------------------------------------+
-	|  Node 8: 리포트 생성 (report_generation)               |
-	|  - 템플릿과 분석 결과 통합                             |
-	|  - 최종 리포트 작성                                    |
-	+-------------------------------------------------------+
-	  |
-	  v
-	+-------------------------------------------------------+
-	|  Node 9: 검증 (validation)                            |
-	|  - 정확성 검증 (데이터 일치 여부)                       |
-	|  - 일관성 검증 (논리적 모순 확인)                       |
-	|  - 완전성 검증 (필수 섹션 포함 확인)                    |
-	|  - 이슈 유형 분석 (영향 분석 / 전략 이슈)               |
-	+-------------------------------------------------------+
-	  |
-	  +-----------------------------------+
-	  |                 |                 |
-	  v (영향분석 이슈) v (전략 이슈)    v (검증 통과)
-	[재시도 루프]      [재시도 루프]    |
-	최대 3회            최대 3회          |
-	  |                 |                 |
-	  v                 v                 v
-	Node 6으로 복귀    Node 7으로 복귀   +---------------------------------------+
-	(영향 분석 재실행) (대응 전략 재생성)|  Node 10: 최종 리포트 산출 (finalization)|
-	                                     |  - 검증 통과한 리포트 확정              |
-	                                     +---------------------------------------+
-	                                       |
-	                                       v
-	                                     END
+	END (단일 종료점)
 
 	==============================================================
-	주요 특징:
-	- Super Agent 계층적 구조 (25개 에이전트)
-	- 데이터 처리: 2개 (데이터 수집, 취약성 분석)
-	- 리스크 분석: 18개 (물리적 리스크 9개 + AAL 9개, 병렬 실행)
-	- 보고서 생성: 5개 (템플릿, 영향 분석, 전략, 생성, 검증)
-	- 물리적 리스크(H×E×V)와 AAL 병렬 계산
-	- 전력 사용량 기반 영향 분석 (신규)
-	- LLM/RAG 통합 (대응 전략 생성)
-	- 지능형 검증 재시도 루프 (최대 3회, 이슈 유형별 분기)
-	  * 영향 분석 이슈 → Node 6 (영향 분석) 재실행
-	  * 전략 이슈 → Node 7 (대응 전략) 재생성
-	  * 검증 피드백 자동 반영
-	- 취약성 분석 기반 리스크 선정
+	주요 특징 (v07 - Phase 1/2 분리):
+	- Phase 1 (제거): Node 2, 3, 4 (Physical Risk Score, AAL, Risk Integration)
+	- Phase 1 결과는 DB에서 로드 (H, E, V, risk_scores, AAL)
+	- Phase 2 (유지): Node 1 (Data Collection) + 리포트 생성 노드들
+	- 다중 사업장 지원: Impact/Strategy Agent가 집계형 분석 수행
+	- Building Characteristics: 사업장별 독립 분석 (집계 안 함)
+
+	Phase 2 노드 구성:
+	- 데이터 수집: 1개 (Node 1 - Data Collection, DB 로더 역할)
+	- 보고서 생성: 5개 (Template, Impact, Strategy, Report, Validation)
+	- 건물 분석: 1개 (Building Characteristics, 병렬 실행, LLM 기반)
+	- 개선/최종화: 2개 (Refiner, Finalization)
+
+	NEW v07 변경사항:
+	- Phase 1 노드 제거 (Node 2, 3, 4)
+	- Node 1 (Data Collection) 유지: DB에서 Phase 1 결과 로드
+	- Node 1 → Template 직접 연결
+	- Template 이후 병렬 분기 구조:
+	  * 브랜치 1: Building Characteristics (병렬 실행)
+	  * 브랜치 2: Report Chain (6→7→8, 순차 실행)
+	  * Node 9에서 병합: Validation (두 브랜치 결과 합침)
+	- 다중 사업장 지원: Impact/Strategy Agent에 run_aggregated() 메서드 추가
 	==============================================================
 	"""
 

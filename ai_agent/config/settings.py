@@ -153,7 +153,8 @@ class Config:
 			'output_dir': './reports',
 			'formats': ['json', 'pdf', 'html'],
 			'include_visualizations': True,
-			'language': 'ko',  # 'ko', 'en'
+			'default_language': 'ko',  # 기본 언어
+			'supported_languages': ['ko', 'en'],  # 지원 언어 목록
 			'template_dir': './templates'
 		}
 

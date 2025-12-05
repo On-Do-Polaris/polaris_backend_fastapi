@@ -1,8 +1,11 @@
 from uuid import UUID, uuid4
 from typing import Optional
 from datetime import datetime
+from fastapi import HTTPException
+import logging
 
 from src.core.config import settings
+from src.core.errors import ErrorCode, ErrorSeverity, create_error_detail
 from src.schemas.analysis import (
     StartAnalysisRequest,
     AnalysisJobStatus,
@@ -37,6 +40,8 @@ class AnalysisService:
         """서비스 초기화"""
         self._analyzer = None
         self._analysis_results = {}  # site_id별 분석 결과 캐시
+        self._cached_states = {}  # job_id별 State 캐시 (enhance용)
+        self.logger = logging.getLogger("api.services.analysis")
 
     def _get_analyzer(self) -> SKAXPhysicalRiskAnalyzer:
         """ai_agent 분석기 인스턴스 반환 (lazy initialization)"""
@@ -45,33 +50,56 @@ class AnalysisService:
             self._analyzer = SKAXPhysicalRiskAnalyzer(config)
         return self._analyzer
 
-    async def _run_agent_analysis(self, site_info: dict, asset_value: float = 50000000000) -> dict:
-        """ai_agent 분석 실행"""
+    async def _run_agent_analysis(
+        self,
+        site_info: dict,
+        asset_value: float = 50000000000,
+        additional_data: dict = None
+    ) -> dict:
+        """ai_agent 분석 실행 (ERD 기준)"""
         analyzer = self._get_analyzer()
 
+        # SiteInfo에서 기본 위치 정보만 사용 (ERD 기준)
         target_location = {
             'latitude': site_info.get('lat', site_info.get('latitude', 37.5665)),
             'longitude': site_info.get('lng', site_info.get('longitude', 126.9780)),
-            'name': site_info.get('name', 'Unknown Location')
+            'name': site_info.get('name', 'Unknown Location'),
+            'road_address': site_info.get('road_address'),
+            'jibun_address': site_info.get('jibun_address')
         }
 
-        building_info = {
-            'building_age': site_info.get('building_age', 20),
-            'has_seismic_design': site_info.get('has_seismic_design', True),
-            'fire_access': site_info.get('fire_access', True)
-        }
+        # 건물/자산 정보는 additional_data에서 가져옴
+        building_info = None
+        asset_info = None
 
-        asset_info = {
-            'total_asset_value': asset_value,
-            'insurance_coverage_rate': site_info.get('insurance_coverage_rate', 0.7)
-        }
+        if additional_data:
+            # additional_data.building_info가 있으면 사용
+            building_info = additional_data.get('building_info')
+            asset_info = additional_data.get('asset_info')
+
+        # 기본값 설정 (additional_data가 없을 경우)
+        if not building_info:
+            self.logger.warning("No building_info in additional_data, using minimal defaults")
+            building_info = {}  # 빈 dict로 전달 (workflow에서 처리)
+
+        if not asset_info:
+            self.logger.warning("No asset_info in additional_data, using defaults")
+            asset_info = {
+                'total_asset_value': asset_value
+            }
 
         analysis_params = {
             'time_horizon': '2050',
             'analysis_period': '2025-2050'
         }
 
-        result = analyzer.analyze(target_location, building_info, asset_info, analysis_params)
+        result = analyzer.analyze(
+            target_location,
+            building_info,
+            asset_info,
+            analysis_params,
+            additional_data=additional_data
+        )
         return result
 
     async def start_analysis(self, site_id: UUID, request: StartAnalysisRequest) -> AnalysisJobStatus:
@@ -90,15 +118,34 @@ class AnalysisService:
             )
 
         try:
+            # SiteInfo에서 ERD 기준 필드만 사용
             site_info = {
                 'id': str(request.site.id),
                 'name': request.site.name,
                 'lat': request.site.latitude,
                 'lng': request.site.longitude,
+                'road_address': request.site.road_address,
+                'jibun_address': request.site.jibun_address,
+                'type': request.site.type
             }
 
-            result = await self._run_agent_analysis(site_info)
+            # additional_data 변환 (Pydantic 모델 → dict)
+            additional_data_dict = None
+            if request.additional_data:
+                additional_data_dict = {
+                    'raw_text': request.additional_data.raw_text,
+                    'metadata': request.additional_data.metadata or {},
+                    'building_info': request.additional_data.building_info,
+                    'asset_info': request.additional_data.asset_info,
+                    'power_usage': request.additional_data.power_usage,
+                    'insurance': request.additional_data.insurance
+                }
+
+            result = await self._run_agent_analysis(site_info, additional_data=additional_data_dict)
             self._analysis_results[site_id] = result
+
+            # State 캐싱 (enhance용) - Node 1~4 결과 포함
+            self._cached_states[job_id] = result.copy()
 
             status = "completed" if result.get('workflow_status') == 'completed' else "failed"
 
@@ -121,6 +168,146 @@ class AnalysisService:
                 currentNode="failed",
                 startedAt=datetime.now(),
                 error={"code": "ANALYSIS_FAILED", "message": str(e)},
+            )
+
+    async def enhance_analysis(
+        self,
+        site_id: UUID,
+        job_id: UUID,
+        additional_data_dict: dict,
+        request_id: Optional[str] = None
+    ) -> AnalysisJobStatus:
+        """
+        추가 데이터를 반영하여 분석 향상 (Node 5 이후 재실행)
+
+        Args:
+            site_id: 사업장 ID
+            job_id: 원본 분석 작업 ID
+            additional_data_dict: 추가 데이터
+                - raw_text: 자유 형식 텍스트
+                - metadata: 메타데이터
+            request_id: 요청 ID (추적용)
+
+        Returns:
+            향상된 분석 작업 상태
+        """
+        # 로깅용 컨텍스트
+        log_extra = {
+            "request_id": request_id,
+            "site_id": str(site_id),
+            "original_job_id": str(job_id)
+        }
+
+        self.logger.info(
+            f"Enhancement started for site_id={site_id}, job_id={job_id}",
+            extra=log_extra
+        )
+
+        # 캐싱된 State 확인
+        cached_state = self._cached_states.get(job_id)
+        if not cached_state:
+            self.logger.warning(
+                f"Cache miss for job_id={job_id}",
+                extra=log_extra
+            )
+
+            error_detail = create_error_detail(
+                code=ErrorCode.ENHANCEMENT_CACHE_NOT_FOUND,
+                detail=f"Cached state not found for job_id: {job_id}. Please run basic analysis first.",
+                request_id=request_id,
+                severity=ErrorSeverity.MEDIUM,
+                context={"job_id": str(job_id), "site_id": str(site_id)}
+            )
+
+            raise HTTPException(
+                status_code=404,
+                detail=error_detail.dict()
+            )
+
+        self.logger.info(
+            f"Cache hit for job_id={job_id}",
+            extra=log_extra
+        )
+
+        # 새로운 job_id 생성
+        new_job_id = uuid4()
+        log_extra["new_job_id"] = str(new_job_id)
+
+        try:
+            analyzer = self._get_analyzer()
+
+            self.logger.info(
+                f"Calling AI agent for enhancement (new_job_id={new_job_id})",
+                extra=log_extra
+            )
+
+            # cached_state에 request_id 추가 (AI agent 로깅용)
+            cached_state_with_id = cached_state.copy()
+            cached_state_with_id['_request_id'] = request_id
+
+            # Node 5 이후 재실행
+            result = analyzer.enhance_with_additional_data(
+                cached_state=cached_state_with_id,
+                additional_data=additional_data_dict
+            )
+
+            # 결과 저장
+            self._analysis_results[site_id] = result
+
+            # 새로운 State도 캐싱 (추가 향상 가능)
+            self._cached_states[new_job_id] = result.copy()
+
+            status = "completed" if result.get('workflow_status') == 'completed' else "failed"
+
+            if status == "completed":
+                self.logger.info(
+                    f"Enhancement completed successfully (new_job_id={new_job_id})",
+                    extra=log_extra
+                )
+            else:
+                self.logger.warning(
+                    f"Enhancement completed with errors (new_job_id={new_job_id})",
+                    extra={**log_extra, "errors": result.get('errors', [])}
+                )
+
+            return AnalysisJobStatus(
+                jobId=str(new_job_id),
+                siteId=site_id,
+                status=status,
+                progress=100 if status == "completed" else 0,
+                currentNode="completed" if status == "completed" else "failed",
+                startedAt=datetime.now(),
+                completedAt=datetime.now() if status == "completed" else None,
+                error={"code": "ENHANCEMENT_FAILED", "message": str(result.get('errors', []))} if result.get('errors') else None,
+            )
+
+        except HTTPException:
+            # HTTPException은 그대로 전파
+            raise
+
+        except Exception as e:
+            self.logger.error(
+                f"Enhancement failed: {str(e)}",
+                extra=log_extra,
+                exc_info=True
+            )
+
+            error_detail = create_error_detail(
+                code=ErrorCode.ENHANCEMENT_FAILED,
+                detail=str(e),
+                request_id=request_id,
+                severity=ErrorSeverity.HIGH,
+                context={"job_id": str(job_id), "site_id": str(site_id)}
+            )
+
+            return AnalysisJobStatus(
+                jobId=str(new_job_id),
+                siteId=site_id,
+                status="failed",
+                progress=0,
+                currentNode="failed",
+                startedAt=datetime.now(),
+                error=error_detail.dict(),
             )
 
     async def get_job_status(self, site_id: UUID, job_id: UUID) -> Optional[AnalysisJobStatus]:

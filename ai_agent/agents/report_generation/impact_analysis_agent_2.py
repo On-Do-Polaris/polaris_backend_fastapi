@@ -47,6 +47,7 @@ Refiner 루프 연계:
 import numpy as np
 from typing import Dict, Any, List
 import json
+from ai_agent.utils.knowledge import RiskContextBuilder
 
 class ImpactAnalysisAgent:
     """
@@ -66,6 +67,7 @@ class ImpactAnalysisAgent:
         llm_client: OpenAI, Anthropic, Vertex 등 LLM 객체
         """
         self.llm = llm_client
+        self.risk_context_builder = RiskContextBuilder()
 
         self.risk_list = [
             "extreme_heat", "extreme_cold", "drought", "river_flood",
@@ -178,7 +180,20 @@ class ImpactAnalysisAgent:
                                 tcfd_warnings: List, report_profile: Dict) -> str:
         """
         LLM에게 정성 분석을 요청하는 프롬프트 생성 및 호출
+
+        NEW: RiskContextBuilder를 사용하여 리스크별 정량 데이터 컨텍스트 주입
         """
+        # 분석 대상 리스크 타입 추출
+        risk_types = []
+        for scenario_data in quant_output.values():
+            if isinstance(scenario_data, dict) and "risk_scores" in scenario_data:
+                risk_types = list(scenario_data["risk_scores"].keys())
+                break
+
+        # RiskContextBuilder를 사용하여 Impact Analysis용 컨텍스트 생성
+        risk_context = self.risk_context_builder.get_impact_context(risk_types)
+        risk_context_json = self.risk_context_builder.format_for_prompt(risk_context, format_type="json")
+
         prompt = f"""
 <ROLE>
 You are a top-tier Financial Analyst and Risk Management Consultant specializing in climate risk. Your expertise lies in deeply analyzing quantitative climate risk data according to the TCFD framework and crafting insightful, executive-level narratives that inform strategic decision-making for corporate assets. Your analysis is always data-driven and actionable.
@@ -202,6 +217,16 @@ You are provided with structured quantitative climate risk analysis results, det
 <REPORT_STYLE_PROFILE>
 {json.dumps(report_profile, indent=2, ensure_ascii=False)}
 </REPORT_STYLE_PROFILE>
+
+<RISK_KNOWLEDGE_BASE>
+This knowledge base provides detailed information about each climate risk, including:
+- AAL (Annual Average Loss) definitions and impact scope
+- Risk score components (H×E×V framework)
+- Threshold interpretations
+- Impact assessment criteria
+
+{risk_context_json}
+</RISK_KNOWLEDGE_BASE>
 </CONTEXT>
 
 <INSTRUCTIONS>

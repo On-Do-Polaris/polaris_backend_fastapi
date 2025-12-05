@@ -43,7 +43,7 @@ Refiner 루프 연계:
 from typing import Dict, Any
 from datetime import datetime
 import logging
-from .utils.prompt_loader import PromptLoader
+from ...utils.prompt_loader import PromptLoader
 from ai_agent.utils.knowledge import RiskContextBuilder
 
 logger = logging.getLogger("ReportComposerAgent")

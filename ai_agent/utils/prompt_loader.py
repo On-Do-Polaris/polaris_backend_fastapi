@@ -37,8 +37,11 @@ class PromptLoader:
         """
         PromptLoader 초기화
         """
+        # ai_agent/utils/prompt_loader.py -> ai_agent/agents/report_generation/prompts
         self.prompt_dir = os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
+            'agents',
+            'report_generation',
             'prompts'
         )
 

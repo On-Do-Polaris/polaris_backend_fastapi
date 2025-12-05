@@ -32,7 +32,7 @@ import logging
 from datetime import datetime
 import subprocess
 import shutil
-from .utils.citation_formatter import replace_citation_placeholders, generate_references_section
+from ...utils.citation_formatter import replace_citation_placeholders, generate_references_section
 
 logger = logging.getLogger("FinalizerNode")
 logger.setLevel(logging.INFO)

@@ -195,6 +195,17 @@ class ValidationAgent:
         else:
             strategies_list = strategies
 
+        # strategies_list의 각 항목이 딕셔너리인지 확인하고 평탄화
+        flattened_strategies = []
+        for item in strategies_list:
+            if isinstance(item, dict):
+                flattened_strategies.append(item)
+            elif isinstance(item, list):
+                # 리스트 안의 딕셔너리들을 평탄화
+                flattened_strategies.extend([i for i in item if isinstance(i, dict)])
+
+        strategies_list = flattened_strategies
+
         all_strategy_summaries = " ".join([s.get("strategy_summary", "") for s in strategies_list])
 
         for s in strategies_list:

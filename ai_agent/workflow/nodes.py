@@ -695,8 +695,8 @@ def report_generation_node(state: SuperAgentState, config: Any) -> Dict:
 
 	try:
 		import asyncio
-		from ai_agent.agents.report_generation.utils import citation_formatter
-		from ai_agent.agents.report_generation.utils import markdown_renderer
+		from ai_agent.utils import citation_formatter
+		from ai_agent.utils import markdown_renderer
 
 		llm_client = LLMClient()
 

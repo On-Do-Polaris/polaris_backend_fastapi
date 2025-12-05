@@ -42,6 +42,7 @@ RUN apt-get update && \
 # Install system dependencies (curl, wkhtmltopdf, fonts)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
+    ca-certificates \
     curl \
     wget \
     # wkhtmltopdf dependencies

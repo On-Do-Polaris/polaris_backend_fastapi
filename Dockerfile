@@ -21,8 +21,8 @@ RUN python3.11 -m pip install uv
 COPY pyproject.toml .
 COPY requirements.txt .
 
-# Install dependencies
-RUN uv pip install --system -r requirements.txt
+# Install dependencies using uv with explicit target directory
+RUN uv pip install --python /usr/bin/python3.11 -r requirements.txt
 
 # Production stage
 FROM ubuntu:22.04 AS production
@@ -70,7 +70,7 @@ RUN wget https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-2/w
     wkhtmltopdf --version
 
 # Copy installed packages from builder
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/lib/python3.11/dist-packages /usr/local/lib/python3.11/dist-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code

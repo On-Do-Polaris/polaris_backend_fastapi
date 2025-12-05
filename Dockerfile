@@ -44,7 +44,9 @@ RUN apt-get update && \
 
 # Install wkhtmltopdf (latest version)
 RUN wget https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-2/wkhtmltox_0.12.6.1-2.jammy_amd64.deb && \
-    dpkg -i wkhtmltox_0.12.6.1-2.jammy_amd64.deb || apt-get install -f -y && \
+    dpkg -i wkhtmltox_0.12.6.1-2.jammy_amd64.deb || true && \
+    apt-get install -f -y && \
+    dpkg -i wkhtmltox_0.12.6.1-2.jammy_amd64.deb && \
     rm wkhtmltox_0.12.6.1-2.jammy_amd64.deb && \
     wkhtmltopdf --version
 

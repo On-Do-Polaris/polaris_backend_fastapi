@@ -676,4 +676,4 @@ async def shutdown_event():
 
 ---
 
-**Built with ❤️ using FastAPI, LangChain, LangGraph, and OpenAI**
+**Built with using FastAPI, LangChain, LangGraph, and OpenAI**

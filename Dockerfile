@@ -47,7 +47,7 @@ RUN apt-get update && \
     # wkhtmltopdf dependencies
     fontconfig \
     libfreetype6 \
-    libjpeg62-turbo \
+    libjpeg-turbo8 \
     libpng16-16 \
     libx11-6 \
     libxcb1 \

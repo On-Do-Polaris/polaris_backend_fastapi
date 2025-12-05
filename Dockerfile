@@ -11,8 +11,8 @@ RUN apt-get update && \
     python3.11 \
     python3-pip \
     && rm -rf /var/lib/apt/lists/* && \
-    ln -s /usr/bin/python3.11 /usr/bin/python && \
-    ln -s /usr/bin/python3.11 /usr/bin/python3
+    update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 && \
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 
 # Install uv for faster dependency installation
 RUN python3.11 -m pip install uv
@@ -36,8 +36,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     python3.11 \
     && rm -rf /var/lib/apt/lists/* && \
-    ln -s /usr/bin/python3.11 /usr/bin/python && \
-    ln -s /usr/bin/python3.11 /usr/bin/python3
+    update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 && \
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 
 # Install system dependencies (curl, wkhtmltopdf, fonts)
 RUN apt-get update && \

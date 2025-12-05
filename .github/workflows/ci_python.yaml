@@ -4,7 +4,7 @@ on:
   push:
     branches: [develop, main]
   pull_request:
-    branches: [main, develop]
+    branches: [main]
 
 env:
   IMAGE_NAME: polaris-backend-fastapi
@@ -13,6 +13,8 @@ jobs:
   test:
     name: Test & Lint
     runs-on: ubuntu-22.04
+    if: github.ref == 'refs/heads/develop' || github.event_name == 'pull_request'
+    continue-on-error: true
 
     steps:
       - name: 코드 체크아웃

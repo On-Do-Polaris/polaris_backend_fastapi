@@ -6,9 +6,6 @@ on:
     types:
       - completed
     branches: [main]
-  pull_request:
-    types: [closed]
-    branches: [main]
   workflow_dispatch:
 
 env:
@@ -20,8 +17,7 @@ jobs:
     name: 서버 배포
     runs-on: ubuntu-22.04
     if: |
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') ||
-      (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
       (github.event_name == 'workflow_dispatch')
 
     steps:

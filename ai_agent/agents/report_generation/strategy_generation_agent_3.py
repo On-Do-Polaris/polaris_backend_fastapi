@@ -37,6 +37,7 @@ Refiner 루프 연계:
 
 from typing import Dict, List, Any
 import json
+from ai_agent.utils.knowledge import RiskContextBuilder
 
 class StrategyGenerationAgent:
     """
@@ -57,6 +58,7 @@ class StrategyGenerationAgent:
         llm_client: OpenAI, Anthropic, Vertex 등 LLM 객체
         """
         self.llm = llm_client
+        self.risk_context_builder = RiskContextBuilder()
 
     # ----------------------------------------------------------------------
     # Layer 2: LLM Narrative Generation
@@ -66,9 +68,15 @@ class StrategyGenerationAgent:
                                     report_profile: Dict) -> Dict:
         """
         LLM을 통해 단일 리스크에 대한 구조화된 대응 전략 JSON을 생성합니다.
+
+        NEW: RiskContextBuilder를 사용하여 리스크별 전략 컨텍스트 주입
         """
         risk = candidate.get("risk")
         impact = candidate.get("impact")
+
+        # RiskContextBuilder를 사용하여 Strategy Generation용 컨텍스트 생성
+        risk_context = self.risk_context_builder.get_strategy_context([risk])
+        risk_context_json = self.risk_context_builder.format_for_prompt(risk_context, format_type="json")
 
         # feature/7-report-agent의 영어 프롬프트 사용
         prompt = f"""
@@ -91,6 +99,16 @@ You will be provided with a specific climate risk's impact analysis, the profile
     <REPORT_STYLE_PROFILE>
     {json.dumps(report_profile, indent=2, ensure_ascii=False)}
     </REPORT_STYLE_PROFILE>
+
+    <RISK_KNOWLEDGE_BASE>
+    This knowledge base provides strategic guidance for {risk}, including:
+    - Risk definition and scientific evidence
+    - Mitigation keywords and best practices
+    - AAL (Annual Average Loss) financial implications
+    - Data sources for validation
+
+    {risk_context_json}
+    </RISK_KNOWLEDGE_BASE>
 
 </CONTEXT>
 

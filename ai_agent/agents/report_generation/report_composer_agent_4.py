@@ -44,6 +44,7 @@ from typing import Dict, Any
 from datetime import datetime
 import logging
 from .utils.prompt_loader import PromptLoader
+from ai_agent.utils.knowledge import RiskContextBuilder
 
 logger = logging.getLogger("ReportComposerAgent")
 
@@ -93,6 +94,7 @@ class ReportComposerAgent:
         self.render = markdown_renderer
         self.language = language
         self.prompt_loader = PromptLoader()
+        self.risk_context_builder = RiskContextBuilder()
         logger.info(f"[ReportComposerAgent] 초기화 완료 (output_language={language})")
 
     # ============================================================
@@ -258,6 +260,18 @@ class ReportComposerAgent:
             # NEW: 섹션별 내러티브 가이드 생성
             narrative_guidance = self._build_narrative_guidance(sec_key)
 
+            # NEW: RiskContextBuilder를 사용하여 리스크 지식 베이스 추가
+            # 분석된 리스크 타입 추출
+            risk_types = []
+            if "top_risks" in impact_summary:
+                risk_types = [r.get("risk_type") for r in impact_summary.get("top_risks", [])]
+
+            # Report Composer용 리스크 컨텍스트 생성
+            risk_knowledge = ""
+            if risk_types:
+                risk_context = self.risk_context_builder.get_report_context(risk_types)
+                risk_knowledge = self.risk_context_builder.format_for_prompt(risk_context, format_type="json")
+
             # PromptLoader를 사용하여 프롬프트 로드 및 출력 언어 지시자 추가
             prompt_template = self.prompt_loader.load('section_generation', output_language=self.language)
 
@@ -276,6 +290,9 @@ class ReportComposerAgent:
 
             if narrative_guidance:
                 prompt += f"\n\n<NARRATIVE_GUIDANCE>\n{narrative_guidance}\n</NARRATIVE_GUIDANCE>"
+
+            if risk_knowledge:
+                prompt += f"\n\n<RISK_KNOWLEDGE_BASE>\nThis knowledge base provides comprehensive information about each climate risk for report writing, including:\n- Full definitions and units\n- Bin descriptions for qualitative interpretation\n- Impact targets (impacts_on)\n- Data sources for citation\n\n{risk_knowledge}\n</RISK_KNOWLEDGE_BASE>"
 
             result = await self.llm.ainvoke(prompt)
             sections[sec_key] = result.strip()

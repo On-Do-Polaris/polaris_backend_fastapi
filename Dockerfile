@@ -38,7 +38,6 @@ RUN apt-get update && \
     xfonts-base \
     # Korean fonts for PDF generation
     fonts-nanum \
-    fonts-nanum-coding \
     fonts-nanum-extra \
     fonts-baekmuk \
     && rm -rf /var/lib/apt/lists/*

@@ -48,7 +48,10 @@ jobs:
     name: Build & Push Image
     runs-on: ubuntu-22.04
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: |
+      always() &&
+      (needs.test.result == 'success' || needs.test.result == 'skipped') &&
+      github.ref == 'refs/heads/main'
 
     permissions:
       contents: read

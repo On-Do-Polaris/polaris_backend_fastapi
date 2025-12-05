@@ -1,10 +1,21 @@
 # Build stage
-FROM python:3.11-slim AS builder
+FROM ubuntu:22.04 AS builder
 
 WORKDIR /app
 
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Python 3.11 and pip
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/* && \
+    ln -s /usr/bin/python3.11 /usr/bin/python && \
+    ln -s /usr/bin/python3.11 /usr/bin/python3
+
 # Install uv for faster dependency installation
-RUN pip install uv
+RUN python3.11 -m pip install uv
 
 # Copy dependency files
 COPY pyproject.toml .
@@ -14,11 +25,19 @@ COPY requirements.txt .
 RUN uv pip install --system -r requirements.txt
 
 # Production stage
-FROM python:3.11-slim AS production
+FROM ubuntu:22.04 AS production
 
 WORKDIR /app
 
 ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Python 3.11
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    python3.11 \
+    && rm -rf /var/lib/apt/lists/* && \
+    ln -s /usr/bin/python3.11 /usr/bin/python && \
+    ln -s /usr/bin/python3.11 /usr/bin/python3
 
 # Install system dependencies (curl, wkhtmltopdf, fonts)
 RUN apt-get update && \
@@ -29,7 +48,6 @@ RUN apt-get update && \
     fontconfig \
     libfreetype6 \
     libjpeg62-turbo \
-    libjpeg-turbo8 \
     libpng16-16 \
     libx11-6 \
     libxcb1 \

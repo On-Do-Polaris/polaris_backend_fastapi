@@ -931,8 +931,16 @@ def validation_node(state: SuperAgentState, config: Any) -> Dict:
 		if not isinstance(impact_summary, dict):
 			impact_summary = {}
 
-		strategies = state.get('response_strategy', {})
-		if not isinstance(strategies, dict):
+		# response_strategy는 List[Dict] 형태로 반환되므로 Dict로 변환 필요
+		strategies_list = state.get('response_strategy', [])
+		strategies = {}
+		if isinstance(strategies_list, list):
+			for strategy in strategies_list:
+				risk = strategy.get('risk', 'unknown')
+				strategies[risk] = strategy
+		elif isinstance(strategies_list, dict):
+			strategies = strategies_list  # 이미 Dict인 경우
+		else:
 			strategies = {}
 
 		# Call async validate method for Report

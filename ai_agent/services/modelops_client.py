@@ -327,6 +327,139 @@ class ModelOpsClient:
 				self.logger.error(f"상태 폴링 중 오류: {str(e)}")
 				raise
 
+	def start_batch_recommendation(
+		self,
+		sites: list,
+		recommendation_type: str = "mitigation_priority",
+		scenario: Optional[str] = None
+	) -> Dict[str, Any]:
+		"""
+		배치 추천 작업 시작 (ModelOps)
+
+		Args:
+			sites: 사업장 리스크 데이터 리스트
+			recommendation_type: 추천 타입 (mitigation_priority, cost_optimization, etc.)
+			scenario: 기후 시나리오 (optional)
+
+		Returns:
+			{"batch_id": str, "status": str, "created_at": str}
+		"""
+		self.logger.info(f"배치 추천 작업 시작: sites={len(sites)}, type={recommendation_type}")
+
+		payload = {
+			"sites": sites,
+			"recommendation_type": recommendation_type,
+			"scenario": scenario
+		}
+
+		try:
+			response = self.client.post("/api/v1/batch/recommend-sites", json=payload)
+			response.raise_for_status()
+
+			result = response.json()
+			self.logger.info(f"배치 작업 시작 완료: batch_id={result.get('batch_id')}")
+			return result
+
+		except httpx.HTTPStatusError as e:
+			self.logger.error(f"배치 추천 시작 실패 (HTTP {e.response.status_code}): {e.response.text}")
+			raise
+		except Exception as e:
+			self.logger.error(f"배치 추천 작업 시작 중 오류: {str(e)}")
+			raise
+
+	def get_batch_progress(self, batch_id: str) -> Dict[str, Any]:
+		"""
+		배치 작업 진행률 조회
+
+		Args:
+			batch_id: 배치 작업 ID
+
+		Returns:
+			{
+				"batch_id": str,
+				"status": str,  # "pending", "processing", "completed", "failed"
+				"progress": float,  # 0.0 to 1.0
+				"processed_count": int,
+				"total_count": int,
+				"updated_at": str
+			}
+		"""
+		self.logger.info(f"배치 진행률 조회: batch_id={batch_id}")
+
+		try:
+			response = self.client.get(f"/api/v1/batch/{batch_id}/progress")
+			response.raise_for_status()
+
+			result = response.json()
+			self.logger.debug(f"배치 진행률: {result.get('progress', 0):.1%}")
+			return result
+
+		except httpx.HTTPStatusError as e:
+			self.logger.error(f"배치 진행률 조회 실패 (HTTP {e.response.status_code}): {e.response.text}")
+			raise
+		except Exception as e:
+			self.logger.error(f"배치 진행률 조회 중 오류: {str(e)}")
+			raise
+
+	def get_batch_results(self, batch_id: str) -> Dict[str, Any]:
+		"""
+		배치 작업 결과 조회
+
+		Args:
+			batch_id: 배치 작업 ID
+
+		Returns:
+			{
+				"batch_id": str,
+				"status": str,
+				"results": List[Dict],  # 각 사업장별 추천 결과
+				"completed_at": str
+			}
+		"""
+		self.logger.info(f"배치 결과 조회: batch_id={batch_id}")
+
+		try:
+			response = self.client.get(f"/api/v1/batch/{batch_id}/results")
+			response.raise_for_status()
+
+			result = response.json()
+			self.logger.info(f"배치 결과 조회 완료: {len(result.get('results', []))} 건")
+			return result
+
+		except httpx.HTTPStatusError as e:
+			self.logger.error(f"배치 결과 조회 실패 (HTTP {e.response.status_code}): {e.response.text}")
+			raise
+		except Exception as e:
+			self.logger.error(f"배치 결과 조회 중 오류: {str(e)}")
+			raise
+
+	def cancel_batch_job(self, batch_id: str) -> Dict[str, Any]:
+		"""
+		배치 작업 취소
+
+		Args:
+			batch_id: 배치 작업 ID
+
+		Returns:
+			{"batch_id": str, "status": "cancelled"}
+		"""
+		self.logger.info(f"배치 작업 취소: batch_id={batch_id}")
+
+		try:
+			response = self.client.delete(f"/api/v1/batch/{batch_id}")
+			response.raise_for_status()
+
+			result = response.json()
+			self.logger.info(f"배치 작업 취소 완료: batch_id={batch_id}")
+			return result
+
+		except httpx.HTTPStatusError as e:
+			self.logger.error(f"배치 작업 취소 실패 (HTTP {e.response.status_code}): {e.response.text}")
+			raise
+		except Exception as e:
+			self.logger.error(f"배치 작업 취소 중 오류: {str(e)}")
+			raise
+
 
 # 싱글톤 인스턴스
 _modelops_client: Optional[ModelOpsClient] = None

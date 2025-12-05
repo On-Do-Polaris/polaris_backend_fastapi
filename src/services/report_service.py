@@ -232,3 +232,12 @@ class ReportService:
             "success": True,
             "message": "리포트가 삭제되었습니다.",
         }
+
+    def shutdown(self):
+        """Cleanup thread pool executor on app shutdown"""
+        if self._executor:
+            import logging
+            logger = logging.getLogger("api")
+            logger.info("Shutting down ReportService thread pool executor")
+            self._executor.shutdown(wait=True)
+            self._executor = None

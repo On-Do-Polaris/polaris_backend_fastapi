@@ -7,11 +7,17 @@ from src.core.config import settings
 from src.core.logging_config import setup_logging
 from src.core.middleware import RequestIDMiddleware
 from src.routes import analysis_router, reports_router, simulation_router, meta_router, recommendation_router, additional_data_router, disaster_history_router
+from src.services.report_service import ReportService
+from src.services.analysis_service import AnalysisService
 
 # 로깅 초기화 (앱 시작 시)
 log_level = getattr(settings, 'LOG_LEVEL', 'INFO')
 setup_logging(level=log_level)
 logger = logging.getLogger("api")
+
+# App-level service instances (singletons for resource management)
+report_service_instance = None
+analysis_service_instance = None
 
 # FastAPI 앱 생성
 app = FastAPI(
@@ -63,17 +69,56 @@ app.include_router(disaster_history_router)
 @app.on_event("startup")
 async def startup_event():
     """앱 시작 시 이벤트"""
+    global report_service_instance, analysis_service_instance
+
     logger.info("Application starting up")
     logger.info(f"App Name: {settings.APP_NAME}")
     logger.info(f"App Version: {settings.APP_VERSION}")
     logger.info(f"CORS allowed origins: {settings.get_cors_origins()}")
     logger.info(f"Log level: {log_level}")
 
+    # Initialize app-level services (singletons for resource pooling)
+    report_service_instance = ReportService()
+    analysis_service_instance = AnalysisService()
+    logger.info("App-level services initialized (ReportService, AnalysisService)")
+
+    # Start scratch folder TTL cleanup scheduler
+    try:
+        from ai_agent.utils.ttl_cleaner import setup_background_cleanup
+        from ai_agent.config.settings import load_config
+
+        config = load_config()
+        scratch_config = config.get('SCRATCH_SPACE', {})
+
+        if scratch_config.get('auto_cleanup_enabled', True):
+            setup_background_cleanup(
+                interval_hours=scratch_config.get('cleanup_interval_hours', 1),
+                base_path=scratch_config.get('base_path', './scratch')
+            )
+            logger.info(f"Scratch folder TTL cleanup started (interval: {scratch_config.get('cleanup_interval_hours', 1)}h)")
+        else:
+            logger.info("Scratch folder auto-cleanup is disabled")
+    except Exception as e:
+        logger.warning(f"Failed to start scratch folder cleanup: {e}")
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """앱 종료 시 이벤트"""
+    global report_service_instance, analysis_service_instance
+
     logger.info("Application shutting down")
+
+    # Cleanup services (shutdown thread pools, close connections, etc.)
+    if report_service_instance:
+        report_service_instance.shutdown()
+        logger.info("ReportService shutdown complete")
+
+    if analysis_service_instance and hasattr(analysis_service_instance, 'shutdown'):
+        analysis_service_instance.shutdown()
+        logger.info("AnalysisService shutdown complete")
+
+    logger.info("All services shut down successfully")
 
 
 @app.get("/")

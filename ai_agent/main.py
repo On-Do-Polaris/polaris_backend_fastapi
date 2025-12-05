@@ -430,6 +430,124 @@ class SKAXPhysicalRiskAnalyzer:
 				'errors': [str(e)]
 			}
 
+	@traceable(name="skax_analyze_integrated", tags=["workflow", "multi-site", "integrated"])
+	def analyze_integrated(
+		self,
+		site_ids: list,
+		sites_data: list,
+		company_name: str = None,
+		analysis_params: dict = None,
+		language: str = 'ko'
+	) -> dict:
+		"""
+		다중 사업장 통합 리포트 생성 (Phase 2 전용)
+
+		DB에서 로드된 Phase 1 결과(H, E, V, Risk Scores, AAL)를 기반으로
+		여러 사업장에 대한 통합 분석 리포트 생성
+
+		Args:
+			site_ids: 사업장 ID 리스트 (예: ['site_001', 'site_002', 'site_003'])
+			sites_data: 사업장별 데이터 리스트
+				각 항목 구조:
+				{
+					'site_id': 'site_001',
+					'site_name': '서울 본사',
+					'location': {'latitude': 37.5665, 'longitude': 126.9780, ...},
+					'building_info': {...},
+					'asset_info': {...},
+					'hazard_scores': {...},  # DB 로드
+					'exposure_scores': {...},  # DB 로드
+					'vulnerability_scores': {...},  # DB 로드
+					'risk_scores': {...},  # DB 로드
+					'aal_values': {...}  # DB 로드
+				}
+			company_name: 회사명 (선택)
+			analysis_params: 분석 파라미터 (선택)
+			language: 보고서 언어 ('ko' 또는 'en', 기본값: 'ko')
+
+		Returns:
+			통합 분석 결과 딕셔너리
+		"""
+		print("\n" + "=" * 70)
+		print(f"SKAX Integrated Multi-Site Analysis ({len(site_ids)} sites)")
+		print("=" * 70)
+
+		workflow_start_time = datetime.now()
+
+		# 초기 상태 설정 (다중 사업장 모드)
+		initial_state = {
+			'site_ids': site_ids,
+			'sites_data': sites_data,
+			'company_name': company_name,
+			'analysis_params': analysis_params or {},
+			'language': language,
+			'errors': [],
+			'logs': [],
+			'current_step': 'data_collection',  # Node 1부터 시작 (스킵됨)
+			'workflow_status': 'in_progress',
+			'retry_count': 0,
+			'_workflow_start_time': workflow_start_time.isoformat(),
+			# Mock scratch_session_id (다중 사업장은 DB 기반이므로 데이터 수집 스킵)
+			'scratch_session_id': 'integrated_multi_site'
+		}
+
+		print(f"\n[INFO] Integrated analysis for {len(site_ids)} sites...")
+		print(f"  Company: {company_name or 'N/A'}")
+		print(f"  Language: {language}")
+
+		try:
+			# LangGraph 실행
+			final_state = None
+			for state in self.workflow_graph.stream(initial_state):
+				if self.config.DEBUG:
+					print(f"  > Current step: {state}")
+				final_state = state
+
+			if final_state:
+				last_node_key = list(final_state.keys())[-1]
+				result = final_state[last_node_key]
+
+				workflow_execution_time = (datetime.now() - workflow_start_time).total_seconds()
+
+				print("\n" + "=" * 70)
+				print("Integrated analysis completed")
+				print("=" * 70)
+
+				# LangSmith 메트릭
+				self.tracer.log_metric(
+					metric_name="integrated_analysis_time",
+					value=workflow_execution_time,
+					metadata={
+						'num_sites': len(site_ids),
+						'company': company_name,
+						'status': result.get('workflow_status', 'unknown'),
+						'mode': 'multi-site-integrated'
+					}
+				)
+
+				self._print_summary(result)
+
+				return result
+			else:
+				raise Exception("No workflow execution result")
+
+		except Exception as e:
+			workflow_execution_time = (datetime.now() - workflow_start_time).total_seconds()
+			print(f"\n[ERROR] Integrated analysis failed: {e}")
+
+			self.tracer.log_agent_execution(
+				agent_name="integrated_orchestrator",
+				execution_time=workflow_execution_time,
+				status="failed",
+				input_data={'num_sites': len(site_ids)},
+				error=e
+			)
+
+			return {
+				'workflow_status': 'failed',
+				'errors': [str(e)]
+			}
+
 	def _get_agent_configs(self) -> list:
 		"""
 		Agent 설정 목록 반환 (Additional Data Guideline 생성용)

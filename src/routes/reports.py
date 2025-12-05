@@ -3,19 +3,26 @@ from fastapi import APIRouter, Depends, HTTPException
 from src.schemas.reports import (
     CreateReportRequest,
 )
-from src.services.report_service import ReportService
 from src.core.auth import verify_api_key
 
 router = APIRouter(prefix="/api/reports", tags=["Reports"])
+
+
+def get_report_service():
+    """Get the singleton ReportService instance from main app"""
+    from main import report_service_instance
+    if report_service_instance is None:
+        raise HTTPException(status_code=503, detail="ReportService not initialized")
+    return report_service_instance
 
 
 @router.post("", status_code=200)
 async def create_report(
     request: CreateReportRequest,
     api_key: str = Depends(verify_api_key),
+    service = Depends(get_report_service),
 ):
     """Spring Boot API 호환 - 리포트 생성"""
-    service = ReportService()
     return await service.create_report(request)
 
 
@@ -23,6 +30,7 @@ async def create_report(
 async def get_report_web_view(
     report_id: str,
     api_key: str = Depends(verify_api_key),
+    service = Depends(get_report_service),
 ):
     """웹 리포트 뷰 조회 - 프론트엔드 렌더링용 데이터 반환
 
@@ -40,7 +48,6 @@ async def get_report_web_view(
             "createdAt": "2025-12-03T..."
         }
     """
-    service = ReportService()
     result = await service.get_report_web_view(report_id)
     if not result:
         raise HTTPException(status_code=404, detail="Report not found")
@@ -51,6 +58,7 @@ async def get_report_web_view(
 async def get_report_pdf(
     report_id: str,
     api_key: str = Depends(verify_api_key),
+    service = Depends(get_report_service),
 ):
     """PDF 리포트 다운로드
 
@@ -63,7 +71,6 @@ async def get_report_pdf(
     from fastapi.responses import FileResponse
     import os
 
-    service = ReportService()
     result = await service.get_report_pdf(report_id)
 
     if not result:
@@ -84,7 +91,7 @@ async def get_report_pdf(
 @router.delete("", status_code=200)
 async def delete_report(
     api_key: str = Depends(verify_api_key),
+    service = Depends(get_report_service),
 ):
     """Spring Boot API 호환 - 리포트 삭제"""
-    service = ReportService()
     return await service.delete_report()

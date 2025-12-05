@@ -2,6 +2,8 @@ from uuid import UUID, uuid4
 from typing import Optional
 from datetime import datetime, timedelta
 import asyncio
+import time
+import logging
 
 from src.schemas.recommendation import (
     SiteRecommendationRequest,
@@ -11,6 +13,9 @@ from src.schemas.recommendation import (
     RecommendedSite,
     BatchStatus,
 )
+from ai_agent.services.modelops_client import get_modelops_client
+
+logger = logging.getLogger(__name__)
 
 
 class RecommendationService:
@@ -37,25 +42,43 @@ class RecommendationService:
         """
         batch_id = uuid4()
 
-        # TODO: ModelOps API에 배치 작업 요청
-        # POST /api/v1/batch/recommend-sites
-        # {
-        #   "scenario_id": request.scenario_id,
-        #   "building_info": request.building_info,
-        #   "asset_info": request.asset_info,
-        #   "top_n": request.top_n,
-        #   "additional_data": request.additional_data
-        # }
+        # ModelOps API에 배치 작업 요청
+        try:
+            modelops = get_modelops_client()
+
+            # 사업장 데이터 준비
+            sites_data = [{
+                "scenario_id": request.scenario_id,
+                "building_info": request.building_info.dict() if request.building_info else {},
+                "asset_info": request.asset_info.dict() if request.asset_info else {},
+                "top_n": request.top_n,
+                "additional_data": request.additional_data or {}
+            }]
+
+            batch_response = modelops.start_batch_recommendation(
+                sites=sites_data,
+                recommendation_type="mitigation_priority",
+                scenario=f"SSP{request.scenario_id}"
+            )
+
+            modelops_batch_id = batch_response.get("batch_id")
+            logger.info(f"ModelOps 배치 작업 시작: batch_id={modelops_batch_id}")
+
+        except Exception as e:
+            logger.error(f"ModelOps 배치 작업 시작 실패: {e}")
+            # Mock으로 fallback
+            modelops_batch_id = None
 
         # 배치 작업 상태 초기화
         self._batch_jobs[batch_id] = {
             "status": BatchStatus.QUEUED,
             "progress_percentage": 0,
             "processed_grids": 0,
-            "total_grids": 10000,  # TODO: ModelOps에서 반환받을 값
+            "total_grids": 10000,
             "started_at": datetime.now(),
             "estimated_completion": datetime.now() + timedelta(minutes=30),
             "request": request,
+            "modelops_batch_id": modelops_batch_id,  # ModelOps 배치 ID 저장
         }
 
         # 비동기 배치 작업 시작 (백그라운드)
@@ -84,9 +107,30 @@ class RecommendationService:
         if not job:
             return None
 
-        # TODO: ModelOps API에서 진행 상태 조회
-        # GET /api/v1/batch/{batch_id}/progress
-        # Response: { "progress": 45, "processed": 4500, "total": 10000, "status": "processing" }
+        # ModelOps API에서 진행 상태 조회
+        if job.get("modelops_batch_id"):
+            try:
+                modelops = get_modelops_client()
+                progress_data = modelops.get_batch_progress(job["modelops_batch_id"])
+
+                # ModelOps 응답으로 상태 업데이트
+                job["progress_percentage"] = int(progress_data.get("progress", 0) * 100)
+                job["processed_grids"] = progress_data.get("processed_count", 0)
+                job["total_grids"] = progress_data.get("total_count", 10000)
+
+                # 상태 매핑
+                modelops_status = progress_data.get("status")
+                if modelops_status == "completed":
+                    job["status"] = BatchStatus.COMPLETED
+                    job["completed_at"] = datetime.now()
+                elif modelops_status == "failed":
+                    job["status"] = BatchStatus.FAILED
+                    job["error_message"] = "ModelOps batch job failed"
+                elif modelops_status == "processing":
+                    job["status"] = BatchStatus.PROCESSING
+
+            except Exception as e:
+                logger.warning(f"ModelOps 진행 상태 조회 실패: {e}")
 
         return BatchProgressResponse(
             batch_id=batch_id,
@@ -118,11 +162,21 @@ class RecommendationService:
         result = self._batch_results.get(batch_id)
 
         if not result:
-            return None
+            # ModelOps API에서 결과 조회
+            if job.get("modelops_batch_id"):
+                try:
+                    modelops = get_modelops_client()
+                    results_data = modelops.get_batch_results(job["modelops_batch_id"])
 
-        # TODO: ModelOps API에서 결과 조회
-        # GET /api/v1/batch/{batch_id}/results
-        # Response: { "recommended_sites": [...], "total_analyzed": 10000 }
+                    # ModelOps 결과를 우리 포맷으로 변환
+                    result = self._convert_modelops_result(batch_id, job, results_data)
+                    self._batch_results[batch_id] = result
+
+                except Exception as e:
+                    logger.error(f"ModelOps 결과 조회 실패: {e}")
+                    return None
+            else:
+                return None
 
         return result
 
@@ -140,34 +194,122 @@ class RecommendationService:
         # 작업 시작
         job["status"] = BatchStatus.PROCESSING
 
-        # TODO: ModelOps API 폴링 (실제 구현)
-        # while job["status"] == BatchStatus.PROCESSING:
-        #     await asyncio.sleep(5)  # 5초마다 폴링
-        #     progress_response = await self._fetch_modelops_progress(batch_id)
-        #     job["progress_percentage"] = progress_response["progress"]
-        #     job["processed_grids"] = progress_response["processed"]
-        #
-        #     if progress_response["status"] == "completed":
-        #         job["status"] = BatchStatus.COMPLETED
-        #         job["completed_at"] = datetime.now()
-        #         break
-        #     elif progress_response["status"] == "failed":
-        #         job["status"] = BatchStatus.FAILED
-        #         job["error_message"] = progress_response["error"]
-        #         break
+        # ModelOps API 폴링 (실제 구현)
+        if job.get("modelops_batch_id"):
+            try:
+                modelops = get_modelops_client()
+                poll_interval = 5  # 5초마다 폴링
+                max_wait_time = 600  # 최대 10분
+                start_time = time.time()
 
-        # 임시 Mock 구현 (10%, 30%, 50%, 70%, 90%, 100%)
-        for progress in [10, 30, 50, 70, 90, 100]:
-            await asyncio.sleep(3)  # 3초마다 업데이트
-            job["progress_percentage"] = progress
-            job["processed_grids"] = int(job["total_grids"] * progress / 100)
+                while time.time() - start_time < max_wait_time:
+                    try:
+                        progress_data = modelops.get_batch_progress(job["modelops_batch_id"])
+                        status = progress_data.get("status")
 
-            if progress == 100:
-                job["status"] = BatchStatus.COMPLETED
+                        # 상태 업데이트
+                        job["progress_percentage"] = int(progress_data.get("progress", 0) * 100)
+                        job["processed_grids"] = progress_data.get("processed_count", 0)
+                        job["total_grids"] = progress_data.get("total_count", 10000)
+
+                        if status == "completed":
+                            job["status"] = BatchStatus.COMPLETED
+                            job["completed_at"] = datetime.now()
+                            logger.info(f"배치 작업 완료: batch_id={batch_id}")
+
+                            # 결과 조회 및 저장
+                            results_data = modelops.get_batch_results(job["modelops_batch_id"])
+                            self._batch_results[batch_id] = self._convert_modelops_result(batch_id, job, results_data)
+                            break
+
+                        elif status == "failed":
+                            job["status"] = BatchStatus.FAILED
+                            job["error_message"] = "ModelOps batch job failed"
+                            job["completed_at"] = datetime.now()
+                            logger.error(f"배치 작업 실패: batch_id={batch_id}")
+                            break
+
+                        # 아직 진행 중이면 대기
+                        await asyncio.sleep(poll_interval)
+                        poll_interval = min(poll_interval * 1.5, 30)  # Exponential backoff
+
+                    except Exception as e:
+                        logger.error(f"ModelOps 폴링 오류: {e}")
+                        await asyncio.sleep(poll_interval)
+
+                # 타임아웃 처리
+                if time.time() - start_time >= max_wait_time:
+                    job["status"] = BatchStatus.FAILED
+                    job["error_message"] = "Batch job timeout"
+                    job["completed_at"] = datetime.now()
+                    logger.error(f"배치 작업 타임아웃: batch_id={batch_id}")
+
+            except Exception as e:
+                job["status"] = BatchStatus.FAILED
+                job["error_message"] = f"ModelOps 폴링 실패: {str(e)}"
                 job["completed_at"] = datetime.now()
+                logger.error(f"배치 작업 처리 실패: {e}")
+        else:
+            # Mock 구현 (ModelOps 연동 실패 시 fallback)
+            for progress in [10, 30, 50, 70, 90, 100]:
+                await asyncio.sleep(3)
+                job["progress_percentage"] = progress
+                job["processed_grids"] = int(job["total_grids"] * progress / 100)
 
-                # Mock 결과 생성
-                self._batch_results[batch_id] = self._create_mock_result(batch_id, job)
+                if progress == 100:
+                    job["status"] = BatchStatus.COMPLETED
+                    job["completed_at"] = datetime.now()
+                    self._batch_results[batch_id] = self._create_mock_result(batch_id, job)
+
+    def _convert_modelops_result(self, batch_id: UUID, job: dict, results_data: dict) -> SiteRecommendationResultResponse:
+        """
+        ModelOps 배치 결과를 내부 포맷으로 변환
+
+        Args:
+            batch_id: 배치 작업 ID
+            job: 작업 정보
+            results_data: ModelOps 결과 데이터
+
+        Returns:
+            변환된 추천 후보지 결과
+        """
+        request = job["request"]
+
+        # ModelOps 결과에서 추천 후보지 추출
+        modelops_results = results_data.get("results", [])
+        recommended_sites = []
+
+        for idx, site_data in enumerate(modelops_results[:request.top_n], start=1):
+            recommended_sites.append(RecommendedSite(
+                rank=idx,
+                grid_id=site_data.get("grid_id", 0),
+                latitude=site_data.get("latitude", 0.0),
+                longitude=site_data.get("longitude", 0.0),
+                location_name=site_data.get("location_name", "Unknown"),
+                total_risk_score=site_data.get("total_risk_score", 0.0),
+                hazard_scores=site_data.get("hazard_scores", {}),
+                exposure_scores=site_data.get("exposure_scores", {}),
+                vulnerability_scores=site_data.get("vulnerability_scores", {}),
+                aal_total=site_data.get("aal_total", 0.0),
+                expected_loss=site_data.get("expected_loss", 0),
+            ))
+
+        scenario_names = {
+            1: "SSP1-2.6",
+            2: "SSP2-4.5",
+            3: "SSP3-7.0",
+            4: "SSP5-8.5",
+        }
+
+        return SiteRecommendationResultResponse(
+            batch_id=batch_id,
+            status=BatchStatus.COMPLETED,
+            scenario_id=request.scenario_id,
+            scenario_name=scenario_names.get(request.scenario_id, "Unknown"),
+            total_grids_analyzed=results_data.get("total_analyzed", job["total_grids"]),
+            recommended_sites=recommended_sites,
+            completed_at=job["completed_at"],
+        )
 
     def _create_mock_result(self, batch_id: UUID, job: dict) -> SiteRecommendationResultResponse:
         """
@@ -350,8 +492,14 @@ class RecommendationService:
         if job["status"] in [BatchStatus.COMPLETED, BatchStatus.FAILED]:
             return False
 
-        # TODO: ModelOps API에 취소 요청
-        # DELETE /api/v1/batch/{batch_id}
+        # ModelOps API에 취소 요청
+        if job.get("modelops_batch_id"):
+            try:
+                modelops = get_modelops_client()
+                cancel_response = modelops.cancel_batch_job(job["modelops_batch_id"])
+                logger.info(f"ModelOps 배치 작업 취소: batch_id={job['modelops_batch_id']}")
+            except Exception as e:
+                logger.error(f"ModelOps 배치 작업 취소 실패: {e}")
 
         job["status"] = BatchStatus.FAILED
         job["error_message"] = "Batch job cancelled by user"

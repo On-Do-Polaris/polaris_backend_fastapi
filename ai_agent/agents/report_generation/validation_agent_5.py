@@ -187,9 +187,15 @@ class ValidationAgent:
 
         strategy_section = draft_json.get("sections", {}).get("strategy", "")
 
-        all_strategy_summaries = " ".join([s.get("strategy_summary", "") for s in strategies])
+        # strategies가 Dict인 경우 List로 변환
+        if isinstance(strategies, dict):
+            strategies_list = list(strategies.values())
+        else:
+            strategies_list = strategies
 
-        for s in strategies:
+        all_strategy_summaries = " ".join([s.get("strategy_summary", "") for s in strategies_list])
+
+        for s in strategies_list:
             summary = s.get("strategy_summary", "")
             if summary and summary not in strategy_section:
                 issues.append({

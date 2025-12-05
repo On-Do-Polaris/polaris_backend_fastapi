@@ -103,7 +103,16 @@ Follow this thought process to structure your response:
 2.  **Brainstorm Strategies**: Consider a range of potential strategies: structural (e.g., building reinforcements), operational (e.g., emergency response plans), and financial (e.g., insurance).
 3.  **Evaluate Strategies**: Assess the brainstormed ideas based on estimated cost, effectiveness, feasibility, and timeline, considering the specific `<FACILITY_PROFILE>`.
 4.  **Select & Refine Best Strategy**: Choose the most viable strategy. Elaborate on it, breaking it down into specific recommendations for policy, operations, and technology as required by the output format.
-5.  **Find Citation**: Formulate a supporting citation from a reputable international standard or report (e.g., TCFD, IPCC, ISO) that justifies your proposed strategy.
+5.  **Quantify Expected Improvements**: **CRITICAL** - You must provide specific, quantitative improvement estimates:
+   - Expected AAL reduction (e.g., "AAL 0.87% → 0.40% with 50% budget allocation to drainage improvement")
+   - Risk score changes (e.g., "V score 77.5 → 45.0 with upgraded drainage system")
+   - Investment ROI (e.g., "50% budget investment → 54% AAL reduction")
+   - Concrete action plans with measurable outcomes
+6.  **Include Specific Programs**: Reference concrete, actionable programs and standards:
+   - International standards: RE100, SBTi (Science Based Targets initiative), CDP (Carbon Disclosure Project)
+   - Specific adaptation programs: Nature-based Solutions, Green Infrastructure
+   - Industry best practices with actual implementation examples
+7.  **Find Citation**: Formulate a supporting citation from a reputable international standard or report (e.g., TCFD, IPCC, ISO) that justifies your proposed strategy.
 </THOUGHT_PROCESS>
 
 Based on this thought process, generate a single JSON object that strictly adheres to the format specified in <OUTPUT_FORMAT>.
@@ -116,11 +125,29 @@ Based on this thought process, generate a single JSON object that strictly adher
     "risk": "The specific risk being addressed (e.g., 'extreme_heat')",
     "strategy_summary": "A concise, one-sentence summary of the proposed strategy.",
     "strategy_details": {{
-        "policy_recommendation": "Recommendations related to company policy, governance, or procedures.",
-        "operational_recommendation": "Recommendations for changes in operational processes or activities.",
-        "technical_recommendation": "Recommendations for technical, structural, or engineering changes."
+        "policy_recommendation": "Recommendations related to company policy, governance, or procedures. **Include specific programs** like RE100, SBTi, CDP participation with concrete implementation steps.",
+        "operational_recommendation": "Recommendations for changes in operational processes or activities. **Must include specific, measurable actions** (e.g., 'Install 500kW solar panels by Q2 2026', 'Implement real-time flood monitoring system').",
+        "technical_recommendation": "Recommendations for technical, structural, or engineering changes. **Must include quantified improvements** (e.g., 'Upgrade drainage capacity from 50mm/hr to 120mm/hr', 'Install green roof covering 30% of building area')."
     }},
-    "cost_benefit_analysis": "A brief analysis of the estimated costs and expected benefits of implementing the strategy.",
+    "cost_benefit_analysis": "A detailed analysis with **specific numbers**: investment amount (e.g., 'Total investment: 500 million KRW'), expected AAL reduction (e.g., '0.87% → 0.40%'), payback period (e.g., '3.5 years'), annual savings (e.g., '435 million KRW → 200 million KRW annual expected loss').",
+    "improvement_scenarios": {{
+        "scenario_1": {{
+            "description": "Specific scenario description (e.g., 'Allocate 50% budget to drainage improvement')",
+            "investment": "Investment amount in KRW or % of total budget",
+            "expected_improvement": "Quantified improvement (e.g., 'AAL 0.87% → 0.40%', 'Risk Score 88.5 → 42.3')",
+            "timeline": "Implementation timeline (e.g., '18 months')"
+        }},
+        "scenario_2": {{
+            "description": "Alternative scenario",
+            "investment": "Investment amount",
+            "expected_improvement": "Quantified improvement",
+            "timeline": "Implementation timeline"
+        }}
+    }},
+    "specific_programs": {{
+        "international_standards": ["List of applicable standards like 'RE100: 100% renewable energy by 2030', 'SBTi: 50% emissions reduction by 2030'"],
+        "adaptation_measures": ["Specific adaptation programs like 'Nature-based Solutions: Bioswales for 40% stormwater management', 'Green Infrastructure: Cool roofs reducing urban heat island effect by 2.5°C'"]
+    }},
     "citation": "A supporting citation from an international standard, e.g., 'TCFD (2023) - Adaptation for Physical Risks'."
     }}
 
@@ -128,9 +155,17 @@ Based on this thought process, generate a single JSON object that strictly adher
 
 <RULES>
 - Output ONLY a single raw JSON object. Do NOT include explanations, apologies, or any text outside the JSON object.
-- DO NOT provide vague or generic advice like "risk management should be strengthened." All recommendations must be specific and actionable.
+- **CRITICAL**: DO NOT provide vague or generic advice like "지속 가능한 에너지 시스템 도입" or "이해관계자 협력 강화."
+- **REQUIRED**: All recommendations must be:
+  - Specific (e.g., "RE100 참여: 2030년까지 재생에너지 100% 전환, 연간 500억원 투자")
+  - Measurable (e.g., "AAL 0.87% → 0.40% 감소, 배수 용량 50mm/hr → 120mm/hr 증설")
+  - Time-bound (e.g., "2025년 Q2까지 태양광 패널 500kW 설치")
+  - Financially quantified (e.g., "투자 5억원, 연간 절감액 2억원, 투자 회수 기간 2.5년")
+- **improvement_scenarios**: You MUST provide at least 2 different investment scenarios with specific AAL reduction forecasts
+- **specific_programs**: You MUST include real, internationally recognized programs (RE100, SBTi, CDP, ISO 14090, etc.) with concrete implementation steps
 - The proposed strategy MUST be relevant and tailored to the facility described in `<FACILITY_PROFILE>`.
 - The output language must be Korean.
+- **Focus on "how to improve" rather than "what the result is"**: Frame recommendations as "현재 AAL 0.87%인데, X를 투자하면 0.40%로 감소" instead of just "AAL이 0.87%입니다."
 </RULES>
 
 JSON_ONLY:

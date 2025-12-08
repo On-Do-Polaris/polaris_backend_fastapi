@@ -177,29 +177,32 @@ class DatabaseManager:
         results = self.execute_query(query, (longitude, latitude))
         return results[0] if results else None
 
-    # ==================== Monthly Grid Climate Data (Long Format) ====================
+    # ==================== Monthly Grid Climate Data (Wide Format) ====================
 
     def fetch_monthly_grid_data(
         self,
         grid_id: int,
         start_date: str,
         end_date: str,
-        scenario_id: int,
+        scenario: Optional[str] = None,
         variables: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
-        Fetch monthly climate data for a grid point (Long format)
+        Fetch monthly climate data for a grid point (Wide format - ERD v03)
 
         Args:
             grid_id: Grid ID from location_grid
             start_date: Start date (YYYY-MM-DD)
             end_date: End date (YYYY-MM-DD)
-            scenario_id: SSP scenario (1=SSP1-2.6, 2=SSP2-4.5, 3=SSP3-7.0, 4=SSP5-8.5)
+            scenario: SSP scenario to select ('ssp1', 'ssp2', 'ssp3', 'ssp5')
+                     If None, returns all 4 scenarios
             variables: List of variable codes (ta, rn, ws, rhm, si, spei12)
                       Default: ['ta', 'rn', 'ws']
 
         Returns:
             Dictionary with data for each variable
+            Each row contains: observation_date, ssp1, ssp2, ssp3, ssp5
+            (or single scenario column if scenario is specified)
         """
         if variables is None:
             variables = ['ta', 'rn', 'ws']
@@ -216,26 +219,37 @@ class DatabaseManager:
             'spei12': 'spei12_data'
         }
 
+        # Validate scenario
+        valid_scenarios = ['ssp1', 'ssp2', 'ssp3', 'ssp5']
+        if scenario and scenario not in valid_scenarios:
+            self.logger.warning(f"Invalid scenario: {scenario}. Using all scenarios.")
+            scenario = None
+
         for var in variables:
             if var not in table_map:
                 self.logger.warning(f"Unknown variable: {var}")
                 continue
 
             table_name = table_map[var]
+
+            # Select columns based on scenario parameter
+            if scenario:
+                columns = f"observation_date, {scenario}"
+            else:
+                columns = "observation_date, ssp1, ssp2, ssp3, ssp5"
+
             query = f"""
                 SELECT
-                    observation_date,
-                    value
+                    {columns}
                 FROM {table_name}
                 WHERE grid_id = %s
-                    AND scenario_id = %s
                     AND observation_date BETWEEN %s AND %s
                 ORDER BY observation_date
             """
 
             result[var] = self.execute_query(
                 query,
-                (grid_id, scenario_id, start_date, end_date)
+                (grid_id, start_date, end_date)
             )
 
         return result
@@ -296,30 +310,33 @@ class DatabaseManager:
 
         return result
 
-    # ==================== Yearly Grid Climate Data ====================
+    # ==================== Yearly Grid Climate Data (Wide Format) ====================
 
     def fetch_yearly_grid_data(
         self,
         grid_id: int,
         start_year: int,
         end_year: int,
-        scenario_id: int,
+        scenario: Optional[str] = None,
         variables: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
-        Fetch yearly climate indices for a grid point
+        Fetch yearly climate indices for a grid point (Wide format - ERD v03)
 
         Args:
             grid_id: Grid ID from location_grid
-            start_year: Start year
-            end_year: End year
-            scenario_id: SSP scenario (1=SSP1-2.6, 2=SSP2-4.5, 3=SSP3-7.0, 4=SSP5-8.5)
+            start_year: Start year (2021-2100)
+            end_year: End year (2021-2100)
+            scenario: SSP scenario to select ('ssp1', 'ssp2', 'ssp3', 'ssp5')
+                     If None, returns all 4 scenarios
             variables: List of variable codes
                       (csdi, wsdi, rx1day, rx5day, cdd, rain80, sdii, ta_yearly)
                       Default: ['csdi', 'wsdi', 'rx1day', 'rx5day']
 
         Returns:
             Dictionary with data for each variable
+            Each row contains: year, ssp1, ssp2, ssp3, ssp5
+            (or single scenario column if scenario is specified)
         """
         if variables is None:
             variables = ['csdi', 'wsdi', 'rx1day', 'rx5day']
@@ -337,26 +354,37 @@ class DatabaseManager:
             'ta_yearly': 'ta_yearly_data'
         }
 
+        # Validate scenario
+        valid_scenarios = ['ssp1', 'ssp2', 'ssp3', 'ssp5']
+        if scenario and scenario not in valid_scenarios:
+            self.logger.warning(f"Invalid scenario: {scenario}. Using all scenarios.")
+            scenario = None
+
         for var in variables:
             if var not in table_map:
                 self.logger.warning(f"Unknown variable: {var}")
                 continue
 
             table_name = table_map[var]
+
+            # Select columns based on scenario parameter
+            if scenario:
+                columns = f"year, {scenario}"
+            else:
+                columns = "year, ssp1, ssp2, ssp3, ssp5"
+
             query = f"""
                 SELECT
-                    year,
-                    value
+                    {columns}
                 FROM {table_name}
                 WHERE grid_id = %s
-                    AND scenario_id = %s
                     AND year BETWEEN %s AND %s
                 ORDER BY year
             """
 
             result[var] = self.execute_query(
                 query,
-                (grid_id, scenario_id, start_year, end_year)
+                (grid_id, start_year, end_year)
             )
 
         return result
@@ -369,20 +397,23 @@ class DatabaseManager:
         longitude: float,
         start_year: int,
         end_year: int,
-        scenario_id: int
+        scenario: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
-        Fetch sea level rise data for coastal location
+        Fetch sea level rise data for coastal location (Wide format - ERD v03)
 
         Args:
             latitude: Latitude (WGS84)
             longitude: Longitude (WGS84)
-            start_year: Start year
-            end_year: End year
-            scenario_id: SSP scenario (1=SSP1-2.6, 2=SSP2-4.5, 3=SSP3-7.0, 4=SSP5-8.5)
+            start_year: Start year (2015-2100)
+            end_year: End year (2015-2100)
+            scenario: SSP scenario to select ('ssp1', 'ssp2', 'ssp3', 'ssp5')
+                     If None, returns all 4 scenarios
 
         Returns:
             List of sea level data
+            Each row contains: year, ssp1, ssp2, ssp3, ssp5 (cm)
+            (or single scenario column if scenario is specified)
         """
         # First, find nearest sea level grid point
         grid_query = """
@@ -406,21 +437,31 @@ class DatabaseManager:
 
         grid_id = grid_result[0]['grid_id']
 
+        # Validate scenario
+        valid_scenarios = ['ssp1', 'ssp2', 'ssp3', 'ssp5']
+        if scenario and scenario not in valid_scenarios:
+            self.logger.warning(f"Invalid scenario: {scenario}. Using all scenarios.")
+            scenario = None
+
+        # Select columns based on scenario parameter
+        if scenario:
+            columns = f"year, {scenario} as sea_level_rise_cm"
+        else:
+            columns = "year, ssp1, ssp2, ssp3, ssp5"
+
         # Fetch sea level data
-        data_query = """
+        data_query = f"""
             SELECT
-                year,
-                value as sea_level_rise_cm
+                {columns}
             FROM sea_level_data
             WHERE grid_id = %s
-                AND scenario_id = %s
                 AND year BETWEEN %s AND %s
             ORDER BY year
         """
 
         return self.execute_query(
             data_query,
-            (grid_id, scenario_id, start_year, end_year)
+            (grid_id, start_year, end_year)
         )
 
     # ==================== Spatial Analysis Cache ====================
@@ -610,22 +651,24 @@ class DatabaseManager:
         longitude: float,
         start_year: int,
         end_year: int,
-        scenario_id: int = 2,  # Default: SSP2-4.5
+        scenario: Optional[str] = None,  # Changed from scenario_id to scenario (ERD v03)
         admin_code: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Comprehensive climate data collection for a location
+        Comprehensive climate data collection for a location (ERD v03 Wide Format)
 
         Args:
             latitude: Latitude
             longitude: Longitude
             start_year: Start year
             end_year: End year
-            scenario_id: SSP scenario (default: 2 = SSP2-4.5)
+            scenario: SSP scenario ('ssp1', 'ssp2', 'ssp3', 'ssp5')
+                     If None, returns all 4 scenarios (default behavior)
             admin_code: Optional admin code (if known)
 
         Returns:
             Dictionary containing all climate data
+            All data uses Wide format (ssp1, ssp2, ssp3, ssp5 columns)
         """
         result = {
             'location': {
@@ -636,7 +679,7 @@ class DatabaseManager:
                 'start_year': start_year,
                 'end_year': end_year
             },
-            'scenario_id': scenario_id
+            'scenario': scenario or 'all'  # Changed from scenario_id
         }
 
         # 1. Find nearest grid
@@ -645,16 +688,16 @@ class DatabaseManager:
             result['grid'] = grid
             grid_id = grid['grid_id']
 
-            # 2. Fetch monthly grid data
+            # 2. Fetch monthly grid data (Wide format)
             start_date = f"{start_year}-01-01"
             end_date = f"{end_year}-12-31"
             result['monthly_data'] = self.fetch_monthly_grid_data(
-                grid_id, start_date, end_date, scenario_id
+                grid_id, start_date, end_date, scenario
             )
 
-            # 3. Fetch yearly grid data
+            # 3. Fetch yearly grid data (Wide format)
             result['yearly_data'] = self.fetch_yearly_grid_data(
-                grid_id, start_year, end_year, scenario_id
+                grid_id, start_year, end_year, scenario
             )
 
         # 4. Find admin region
@@ -667,16 +710,16 @@ class DatabaseManager:
             result['admin'] = admin
             admin_id = admin['admin_id']
 
-            # 5. Fetch daily admin data
+            # 5. Fetch daily admin data (Already Wide format)
             start_date = f"{start_year}-01-01"
             end_date = f"{end_year}-12-31"
             result['daily_data'] = self.fetch_daily_admin_data(
                 admin_id, start_date, end_date
             )
 
-        # 6. Sea level data
+        # 6. Sea level data (Wide format)
         result['sea_level_data'] = self.fetch_sea_level_data(
-            latitude, longitude, start_year, end_year, scenario_id
+            latitude, longitude, start_year, end_year, scenario
         )
 
         return result

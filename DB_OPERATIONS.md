@@ -232,9 +232,199 @@ ssp5 real  -- SSP5-8.5 해수면 상승 (cm)
 
 ---
 
-### 6. 공간 분석 캐시 조회
+### 6. ModelOps 계산 결과 조회 및 배치 작업 추적
 
-#### 6.1 토지피복 분석 결과 조회
+#### 계산 흐름 (중요!)
+
+ModelOps 계산은 **2단계 프로세스**로 진행됩니다:
+
+1. **사전 계산 (ModelOps가 주기적으로 수행)**:
+   - ✅ H (Hazard Score): `hazard_results` 테이블에 저장
+   - ✅ P(H) (Probability): `probability_results` 테이블에 저장
+
+2. **요청 시 계산 (FastAPI → ModelOps API 트리거)**:
+   - ⚠️ E (Exposure): 사업장 위치 기반 실시간 계산 → `exposure_results`에 저장
+   - ⚠️ V (Vulnerability): 사업장 특성 기반 실시간 계산 → `vulnerability_results`에 저장
+   - ⚠️ AAL (최종): H × E × V 기반 실시간 계산 → `aal_scaled_results`에 저장
+
+#### 작업 흐름 다이어그램
+
+```
+1. FastAPI → ModelOps API 호출
+   - 위경도, 시나리오, 사업장 특성 전달
+   - batch_id 반환 (202 Accepted)
+
+2. ModelOps 계산 (비동기)
+   - H, P(H): DB에서 조회 (이미 저장됨)
+   - E, V, AAL: 실시간 계산
+   - batch_jobs 테이블 상태 업데이트 (queued → running → completed)
+   - 결과를 DB에 저장
+
+3. FastAPI 폴링 (modelops_client._poll_status)
+   - batch_jobs 테이블 확인
+   - status='completed' 될 때까지 대기
+
+4. FastAPI → DB 조회
+   - exposure_results, vulnerability_results, aal_scaled_results 조회
+   - 사용자에게 반환
+```
+
+#### 배치 작업 상태 조회
+
+```python
+# 특정 배치 작업 조회
+batch_job = db.fetch_batch_job(batch_id="uuid-string")
+# 반환: {
+#   'batch_id': 'uuid',
+#   'job_type': 'aal_calculation',
+#   'status': 'completed',  # queued/running/completed/failed/cancelled
+#   'progress': 100,  # 0-100
+#   'total_items': 9,  # 9개 리스크
+#   'completed_items': 9,
+#   'failed_items': 0,
+#   'input_params': {...},  # JSONB
+#   'results': {...},  # JSONB
+#   'error_message': None,
+#   'created_at': '2024-01-01 10:00:00',
+#   'started_at': '2024-01-01 10:00:05',
+#   'completed_at': '2024-01-01 10:02:30',
+#   'actual_duration_seconds': 145
+# }
+
+# 상태별 배치 작업 조회
+running_jobs = db.fetch_batch_jobs_by_status(
+    status='running',
+    job_type='aal_calculation',
+    limit=10
+)
+```
+
+**쿼리 대상 테이블**: `batch_jobs`
+
+---
+
+#### ModelOps 계산 결과 조회
+
+#### 6.1 Hazard Score 조회
+```python
+hazard_results = db.fetch_hazard_results(
+    latitude=37.5665,
+    longitude=126.9780,
+    risk_type='TYPHOON'  # Optional: 특정 리스크만 조회
+)
+# 반환: [
+#   {
+#     'latitude': 37.5665, 'longitude': 126.978, 'risk_type': 'TYPHOON',
+#     'hazard_score': 75.5, 'hazard_score_100': 85.2,
+#     'hazard_level': '높음', 'calculated_at': '2024-01-01'
+#   },
+#   ...  # 9개 리스크 유형
+# ]
+```
+
+**쿼리 대상 테이블**: `hazard_results` (~4.06M rows)
+**반환 데이터**: H (Hazard) 점수 - 원본 점수 및 0-100 정규화 점수
+
+#### 6.2 Exposure Score 조회
+```python
+exposure_results = db.fetch_exposure_results(
+    latitude=37.5665,
+    longitude=126.9780
+)
+# 반환: [
+#   {'latitude': 37.5665, 'longitude': 126.978, 'risk_type': 'TYPHOON',
+#    'exposure_score': 0.65, 'calculated_at': '2024-01-01'},
+#   ...
+# ]
+```
+
+**쿼리 대상 테이블**: `exposure_results` (~4.06M rows)
+**반환 데이터**: E (Exposure) 점수
+
+#### 6.3 Vulnerability Score 조회
+```python
+vulnerability_results = db.fetch_vulnerability_results(
+    latitude=37.5665,
+    longitude=126.9780,
+    risk_type='INLAND_FLOOD'
+)
+# 반환: [
+#   {'latitude': 37.5665, 'longitude': 126.978, 'risk_type': 'INLAND_FLOOD',
+#    'vulnerability_score': 0.45, 'calculated_at': '2024-01-01'}
+# ]
+```
+
+**쿼리 대상 테이블**: `vulnerability_results` (~4.06M rows)
+**반환 데이터**: V (Vulnerability) 점수
+
+#### 6.4 Probability 및 Base AAL 조회
+```python
+probability_results = db.fetch_probability_results(
+    latitude=37.5665,
+    longitude=126.9780,
+    scenario='ssp2'  # Optional: 특정 시나리오만
+)
+# 반환: [
+#   {
+#     'latitude': 37.5665, 'longitude': 126.978,
+#     'risk_type': 'TYPHOON', 'scenario': 'ssp2',
+#     'bin_probabilities': {...},  # JSONB: 확률 분포
+#     'aal': 150000000,  # Base AAL (원)
+#     'calculated_at': '2024-01-01'
+#   },
+#   ...  # 9개 리스크 × 1개 시나리오
+# ]
+```
+
+**쿼리 대상 테이블**: `probability_results` (~4.06M rows)
+**반환 데이터**: P(H) 확률 분포 및 Base AAL
+
+#### 6.5 최종 AAL 조회 (Vulnerability Scaled)
+```python
+aal_scaled = db.fetch_aal_scaled_results(
+    latitude=37.5665,
+    longitude=126.9780,
+    risk_type='TYPHOON',
+    scenario='ssp2'
+)
+# 반환: [
+#   {
+#     'latitude': 37.5665, 'longitude': 126.978,
+#     'risk_type': 'TYPHOON', 'scenario': 'ssp2',
+#     'base_aal': 150000000,  # Base AAL
+#     'vulnerability_score': 0.45,  # V 점수
+#     'final_aal': 67500000,  # Final AAL = Base AAL × V
+#     'calculated_at': '2024-01-01'
+#   }
+# ]
+```
+
+**쿼리 대상 테이블**: `aal_scaled_results` (~4.06M rows)
+**반환 데이터**: 최종 AAL (Vulnerability로 스케일링된 값)
+
+#### 6.6 모든 ModelOps 결과 한번에 조회
+```python
+all_results = db.fetch_all_modelops_results(
+    latitude=37.5665,
+    longitude=126.9780,
+    scenario='ssp2'
+)
+# 반환: {
+#   'hazard_results': [...],
+#   'exposure_results': [...],
+#   'vulnerability_results': [...],
+#   'probability_results': [...],
+#   'aal_scaled_results': [...]
+# }
+```
+
+**기능**: 5개 테이블 결과를 한번에 조회
+
+---
+
+### 7. 공간 분석 캐시 조회
+
+#### 7.1 토지피복 분석 결과 조회
 ```python
 landcover = db.fetch_spatial_landcover(site_id="uuid-string")
 # 반환: {
@@ -247,7 +437,7 @@ landcover = db.fetch_spatial_landcover(site_id="uuid-string")
 
 **쿼리 대상 테이블**: `spatial_landcover`
 
-#### 6.2 DEM(수치표고모델) 분석 결과 조회
+#### 7.2 DEM(수치표고모델) 분석 결과 조회
 ```python
 dem = db.fetch_spatial_dem(site_id="uuid-string")
 # 반환: {
@@ -263,9 +453,9 @@ dem = db.fetch_spatial_dem(site_id="uuid-string")
 
 ---
 
-### 7. 외부 API 캐시 조회
+### 8. 외부 API 캐시 조회
 
-#### 7.1 주변 병원 조회
+#### 8.1 주변 병원 조회
 ```python
 hospitals = db.fetch_nearby_hospitals(
     latitude=37.5665,
@@ -283,7 +473,7 @@ hospitals = db.fetch_nearby_hospitals(
 **쿼리 대상 테이블**: `api_hospitals`
 **기능**: PostGIS `ST_DWithin`을 사용한 반경 검색
 
-#### 7.2 대피소 정보 조회
+#### 8.2 대피소 정보 조회
 ```python
 shelters = db.fetch_nearby_shelters(admin_code="11010")
 # 반환: {
@@ -295,7 +485,7 @@ shelters = db.fetch_nearby_shelters(admin_code="11010")
 
 **쿼리 대상 테이블**: `api_shelters`
 
-#### 7.3 태풍 경로 이력 조회
+#### 8.3 태풍 경로 이력 조회
 ```python
 typhoon_history = db.fetch_typhoon_history(
     latitude=35.1796,

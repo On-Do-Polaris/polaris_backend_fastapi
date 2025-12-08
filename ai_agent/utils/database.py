@@ -723,3 +723,323 @@ class DatabaseManager:
         )
 
         return result
+
+    # ==================== ModelOps Results Queries ====================
+
+    def fetch_hazard_results(
+        self,
+        latitude: float,
+        longitude: float,
+        risk_type: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch Hazard Score results from ModelOps calculations
+
+        Args:
+            latitude: Latitude
+            longitude: Longitude
+            risk_type: Optional risk type filter (e.g., 'TYPHOON', 'INLAND_FLOOD')
+                      If None, returns all 9 risk types
+
+        Returns:
+            List of hazard results with scores and levels
+        """
+        query = """
+            SELECT
+                latitude,
+                longitude,
+                risk_type,
+                hazard_score,
+                hazard_score_100,
+                hazard_level,
+                calculated_at
+            FROM hazard_results
+            WHERE latitude = %s AND longitude = %s
+        """
+        params = [latitude, longitude]
+
+        if risk_type:
+            query += " AND risk_type = %s"
+            params.append(risk_type)
+
+        query += " ORDER BY risk_type"
+
+        return self.execute_query(query, tuple(params))
+
+    def fetch_exposure_results(
+        self,
+        latitude: float,
+        longitude: float,
+        risk_type: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch Exposure Score results from ModelOps calculations
+
+        Args:
+            latitude: Latitude
+            longitude: Longitude
+            risk_type: Optional risk type filter
+
+        Returns:
+            List of exposure results with scores
+        """
+        query = """
+            SELECT
+                latitude,
+                longitude,
+                risk_type,
+                exposure_score,
+                calculated_at
+            FROM exposure_results
+            WHERE latitude = %s AND longitude = %s
+        """
+        params = [latitude, longitude]
+
+        if risk_type:
+            query += " AND risk_type = %s"
+            params.append(risk_type)
+
+        query += " ORDER BY risk_type"
+
+        return self.execute_query(query, tuple(params))
+
+    def fetch_vulnerability_results(
+        self,
+        latitude: float,
+        longitude: float,
+        risk_type: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch Vulnerability Score results from ModelOps calculations
+
+        Args:
+            latitude: Latitude
+            longitude: Longitude
+            risk_type: Optional risk type filter
+
+        Returns:
+            List of vulnerability results with scores
+        """
+        query = """
+            SELECT
+                latitude,
+                longitude,
+                risk_type,
+                vulnerability_score,
+                calculated_at
+            FROM vulnerability_results
+            WHERE latitude = %s AND longitude = %s
+        """
+        params = [latitude, longitude]
+
+        if risk_type:
+            query += " AND risk_type = %s"
+            params.append(risk_type)
+
+        query += " ORDER BY risk_type"
+
+        return self.execute_query(query, tuple(params))
+
+    def fetch_probability_results(
+        self,
+        latitude: float,
+        longitude: float,
+        risk_type: Optional[str] = None,
+        scenario: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch Probability P(H) results from ModelOps calculations
+
+        Args:
+            latitude: Latitude
+            longitude: Longitude
+            risk_type: Optional risk type filter
+            scenario: Optional scenario filter ('ssp1', 'ssp2', 'ssp3', 'ssp5')
+
+        Returns:
+            List of probability results with bin probabilities and AAL
+        """
+        query = """
+            SELECT
+                latitude,
+                longitude,
+                risk_type,
+                scenario,
+                bin_probabilities,
+                aal,
+                calculated_at
+            FROM probability_results
+            WHERE latitude = %s AND longitude = %s
+        """
+        params = [latitude, longitude]
+
+        if risk_type:
+            query += " AND risk_type = %s"
+            params.append(risk_type)
+
+        if scenario:
+            query += " AND scenario = %s"
+            params.append(scenario)
+
+        query += " ORDER BY risk_type, scenario"
+
+        return self.execute_query(query, tuple(params))
+
+    def fetch_aal_scaled_results(
+        self,
+        latitude: float,
+        longitude: float,
+        risk_type: Optional[str] = None,
+        scenario: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch final AAL results (scaled by vulnerability) from ModelOps
+
+        Args:
+            latitude: Latitude
+            longitude: Longitude
+            risk_type: Optional risk type filter
+            scenario: Optional scenario filter ('ssp1', 'ssp2', 'ssp3', 'ssp5')
+
+        Returns:
+            List of AAL results with base and final AAL values
+        """
+        query = """
+            SELECT
+                latitude,
+                longitude,
+                risk_type,
+                scenario,
+                base_aal,
+                vulnerability_score,
+                final_aal,
+                calculated_at
+            FROM aal_scaled_results
+            WHERE latitude = %s AND longitude = %s
+        """
+        params = [latitude, longitude]
+
+        if risk_type:
+            query += " AND risk_type = %s"
+            params.append(risk_type)
+
+        if scenario:
+            query += " AND scenario = %s"
+            params.append(scenario)
+
+        query += " ORDER BY risk_type, scenario"
+
+        return self.execute_query(query, tuple(params))
+
+    def fetch_all_modelops_results(
+        self,
+        latitude: float,
+        longitude: float,
+        risk_type: Optional[str] = None,
+        scenario: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Fetch all ModelOps calculation results for a location
+
+        Args:
+            latitude: Latitude
+            longitude: Longitude
+            risk_type: Optional risk type filter
+            scenario: Optional scenario filter ('ssp1', 'ssp2', 'ssp3', 'ssp5')
+
+        Returns:
+            Dictionary containing all ModelOps results:
+            - hazard_results: H scores
+            - exposure_results: E scores
+            - vulnerability_results: V scores
+            - probability_results: P(H) and base AAL
+            - aal_scaled_results: Final AAL (scaled by V)
+        """
+        return {
+            'hazard_results': self.fetch_hazard_results(latitude, longitude, risk_type),
+            'exposure_results': self.fetch_exposure_results(latitude, longitude, risk_type),
+            'vulnerability_results': self.fetch_vulnerability_results(latitude, longitude, risk_type),
+            'probability_results': self.fetch_probability_results(latitude, longitude, risk_type, scenario),
+            'aal_scaled_results': self.fetch_aal_scaled_results(latitude, longitude, risk_type, scenario)
+        }
+
+    # ==================== Batch Jobs Tracking ====================
+
+    def fetch_batch_job(self, batch_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch batch job status by batch_id
+
+        Args:
+            batch_id: Batch job UUID
+
+        Returns:
+            Batch job information or None if not found
+        """
+        query = """
+            SELECT
+                batch_id,
+                job_type,
+                status,
+                progress,
+                total_items,
+                completed_items,
+                failed_items,
+                input_params,
+                results,
+                error_message,
+                error_stack_trace,
+                estimated_duration_minutes,
+                actual_duration_seconds,
+                created_at,
+                started_at,
+                completed_at,
+                expires_at,
+                created_by
+            FROM batch_jobs
+            WHERE batch_id = %s
+        """
+        results = self.execute_query(query, (batch_id,))
+        return results[0] if results else None
+
+    def fetch_batch_jobs_by_status(
+        self,
+        status: str,
+        job_type: Optional[str] = None,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch batch jobs by status
+
+        Args:
+            status: Job status ('queued', 'running', 'completed', 'failed', 'cancelled')
+            job_type: Optional job type filter
+            limit: Maximum number of results
+
+        Returns:
+            List of batch jobs
+        """
+        query = """
+            SELECT
+                batch_id,
+                job_type,
+                status,
+                progress,
+                total_items,
+                completed_items,
+                failed_items,
+                created_at,
+                started_at,
+                completed_at
+            FROM batch_jobs
+            WHERE status = %s
+        """
+        params = [status]
+
+        if job_type:
+            query += " AND job_type = %s"
+            params.append(job_type)
+
+        query += " ORDER BY created_at DESC LIMIT %s"
+        params.append(limit)
+
+        return self.execute_query(query, tuple(params))

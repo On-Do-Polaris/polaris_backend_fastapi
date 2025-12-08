@@ -146,12 +146,13 @@ def data_collection_node(state: SuperAgentState, config: Any) -> Dict:
 @traceable(name="aal_analysis_node", tags=["workflow", "node", "aal", "parallel"])
 def aal_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
-	연평균 재무 손실률 (AAL) 분석 노드 (ModelOps API 호출)
+	연평균 재무 손실률 (AAL) 분석 노드 (ModelOps API 트리거 + DB 조회)
 
-	변경사항:
-	- ModelOps API를 호출하여 AAL 계산 (기존 Agent 제거)
-	- ERD 기준 데이터 전달 (위경도, 사업장 종류, 추가 데이터)
-	- 트리거 역할만 수행
+	변경사항 (2025-12-08):
+	- ModelOps API 호출로 E, V, AAL 계산 트리거
+	- H, P(H)는 DB에 사전 저장되어 있음 (ModelOps가 내부에서 조회)
+	- API 호출 후 폴링을 통해 완료 대기
+	- 완료 후 DB에서 결과 조회 (exposure_results, vulnerability_results, aal_scaled_results)
 
 	Args:
 		state: 현재 워크플로우 상태
@@ -160,23 +161,30 @@ def aal_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 	Returns:
 		업데이트된 상태 딕셔너리
 	"""
-	print("[Node 3] 연평균 재무 손실률 (AAL) 분석 시작 (ModelOps API 호출)...")
+	print("[Node 3] 연평균 재무 손실률 (AAL) 분석 시작 (ModelOps API 트리거)...")
 
 	try:
 		from ai_agent.services import get_modelops_client
+		from ai_agent.utils.database import DatabaseManager
 
 		# ModelOps 클라이언트 초기화
 		modelops_client = get_modelops_client()
+		db = DatabaseManager()
 
-		# Scratch Space에서 원본 데이터 로드
-		session_id = state.get('scratch_session_id')
-		collected_data = scratch_manager.load_data(session_id, "climate_raw.json", format="json")
+		# 위경도 정보 추출
+		target_location = state.get('target_location', {})
+		latitude = target_location.get('latitude')
+		longitude = target_location.get('longitude')
 
-		# Vulnerability 분석 결과에서 vulnerability_scores 추출
-		vulnerability_analysis = state.get('vulnerability_analysis', {})
-		vulnerability_scores = vulnerability_analysis.get('vulnerability_scores', {})
+		if not latitude or not longitude:
+			raise ValueError("위경도 정보가 없습니다")
 
-		# additional_data에서 정보 추출 (ERD 기준)
+		# Scenario 정보 추출
+		scenario_id = state.get('scenario_id', 2)
+		scenario_map = {1: 'ssp1', 2: 'ssp2', 3: 'ssp3', 5: 'ssp5'}
+		scenario = scenario_map.get(scenario_id, 'ssp2')
+
+		# additional_data에서 정보 추출 (사업장 특성)
 		additional_data = state.get('additional_data', {})
 		asset_info = additional_data.get('asset_info', {}) if additional_data else {}
 		insurance_info = additional_data.get('insurance', {}) if additional_data else {}
@@ -187,39 +195,81 @@ def aal_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 			'insurance_coverage_rate': insurance_info.get('coverage_rate', 0.0)
 		}
 
-		# Hazard 점수 추출 (collected_data에서)
-		hazard_scores = {}
-		# TODO: collected_data 구조에 맞춰 hazard_scores 추출 로직 구현
+		# Scratch Space에서 원본 데이터 로드
+		session_id = state.get('scratch_session_id')
+		collected_data = scratch_manager.load_data(session_id, "climate_raw.json", format="json")
 
 		# 기후 데이터 준비
 		climate_data = {
 			'grid_id': collected_data.get('grid_id'),
-			'scenario_id': state.get('scenario_id', 2),
+			'scenario': scenario,
 			'start_year': state.get('start_year', 2025),
 			'end_year': state.get('end_year', 2050),
 			'variables': collected_data.get('variables', {})
 		}
 
-		# ModelOps API 호출: AAL 계산
+		# ModelOps API 호출: AAL 계산 트리거 (H, P(H)는 DB에서 자동 조회)
 		site_id = state.get('site_id', state.get('target_location', {}).get('site_id', 'unknown'))
+		print(f"  - ModelOps API 호출: E, V, AAL 계산 트리거 (lat={latitude}, lon={longitude}, scenario={scenario})")
+
 		aal_result = modelops_client.calculate_aal(
 			site_id=site_id,
-			hazard_scores=hazard_scores,
-			vulnerability_scores=vulnerability_scores,
+			hazard_scores={},  # ModelOps가 DB에서 H 조회
+			vulnerability_scores={},  # ModelOps가 계산
 			asset_info=asset_data,
 			climate_data=climate_data
 		)
 
-		print(f"  - ModelOps AAL 계산 완료: request_id={aal_result.get('request_id')}")
+		print(f"  - ModelOps 계산 완료: batch_id={aal_result.get('batch_id')}")
 
-		# 결과 변환 (기존 형식과 호환)
-		aal_analysis = aal_result.get('results', {})
+		# DB에서 계산된 결과 조회
+		print(f"  - DB에서 결과 조회: lat={latitude}, lon={longitude}, scenario={scenario}")
+
+		# AAL scaled results 조회 (최종 AAL 값)
+		aal_scaled = db.fetch_aal_scaled_results(
+			latitude=latitude,
+			longitude=longitude,
+			scenario=scenario
+		)
+
+		# Probability results 조회 (P(H) 및 base AAL)
+		probability = db.fetch_probability_results(
+			latitude=latitude,
+			longitude=longitude,
+			scenario=scenario
+		)
+
+		# Exposure results 조회
+		exposure = db.fetch_exposure_results(
+			latitude=latitude,
+			longitude=longitude
+		)
+
+		# Vulnerability results 조회
+		vulnerability = db.fetch_vulnerability_results(
+			latitude=latitude,
+			longitude=longitude
+		)
+
+		# 결과를 기존 형식과 호환되도록 변환
+		aal_analysis = {
+			'aal_scaled_results': aal_scaled,
+			'probability_results': probability,
+			'exposure_results': exposure,
+			'vulnerability_results': vulnerability,
+			'scenario': scenario,
+			'latitude': latitude,
+			'longitude': longitude,
+			'batch_id': aal_result.get('batch_id')
+		}
+
+		print(f"  - AAL 결과 조회 완료: {len(aal_scaled)} 리스크 항목")
 
 		return {
 			'aal_analysis': aal_analysis,
 			'aal_status': 'completed',
 			'current_step': 'physical_risk_score',
-			'logs': [f'연평균 재무 손실률 (AAL) 분석 완료 (ModelOps API, request_id={aal_result.get("request_id")})']
+			'logs': [f'연평균 재무 손실률 (AAL) 계산 완료 (ModelOps, batch_id={aal_result.get("batch_id")}, {len(aal_scaled)} 항목)']
 		}
 
 	except Exception as e:

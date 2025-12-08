@@ -37,6 +37,7 @@
 import json
 from typing import Dict, Any, List, Tuple
 import logging
+from ai_agent.utils.knowledge import RiskContextBuilder
 
 logger = logging.getLogger("ValidationAgent")
 
@@ -50,6 +51,7 @@ class ValidationAgent:
 
     def __init__(self, llm_client=None):
         self.llm = llm_client
+        self.risk_context_builder = RiskContextBuilder()
         logger.info("[ValidationAgent] 초기화 완료")
 
     # ============================================================
@@ -193,6 +195,17 @@ class ValidationAgent:
         else:
             strategies_list = strategies
 
+        # strategies_list의 각 항목이 딕셔너리인지 확인하고 평탄화
+        flattened_strategies = []
+        for item in strategies_list:
+            if isinstance(item, dict):
+                flattened_strategies.append(item)
+            elif isinstance(item, list):
+                # 리스트 안의 딕셔너리들을 평탄화
+                flattened_strategies.extend([i for i in item if isinstance(i, dict)])
+
+        strategies_list = flattened_strategies
+
         all_strategy_summaries = " ".join([s.get("strategy_summary", "") for s in strategies_list])
 
         for s in strategies_list:
@@ -285,6 +298,17 @@ class ValidationAgent:
         if not self.llm:
             return 1.0, []
 
+        # 리스크 타입 추출
+        risk_types = []
+        if "top_risks" in impact_summary:
+            risk_types = [r.get("risk_type") for r in impact_summary.get("top_risks", [])]
+
+        # Validation용 리스크 컨텍스트 생성 (데이터 소스, 단위, 임계값 검증용)
+        risk_validation_context = ""
+        if risk_types:
+            risk_context = self.risk_context_builder.get_validation_context(risk_types)
+            risk_validation_context = self.risk_context_builder.format_for_prompt(risk_context, format_type="json")
+
         prompt = f"""
 <ROLE>
 You are an independent and highly critical Report Auditor and Fact-Checker, specializing in ensuring the highest quality and factual accuracy of TCFD and ESG reports. Your dual role is:
@@ -306,6 +330,15 @@ You have been provided with a draft report AND the original source data used to 
 <REPORT_DRAFT_TO_VALIDATE>
 {markdown}
 </REPORT_DRAFT_TO_VALIDATE>
+
+<RISK_VALIDATION_REFERENCE>
+This reference provides authoritative information for validating claims about climate risks:
+- Data sources (for citation validation)
+- Units and measurement standards (for accuracy validation)
+- Threshold ranges (for plausibility validation)
+
+{risk_validation_context}
+</RISK_VALIDATION_REFERENCE>
 </CONTEXT>
 
 <INSTRUCTIONS>

@@ -34,7 +34,7 @@
 
 import json
 from typing import List, Dict, Any
-from .utils.rag_helpers import RAGEngine
+from ...utils.rag_helpers import RAGEngine
 
 # LangSmith traceable 임포트
 try:

@@ -82,6 +82,7 @@ results/
 *.png
 *.jpg
 *.jpeg
+!/static/
 
 # Keep workflow diagram
 !workflow_diagram.png

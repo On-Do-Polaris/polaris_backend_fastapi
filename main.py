@@ -75,6 +75,14 @@ app.include_router(additional_data_router)
 app.include_router(disaster_history_router)
 app.include_router(dashboard_router)
 
+# 정적 파일 서빙 (API 테스트 콘솔)
+try:
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+    logger.info("Static files mounted at /static")
+except Exception as e:
+    logger.warning(f"Failed to mount static files: {e}")
+
 
 @app.on_event("startup")
 async def startup_event():

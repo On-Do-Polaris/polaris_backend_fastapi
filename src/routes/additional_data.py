@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Query
 from uuid import UUID
-from typing import Optional
+from typing import Optional, List
 
 from src.schemas.additional_data import (
     AdditionalDataUploadRequest,
     AdditionalDataUploadResponse,
     AdditionalDataGetResponse,
+    DataCategory,
 )
 from src.services.additional_data_service import AdditionalDataService
 from src.core.auth import verify_api_key
@@ -20,16 +21,16 @@ async def upload_additional_data(
     api_key: str = Depends(verify_api_key),
 ):
     """
-    사이트별 추가 데이터 업로드
+    사이트별 추가 데이터 업로드 (ERD site_additional_data 기준)
 
-    사용자가 제공하는 자유 형식 텍스트 데이터를 저장합니다.
-    이 데이터는 AI Agent의 분석 시 컨텍스트로 활용됩니다.
+    카테고리별로 데이터를 저장합니다:
+    - building: 건물 정보 (구조, 연식, 층수 등)
+    - asset: 자산 정보 (자산 가치, 면적 등)
+    - power: 전력 사용량 정보
+    - insurance: 보험 정보
+    - custom: 기타 사용자 정의 데이터
 
-    예시:
-    - 건물의 특수한 상황 설명
-    - 과거 재난 경험
-    - 내부 대응 계획
-    - 기타 참고 사항
+    각 사이트에 대해 카테고리별로 하나씩 저장 가능합니다.
     """
     service = AdditionalDataService()
     return await service.upload_additional_data(site_id, request)
@@ -38,24 +39,47 @@ async def upload_additional_data(
 @router.get("/{site_id}/additional-data", response_model=AdditionalDataGetResponse)
 async def get_additional_data(
     site_id: UUID,
+    data_category: Optional[DataCategory] = Query(None, alias="dataCategory", description="조회할 데이터 카테고리"),
     api_key: str = Depends(verify_api_key),
 ):
-    """사이트별 추가 데이터 조회"""
+    """
+    사이트별 추가 데이터 조회 (ERD 기준)
+
+    - dataCategory가 지정되면 해당 카테고리만 조회
+    - 미지정 시 전체 카테고리 중 첫 번째 반환
+    """
     service = AdditionalDataService()
-    result = await service.get_additional_data(site_id)
+    result = await service.get_additional_data(site_id, data_category)
     if not result:
         raise HTTPException(status_code=404, detail="Additional data not found")
     return result
 
 
-@router.delete("/{site_id}/additional-data", status_code=204)
-async def delete_additional_data(
+@router.get("/{site_id}/additional-data/all", response_model=List[AdditionalDataGetResponse])
+async def get_all_additional_data(
     site_id: UUID,
     api_key: str = Depends(verify_api_key),
 ):
-    """사이트별 추가 데이터 삭제"""
+    """사이트의 모든 카테고리 추가 데이터 조회 (ERD 기준)"""
     service = AdditionalDataService()
-    success = await service.delete_additional_data(site_id)
+    results = await service.get_all_additional_data(site_id)
+    return results
+
+
+@router.delete("/{site_id}/additional-data", status_code=204)
+async def delete_additional_data(
+    site_id: UUID,
+    data_category: Optional[DataCategory] = Query(None, alias="dataCategory", description="삭제할 데이터 카테고리"),
+    api_key: str = Depends(verify_api_key),
+):
+    """
+    사이트별 추가 데이터 삭제 (ERD 기준)
+
+    - dataCategory가 지정되면 해당 카테고리만 삭제
+    - 미지정 시 사이트의 모든 데이터 삭제
+    """
+    service = AdditionalDataService()
+    success = await service.delete_additional_data(site_id, data_category)
     if not success:
         raise HTTPException(status_code=404, detail="Additional data not found")
     return None
@@ -65,12 +89,13 @@ async def delete_additional_data(
 async def upload_additional_data_file(
     site_id: UUID,
     file: UploadFile = File(..., description="텍스트 파일 (txt, md, csv 등)"),
+    data_category: DataCategory = Query(..., alias="dataCategory", description="데이터 카테고리"),
     api_key: str = Depends(verify_api_key),
 ):
     """
-    사이트별 추가 데이터 파일 업로드
+    사이트별 추가 데이터 파일 업로드 (ERD 기준)
 
-    텍스트 파일을 업로드하여 추가 데이터로 저장합니다.
+    텍스트 파일을 업로드하여 지정된 카테고리의 추가 데이터로 저장합니다.
     """
     # 파일 확장자 체크
     allowed_extensions = ['.txt', '.md', '.csv', '.json']
@@ -99,7 +124,11 @@ async def upload_additional_data_file(
 
     service = AdditionalDataService()
     request = AdditionalDataUploadRequest(
-        raw_text=text_content,
+        dataCategory=data_category,
+        rawText=text_content,
+        fileName=file.filename,
+        fileSize=len(contents),
+        fileMimeType=file.content_type,
         metadata={'source_file': file.filename}
     )
 

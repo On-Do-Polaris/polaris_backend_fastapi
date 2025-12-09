@@ -6,7 +6,16 @@ import logging
 from src.core.config import settings
 from src.core.logging_config import setup_logging
 from src.core.middleware import RequestIDMiddleware
-from src.routes import analysis_router, reports_router, simulation_router, meta_router, recommendation_router, additional_data_router, disaster_history_router
+from src.routes import (
+    analysis_router,
+    reports_router,
+    simulation_router,
+    meta_router,
+    recommendation_router,
+    additional_data_router,
+    disaster_history_router,
+    dashboard_router
+)
 from src.services.report_service import ReportService
 from src.services.analysis_service import AnalysisService
 
@@ -64,6 +73,15 @@ app.include_router(meta_router)
 app.include_router(recommendation_router)
 app.include_router(additional_data_router)
 app.include_router(disaster_history_router)
+app.include_router(dashboard_router)
+
+# 정적 파일 서빙 (API 테스트 콘솔)
+try:
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+    logger.info("Static files mounted at /static")
+except Exception as e:
+    logger.warning(f"Failed to mount static files: {e}")
 
 
 @app.on_event("startup")
@@ -123,11 +141,9 @@ async def shutdown_event():
 
 @app.get("/")
 async def root():
-    return {
-        "name": settings.APP_NAME,
-        "version": settings.APP_VERSION,
-        "status": "running",
-    }
+    """루트 경로 - API 테스트 콘솔로 리다이렉트"""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/static/index.html")
 
 
 if __name__ == "__main__":

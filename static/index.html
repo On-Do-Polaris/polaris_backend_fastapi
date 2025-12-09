@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Climate Risk API Test Console</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 1.8rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 0.9rem;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .api-section {
+            background: white;
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .api-header {
+            padding: 1rem 1.5rem;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e9ecef;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .api-header:hover {
+            background: #e9ecef;
+        }
+
+        .method-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+        }
+
+        .method-get { background: #61affe; color: white; }
+        .method-post { background: #49cc90; color: white; }
+        .method-put { background: #fca130; color: white; }
+        .method-delete { background: #f93e3e; color: white; }
+
+        .api-path {
+            font-family: 'Courier New', monospace;
+            font-size: 0.95rem;
+            color: #333;
+            flex: 1;
+        }
+
+        .api-description {
+            color: #666;
+            font-size: 0.85rem;
+        }
+
+        .api-body {
+            padding: 1.5rem;
+            display: none;
+        }
+
+        .api-body.active {
+            display: block;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            font-size: 0.9rem;
+            color: #555;
+        }
+
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            font-family: inherit;
+        }
+
+        .form-group textarea {
+            font-family: 'Courier New', monospace;
+            min-height: 120px;
+            resize: vertical;
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+            margin-left: 0.5rem;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
+        .response-section {
+            margin-top: 1.5rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #e9ecef;
+        }
+
+        .response-section h4 {
+            margin-bottom: 0.75rem;
+            color: #333;
+            font-size: 0.95rem;
+        }
+
+        .response-box {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 1rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .response-success {
+            border-left: 4px solid #49cc90;
+        }
+
+        .response-error {
+            border-left: 4px solid #f93e3e;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 0.5rem;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-right: 0.5rem;
+        }
+
+        .status-200 { background: #d4edda; color: #155724; }
+        .status-400 { background: #f8d7da; color: #721c24; }
+        .status-500 { background: #f8d7da; color: #721c24; }
+
+        .api-key-input {
+            background: #fff3cd;
+            padding: 1rem;
+            border-radius: 4px;
+            margin-bottom: 1.5rem;
+            border: 1px solid #ffc107;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        .toggle-icon {
+            margin-left: auto;
+            transition: transform 0.3s;
+        }
+
+        .toggle-icon.active {
+            transform: rotate(180deg);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="container">
+            <h1>🌍 Climate Risk Analysis API Test Console</h1>
+            <p>FastAPI 엔드포인트를 동적으로 테스트할 수 있는 인터페이스입니다</p>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="api-key-input">
+            <label for="globalApiKey"><strong>🔑 API Key (전역 설정)</strong></label>
+            <input type="text" id="globalApiKey" placeholder="test-api-key-12345" value="test-api-key-12345">
+            <small style="display: block; margin-top: 0.5rem; color: #856404;">
+                이 API Key는 모든 요청에 자동으로 포함됩니다 (X-API-Key 헤더)
+            </small>
+        </div>
+
+        <div id="api-list"></div>
+    </div>
+
+    <script>
+        const API_BASE_URL = window.location.origin;
+
+        const API_ENDPOINTS = [
+            {
+                method: 'GET',
+                path: '/api/v1/health',
+                description: 'FastAPI 헬스체크',
+                params: []
+            },
+            {
+                method: 'GET',
+                path: '/api/dashboard/summary',
+                description: '대시보드 요약 정보 조회',
+                params: []
+            },
+            {
+                method: 'POST',
+                path: '/api/analysis',
+                description: '기후 리스크 분석 실행',
+                params: [],
+                body: {
+                    siteId: '11111111-1111-1111-1111-111111111111',
+                    siteName: '서울 본사',
+                    location: {
+                        latitude: 37.5665,
+                        longitude: 126.9780,
+                        address: '서울특별시 중구'
+                    },
+                    industry: 'manufacturing',
+                    assetValue: 1000000000,
+                    employees: 500,
+                    ssp: 'SSP2-4.5',
+                    analysisYear: 2030
+                }
+            },
+            {
+                method: 'GET',
+                path: '/api/analysis/{analysisId}',
+                description: '분석 결과 조회',
+                params: [
+                    { name: 'analysisId', type: 'path', placeholder: 'UUID', example: '11111111-1111-1111-1111-111111111111' }
+                ]
+            },
+            {
+                method: 'GET',
+                path: '/api/analysis',
+                description: '전체 분석 목록 조회',
+                params: [
+                    { name: 'limit', type: 'query', placeholder: '10' },
+                    { name: 'offset', type: 'query', placeholder: '0' }
+                ]
+            },
+            {
+                method: 'POST',
+                path: '/api/simulation',
+                description: '시뮬레이션 실행',
+                params: [],
+                body: {
+                    siteId: '11111111-1111-1111-1111-111111111111',
+                    baselineYear: 2025,
+                    targetYear: 2050,
+                    ssp: 'SSP2-4.5',
+                    adaptationMeasures: [
+                        {
+                            measureId: 'cooling-system',
+                            measureName: '냉각 시스템 강화',
+                            cost: 50000000,
+                            effectiveness: 0.3
+                        }
+                    ]
+                }
+            },
+            {
+                method: 'GET',
+                path: '/api/simulation/{simulationId}',
+                description: '시뮬레이션 결과 조회',
+                params: [
+                    { name: 'simulationId', type: 'path', placeholder: 'UUID', example: '11111111-1111-1111-1111-111111111111' }
+                ]
+            },
+            {
+                method: 'POST',
+                path: '/api/reports',
+                description: '보고서 생성',
+                params: [],
+                body: {
+                    analysisId: '11111111-1111-1111-1111-111111111111',
+                    format: 'pdf',
+                    language: 'ko',
+                    sections: ['executive_summary', 'risk_analysis', 'recommendations']
+                }
+            },
+            {
+                method: 'GET',
+                path: '/api/reports/{reportId}',
+                description: '보고서 조회',
+                params: [
+                    { name: 'reportId', type: 'path', placeholder: 'UUID', example: '11111111-1111-1111-1111-111111111111' }
+                ]
+            },
+            {
+                method: 'DELETE',
+                path: '/api/reports/{reportId}',
+                description: '보고서 삭제',
+                params: [
+                    { name: 'reportId', type: 'path', placeholder: 'UUID', example: '11111111-1111-1111-1111-111111111111' }
+                ]
+            }
+        ];
+
+        function renderAPIList() {
+            const container = document.getElementById('api-list');
+            container.innerHTML = API_ENDPOINTS.map((api, index) => `
+                <div class="api-section">
+                    <div class="api-header" onclick="toggleAPI(${index})">
+                        <span class="method-badge method-${api.method.toLowerCase()}">${api.method}</span>
+                        <span class="api-path">${api.path}</span>
+                        <span class="api-description">${api.description}</span>
+                        <span class="toggle-icon" id="toggle-${index}">▼</span>
+                    </div>
+                    <div class="api-body" id="api-body-${index}">
+                        <form onsubmit="executeAPI(event, ${index})" id="form-${index}">
+                            ${renderParams(api.params, index)}
+                            ${api.body ? renderBodyInput(api.body, index) : ''}
+                            <div style="margin-top: 1rem;">
+                                <button type="submit" class="btn btn-primary">실행</button>
+                                <button type="button" class="btn btn-secondary" onclick="resetForm(${index})">초기화</button>
+                            </div>
+                        </form>
+                        <div class="response-section" id="response-${index}" style="display: none;">
+                            <h4>응답 결과</h4>
+                            <div class="response-box" id="response-box-${index}"></div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderParams(params, index) {
+            if (!params || params.length === 0) return '';
+
+            return `
+                <div class="form-group">
+                    <h4 style="margin-bottom: 1rem;">Parameters</h4>
+                    ${params.map(param => `
+                        <div class="form-group">
+                            <label>${param.name} <small>(${param.type})</small></label>
+                            <input
+                                type="text"
+                                name="${param.name}"
+                                placeholder="${param.placeholder || param.example || ''}"
+                                value="${param.example || ''}"
+                            >
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        function renderBodyInput(body, index) {
+            return `
+                <div class="form-group">
+                    <label>Request Body (JSON)</label>
+                    <textarea
+                        id="body-${index}"
+                        name="body"
+                    >${JSON.stringify(body, null, 2)}</textarea>
+                </div>
+            `;
+        }
+
+        function toggleAPI(index) {
+            const body = document.getElementById(`api-body-${index}`);
+            const icon = document.getElementById(`toggle-${index}`);
+            body.classList.toggle('active');
+            icon.classList.toggle('active');
+        }
+
+        async function executeAPI(event, index) {
+            event.preventDefault();
+
+            const api = API_ENDPOINTS[index];
+            const form = document.getElementById(`form-${index}`);
+            const responseSection = document.getElementById(`response-${index}`);
+            const responseBox = document.getElementById(`response-box-${index}`);
+            const apiKey = document.getElementById('globalApiKey').value;
+
+            // Show loading
+            responseSection.style.display = 'block';
+            responseBox.className = 'response-box';
+            responseBox.innerHTML = '요청 중... <span class="loading"></span>';
+
+            try {
+                // Build URL with path and query params
+                let url = API_BASE_URL + api.path;
+                const formData = new FormData(form);
+
+                // Replace path parameters
+                if (api.params) {
+                    api.params.forEach(param => {
+                        const value = formData.get(param.name);
+                        if (param.type === 'path' && value) {
+                            url = url.replace(`{${param.name}}`, value);
+                        }
+                    });
+                }
+
+                // Add query parameters
+                const queryParams = new URLSearchParams();
+                if (api.params) {
+                    api.params.forEach(param => {
+                        const value = formData.get(param.name);
+                        if (param.type === 'query' && value) {
+                            queryParams.append(param.name, value);
+                        }
+                    });
+                }
+
+                if (queryParams.toString()) {
+                    url += '?' + queryParams.toString();
+                }
+
+                // Build request options
+                const options = {
+                    method: api.method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-API-Key': apiKey
+                    }
+                };
+
+                // Add body for POST/PUT/PATCH
+                if (['POST', 'PUT', 'PATCH'].includes(api.method)) {
+                    const bodyText = formData.get('body');
+                    if (bodyText) {
+                        try {
+                            options.body = JSON.stringify(JSON.parse(bodyText));
+                        } catch (e) {
+                            throw new Error('Invalid JSON in request body: ' + e.message);
+                        }
+                    }
+                }
+
+                // Execute request
+                const startTime = Date.now();
+                const response = await fetch(url, options);
+                const duration = Date.now() - startTime;
+
+                // Parse response
+                let responseData;
+                const contentType = response.headers.get('content-type');
+                if (contentType && contentType.includes('application/json')) {
+                    responseData = await response.json();
+                } else {
+                    responseData = await response.text();
+                }
+
+                // Display result
+                const statusClass = response.ok ? 'response-success' : 'response-error';
+                responseBox.className = `response-box ${statusClass}`;
+
+                const statusBadge = `<span class="status-badge status-${Math.floor(response.status / 100) * 100}">
+                    ${response.status} ${response.statusText}
+                </span>`;
+
+                const result = typeof responseData === 'object'
+                    ? JSON.stringify(responseData, null, 2)
+                    : responseData;
+
+                responseBox.innerHTML = `${statusBadge} <small>(${duration}ms)</small>\n\n${result}`;
+
+            } catch (error) {
+                responseBox.className = 'response-box response-error';
+                responseBox.innerHTML = `<span class="status-badge status-500">ERROR</span>\n\n${error.message}`;
+            }
+        }
+
+        function resetForm(index) {
+            const form = document.getElementById(`form-${index}`);
+            const api = API_ENDPOINTS[index];
+
+            form.reset();
+
+            // Reset body to default
+            if (api.body) {
+                const bodyTextarea = document.getElementById(`body-${index}`);
+                bodyTextarea.value = JSON.stringify(api.body, null, 2);
+            }
+
+            // Reset param values to examples
+            if (api.params) {
+                api.params.forEach(param => {
+                    if (param.example) {
+                        const input = form.querySelector(`[name="${param.name}"]`);
+                        if (input) input.value = param.example;
+                    }
+                });
+            }
+
+            // Hide response
+            const responseSection = document.getElementById(`response-${index}`);
+            responseSection.style.display = 'none';
+        }
+
+        // Initialize
+        renderAPIList();
+    </script>
+</body>
+</html>

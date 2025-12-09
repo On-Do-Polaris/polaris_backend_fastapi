@@ -141,11 +141,9 @@ async def shutdown_event():
 
 @app.get("/")
 async def root():
-    return {
-        "name": settings.APP_NAME,
-        "version": settings.APP_VERSION,
-        "status": "running",
-    }
+    """루트 경로 - API 테스트 콘솔로 리다이렉트"""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/static/index.html")
 
 
 if __name__ == "__main__":

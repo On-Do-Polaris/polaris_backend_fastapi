@@ -8,10 +8,19 @@ from src.schemas.common import SSPScenario, HazardType
 
 
 class BatchStatus(str, Enum):
+    """배치 작업 상태 (ERD batch_jobs 테이블 기준)"""
     QUEUED = "queued"
-    PROCESSING = "processing"
+    RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class JobType(str, Enum):
+    """작업 유형 (ERD batch_jobs 테이블 기준)"""
+    SITE_RECOMMENDATION = "site_recommendation"
+    BULK_ANALYSIS = "bulk_analysis"
+    DATA_EXPORT = "data_export"
 
 
 class SiteRecommendationRequest(BaseModel):
@@ -54,50 +63,83 @@ class SiteRecommendationRequest(BaseModel):
         }
 
 
-class SiteRecommendationBatchResponse(BaseModel):
-    """배치 작업 시작 응답"""
-    batch_id: UUID = Field(..., description="배치 작업 ID")
+class BatchJob(BaseModel):
+    """배치 작업 정보 (ERD batch_jobs 테이블 기준)"""
+    batch_id: UUID = Field(..., alias="batchId", description="배치 작업 ID")
+    job_type: JobType = Field(..., alias="jobType", description="작업 유형")
     status: BatchStatus = Field(..., description="작업 상태")
-    estimated_duration_minutes: int = Field(..., description="예상 소요 시간 (분)")
-    status_url: str = Field(..., description="진행 상태 조회 URL")
-    created_at: datetime = Field(default_factory=datetime.now)
+    progress: int = Field(0, ge=0, le=100, description="진행률 (0-100)")
+    total_items: Optional[int] = Field(None, alias="totalItems", description="전체 항목 수")
+    completed_items: int = Field(0, alias="completedItems", description="완료 항목 수")
+    failed_items: int = Field(0, alias="failedItems", description="실패 항목 수")
+    input_params: Optional[dict] = Field(None, alias="inputParams", description="입력 파라미터")
+    results: Optional[dict] = Field(None, description="결과 데이터")
+    error_message: Optional[str] = Field(None, alias="errorMessage", description="에러 메시지")
+    error_stack_trace: Optional[str] = Field(None, alias="errorStackTrace", description="스택 트레이스")
+    estimated_duration_minutes: Optional[int] = Field(None, alias="estimatedDurationMinutes", description="예상 소요 시간 (분)")
+    actual_duration_seconds: Optional[int] = Field(None, alias="actualDurationSeconds", description="실제 소요 시간 (초)")
+    created_at: datetime = Field(default_factory=datetime.now, alias="createdAt")
+    started_at: Optional[datetime] = Field(None, alias="startedAt")
+    completed_at: Optional[datetime] = Field(None, alias="completedAt")
+    expires_at: Optional[datetime] = Field(None, alias="expiresAt")
+    created_by: Optional[UUID] = Field(None, alias="createdBy")
 
     class Config:
+        populate_by_name = True
+
+
+class SiteRecommendationBatchResponse(BaseModel):
+    """배치 작업 시작 응답"""
+    batch_id: UUID = Field(..., alias="batchId", description="배치 작업 ID")
+    status: BatchStatus = Field(..., description="작업 상태")
+    estimated_duration_minutes: int = Field(..., alias="estimatedDurationMinutes", description="예상 소요 시간 (분)")
+    status_url: str = Field(..., alias="statusUrl", description="진행 상태 조회 URL")
+    created_at: datetime = Field(default_factory=datetime.now, alias="createdAt")
+
+    class Config:
+        populate_by_name = True
         json_schema_extra = {
             "example": {
-                "batch_id": "550e8400-e29b-41d4-a716-446655440000",
+                "batchId": "550e8400-e29b-41d4-a716-446655440000",
                 "status": "queued",
-                "estimated_duration_minutes": 30,
-                "status_url": "/api/recommendation/batch/550e8400-e29b-41d4-a716-446655440000/progress",
-                "created_at": "2025-12-01T10:30:00Z"
+                "estimatedDurationMinutes": 30,
+                "statusUrl": "/api/recommendation/batch/550e8400-e29b-41d4-a716-446655440000/progress",
+                "createdAt": "2025-12-01T10:30:00Z"
             }
         }
 
 
 class BatchProgressResponse(BaseModel):
-    """배치 작업 진행 상태 응답"""
-    batch_id: UUID
+    """배치 작업 진행 상태 응답 (ERD batch_jobs 기반)"""
+    batch_id: UUID = Field(..., alias="batchId")
+    job_type: JobType = Field(..., alias="jobType")
     status: BatchStatus
-    progress_percentage: int = Field(..., ge=0, le=100, description="진행률 (%)")
-    processed_grids: int = Field(..., description="처리 완료된 격자 수")
-    total_grids: int = Field(..., description="전체 격자 수")
-    started_at: datetime
-    estimated_completion: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    error_message: Optional[str] = None
+    progress: int = Field(..., ge=0, le=100, description="진행률 (%)")
+    total_items: Optional[int] = Field(None, alias="totalItems", description="전체 항목 수")
+    completed_items: int = Field(..., alias="completedItems", description="완료 항목 수")
+    failed_items: int = Field(..., alias="failedItems", description="실패 항목 수")
+    started_at: Optional[datetime] = Field(None, alias="startedAt")
+    completed_at: Optional[datetime] = Field(None, alias="completedAt")
+    estimated_duration_minutes: Optional[int] = Field(None, alias="estimatedDurationMinutes")
+    actual_duration_seconds: Optional[int] = Field(None, alias="actualDurationSeconds")
+    error_message: Optional[str] = Field(None, alias="errorMessage")
 
     class Config:
+        populate_by_name = True
         json_schema_extra = {
             "example": {
-                "batch_id": "550e8400-e29b-41d4-a716-446655440000",
-                "status": "processing",
-                "progress_percentage": 45,
-                "processed_grids": 4500,
-                "total_grids": 10000,
-                "started_at": "2025-12-01T10:30:00Z",
-                "estimated_completion": "2025-12-01T11:00:00Z",
-                "completed_at": None,
-                "error_message": None
+                "batchId": "550e8400-e29b-41d4-a716-446655440000",
+                "jobType": "site_recommendation",
+                "status": "running",
+                "progress": 45,
+                "totalItems": 10000,
+                "completedItems": 4500,
+                "failedItems": 10,
+                "startedAt": "2025-12-01T10:30:00Z",
+                "completedAt": None,
+                "estimatedDurationMinutes": 30,
+                "actualDurationSeconds": None,
+                "errorMessage": None
             }
         }
 
@@ -165,24 +207,32 @@ class RecommendedSite(BaseModel):
 
 
 class SiteRecommendationResultResponse(BaseModel):
-    """후보지 추천 결과 응답"""
-    batch_id: UUID
+    """후보지 추천 결과 응답 (ERD batch_jobs 기반)"""
+    batch_id: UUID = Field(..., alias="batchId")
+    job_type: JobType = Field(..., alias="jobType")
     status: BatchStatus
-    scenario_id: int
-    scenario_name: str
-    total_grids_analyzed: int
-    recommended_sites: List[RecommendedSite]
-    completed_at: datetime
+    scenario_id: int = Field(..., alias="scenarioId")
+    scenario_name: str = Field(..., alias="scenarioName")
+    total_items: int = Field(..., alias="totalItems", description="전체 분석 격자 수")
+    completed_items: int = Field(..., alias="completedItems", description="완료 항목 수")
+    failed_items: int = Field(..., alias="failedItems", description="실패 항목 수")
+    recommended_sites: List[RecommendedSite] = Field(..., alias="recommendedSites")
+    completed_at: datetime = Field(..., alias="completedAt")
+    actual_duration_seconds: Optional[int] = Field(None, alias="actualDurationSeconds")
 
     class Config:
+        populate_by_name = True
         json_schema_extra = {
             "example": {
-                "batch_id": "550e8400-e29b-41d4-a716-446655440000",
+                "batchId": "550e8400-e29b-41d4-a716-446655440000",
+                "jobType": "site_recommendation",
                 "status": "completed",
-                "scenario_id": 2,
-                "scenario_name": "SSP2-4.5",
-                "total_grids_analyzed": 10000,
-                "recommended_sites": [
+                "scenarioId": 2,
+                "scenarioName": "SSP2-4.5",
+                "totalItems": 10000,
+                "completedItems": 9990,
+                "failedItems": 10,
+                "recommendedSites": [
                     {
                         "rank": 1,
                         "grid_id": 12345,
@@ -191,26 +241,9 @@ class SiteRecommendationResultResponse(BaseModel):
                         "total_risk_score": 35.2,
                         "aal_total": 1.25,
                         "expected_loss": 625000000
-                    },
-                    {
-                        "rank": 2,
-                        "grid_id": 12346,
-                        "latitude": 37.5700,
-                        "longitude": 126.9800,
-                        "total_risk_score": 36.8,
-                        "aal_total": 1.35,
-                        "expected_loss": 675000000
-                    },
-                    {
-                        "rank": 3,
-                        "grid_id": 12347,
-                        "latitude": 37.5730,
-                        "longitude": 126.9850,
-                        "total_risk_score": 38.1,
-                        "aal_total": 1.42,
-                        "expected_loss": 710000000
                     }
                 ],
-                "completed_at": "2025-12-01T11:00:00Z"
+                "completedAt": "2025-12-01T11:00:00Z",
+                "actualDurationSeconds": 1800
             }
         }

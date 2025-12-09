@@ -110,38 +110,24 @@ class AnalysisService:
             return AnalysisJobStatus(
                 jobId=str(job_id),
                 siteId=site_id,
-                status="completed",
-                progress=100,
-                currentNode="completed",
+                status="running",
+                progress=0,
+                currentNode="physical_risk_score",
                 startedAt=datetime.now(),
-                completedAt=datetime.now(),
             )
 
         try:
-            # SiteInfo에서 ERD 기준 필드만 사용
+            # Spring Boot 요청 스펙: latitude, longitude, industryType만 전달됨
             site_info = {
-                'id': str(request.site.id),
-                'name': request.site.name,
-                'lat': request.site.latitude,
-                'lng': request.site.longitude,
-                'road_address': request.site.road_address,
-                'jibun_address': request.site.jibun_address,
-                'type': request.site.type
+                'id': str(site_id),
+                'name': f'Site {site_id}',
+                'lat': request.latitude,
+                'lng': request.longitude,
+                'type': request.industry_type
             }
 
-            # additional_data 변환 (Pydantic 모델 → dict)
-            additional_data_dict = None
-            if request.additional_data:
-                additional_data_dict = {
-                    'raw_text': request.additional_data.raw_text,
-                    'metadata': request.additional_data.metadata or {},
-                    'building_info': request.additional_data.building_info,
-                    'asset_info': request.additional_data.asset_info,
-                    'power_usage': request.additional_data.power_usage,
-                    'insurance': request.additional_data.insurance
-                }
-
-            result = await self._run_agent_analysis(site_info, additional_data=additional_data_dict)
+            # Spring Boot는 additional_data를 보내지 않으므로 None
+            result = await self._run_agent_analysis(site_info, additional_data=None)
             self._analysis_results[site_id] = result
 
             # State 캐싱 (enhance용) - Node 1~4 결과 포함

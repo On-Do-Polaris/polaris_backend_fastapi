@@ -36,11 +36,10 @@ class AdditionalDataInput(BaseModel):
 
 
 class StartAnalysisRequest(BaseModel):
-    site: SiteInfo
-    hazard_types: Optional[list[HazardType]] = Field(None, alias="hazardTypes")
-    priority: Priority = Priority.NORMAL
-    options: Optional[AnalysisOptions] = None
-    additional_data: Optional[AdditionalDataInput] = Field(None, alias="additionalData", description="사용자 제공 추가 데이터")
+    """Spring Boot API 호환 - 분석 시작 요청"""
+    latitude: float = Field(..., description="위도")
+    longitude: float = Field(..., description="경도")
+    industry_type: str = Field(..., alias="industryType", description="산업 유형")
 
     class Config:
         populate_by_name = True

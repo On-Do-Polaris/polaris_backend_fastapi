@@ -1,0 +1,1456 @@
+openapi: 3.0.1
+info:
+  title: SKAX Physical Risk Management API
+  description: 사업장 기후 물리적 리스크 관리 시스템 백엔드 API
+  version: 1.0.0
+servers:
+- url: http://api.on-do.site
+  description: Generated server url
+security:
+- Bearer Authentication: []
+paths:
+  /api/sites:
+    get:
+      tags:
+      - site-controller
+      operationId: getSites
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/SiteResponse"
+    post:
+      tags:
+      - site-controller
+      operationId: createSite
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSiteRequest"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/SiteInfo"
+  /api/sites/{siteId}/analysis/start:
+    post:
+      tags:
+      - analysis-controller
+      operationId: startAnalysis
+      parameters:
+      - name: siteId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartAnalysisRequest"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/AnalysisJobStatusResponse"
+  /api/simulation/relocation/compare:
+    post:
+      tags:
+      - simulation-controller
+      operationId: compareRelocation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RelocationSimulationRequest"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/RelocationSimulationResponse"
+  /api/simulation/climate:
+    post:
+      tags:
+      - simulation-controller
+      operationId: runClimateSimulation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClimateSimulationRequest"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ClimateSimulationResponse"
+  /api/reports:
+    post:
+      tags:
+      - report-controller
+      operationId: createReport
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReportRequest"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+    delete:
+      tags:
+      - report-controller
+      operationId: deleteReport
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+  /api/auth/register:
+    post:
+      tags:
+      - auth-controller
+      operationId: register
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+  /api/auth/refresh:
+    post:
+      tags:
+      - auth-controller
+      operationId: refresh
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshTokenRequest"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+  /api/auth/password/reset-request:
+    post:
+      tags:
+      - auth-controller
+      operationId: resetPasswordRequest
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordResetRequest"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+  /api/auth/password/reset-confirm:
+    post:
+      tags:
+      - auth-controller
+      operationId: resetPasswordConfirm
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordResetConfirmRequest"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+  /api/auth/logout:
+    post:
+      tags:
+      - auth-controller
+      operationId: logout
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+  /api/auth/login:
+    post:
+      tags:
+      - auth-controller
+      operationId: login
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+  /api/users/me:
+    get:
+      tags:
+      - user-controller
+      operationId: getCurrentUser
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+    delete:
+      tags:
+      - user-controller
+      operationId: deleteUser
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+    patch:
+      tags:
+      - user-controller
+      operationId: updateUser
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+  /api/users/me/password:
+    patch:
+      tags:
+      - user-controller
+      operationId: changePassword
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+  /api/sites/{siteId}:
+    delete:
+      tags:
+      - site-controller
+      operationId: deleteSite
+      parameters:
+      - name: siteId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+    patch:
+      tags:
+      - site-controller
+      operationId: updateSite
+      parameters:
+      - name: siteId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSiteRequest"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/SiteInfo"
+  /api/sites/{siteId}/analysis/vulnerability:
+    get:
+      tags:
+      - analysis-controller
+      operationId: getVulnerability
+      parameters:
+      - name: siteId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/VulnerabilityResponse"
+  /api/sites/{siteId}/analysis/total:
+    get:
+      tags:
+      - analysis-controller
+      operationId: getTotalAnalysis
+      parameters:
+      - name: siteId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: hazardType
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/AnalysisTotalResponse"
+  /api/sites/{siteId}/analysis/status/{jobId}:
+    get:
+      tags:
+      - analysis-controller
+      operationId: getAnalysisStatus
+      parameters:
+      - name: siteId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/AnalysisJobStatusResponse"
+  /api/sites/{siteId}/analysis/physical-risk-scores:
+    get:
+      tags:
+      - analysis-controller
+      operationId: getPhysicalRiskScores
+      parameters:
+      - name: siteId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: hazardType
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/PhysicalRiskScoreResponse"
+  /api/sites/{siteId}/analysis/past-events:
+    get:
+      tags:
+      - analysis-controller
+      operationId: getPastEvents
+      parameters:
+      - name: siteId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/PastEventsResponse"
+  /api/sites/{siteId}/analysis/financial-impacts:
+    get:
+      tags:
+      - analysis-controller
+      operationId: getFinancialImpact
+      parameters:
+      - name: siteId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/FinancialImpactResponse"
+  /api/sites/{siteId}/analysis/dashboard/summary:
+    get:
+      tags:
+      - analysis-controller
+      operationId: getDashboardSummary
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/DashboardSummaryResponse"
+  /api/reports/web:
+    get:
+      tags:
+      - report-controller
+      operationId: getReportWebView
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ReportWebViewResponse"
+  /api/reports/pdf:
+    get:
+      tags:
+      - report-controller
+      operationId: getReportPdf
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ReportPdfResponse"
+  /api/meta/ssp-scenarios:
+    get:
+      tags:
+      - meta-controller
+      operationId: getSspScenarios
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  type: string
+  /api/meta/industries:
+    get:
+      tags:
+      - meta-controller
+      operationId: getIndustries
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Industry"
+  /api/meta/hazards:
+    get:
+      tags:
+      - meta-controller
+      operationId: getHazardTypes
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HazardType"
+  /api/health:
+    get:
+      tags:
+      - health-controller
+      operationId: health
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+  /api/dashboard/summary:
+    get:
+      tags:
+      - dashboard-controller
+      operationId: getDashboardSummary_1
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/DashboardSummaryResponse"
+components:
+  schemas:
+    CreateSiteRequest:
+      required:
+      - name
+      - type
+      type: object
+      properties:
+        name:
+          type: string
+          description: 사업장 이름
+          example: 서울 본사
+        roadAddress:
+          type: string
+          description: 도로명 주소
+          example: 서울특별시 강남구 테헤란로 123
+        jibunAddress:
+          type: string
+          description: 지번 주소
+          example: 서울특별시 강남구 역삼동 123-45
+        latitude:
+          type: number
+          description: 위도
+          example: 37.5665
+        longitude:
+          type: number
+          description: 경도
+          example: 126.978
+        type:
+          type: string
+          description: 사업장 유형
+          example: data_center
+      description: 사업장 생성 요청
+    SiteInfo:
+      type: object
+      properties:
+        siteId:
+          type: string
+          description: 사업장 ID
+          format: uuid
+        siteName:
+          type: string
+          description: 사업장 이름
+          example: 서울 본사
+        location:
+          type: string
+          description: 위치
+          example: 서울특별시 강남구
+        siteType:
+          type: string
+          description: 사업장 유형
+          example: 공장
+      description: 사업장 정보
+    StartAnalysisRequest:
+      type: object
+      properties:
+        latitude:
+          type: number
+        longitude:
+          type: number
+        industryType:
+          type: string
+    AnalysisJobStatusResponse:
+      type: object
+      properties:
+        jobId:
+          type: string
+          description: 작업 ID
+          example: job-123456
+        siteId:
+          type: string
+          description: 사업장 ID
+          format: uuid
+        status:
+          type: string
+          description: 작업 상태
+          example: running
+          enum:
+          - queued
+          - running
+          - completed
+          - failed
+        currentNode:
+          type: string
+          description: 현재 처리 중인 노드
+          example: physical_risk_score
+        error:
+          $ref: "#/components/schemas/ErrorInfo"
+      description: 분석 작업 상태
+    ErrorInfo:
+      type: object
+      properties:
+        code:
+          type: string
+          description: 에러 코드
+          example: ANALYSIS_FAILED
+        message:
+          type: string
+          description: 에러 메시지
+          example: 데이터 조회 실패
+      description: 에러 정보
+    RelocationSimulationRequest:
+      required:
+      - currentSiteId
+      - latitude
+      - longitude
+      type: object
+      properties:
+        currentSiteId:
+          type: string
+          description: 현재 사업장 ID
+          format: uuid
+        latitude:
+          type: number
+          description: 이전될 위치의 위도
+          example: 37.5665
+        longitude:
+          type: number
+          description: 이전될 위치의 경도
+          example: 126.978
+        roadAddress:
+          type: string
+          description: 이전될 위치의 도로명 주소
+          example: 서울특별시 강남구 테헤란로 123
+        jibunAddress:
+          type: string
+          description: 이전될 위치의 지번 주소
+          example: 서울특별시 강남구 역삼동 123-45
+      description: 사업장 이전 시뮬레이션 요청
+    LocationData:
+      type: object
+      properties:
+        risks:
+          type: array
+          description: 리스크별 분석 결과
+          items:
+            $ref: "#/components/schemas/RiskData"
+      description: 위치별 리스크 데이터
+    RelocationSimulationResponse:
+      type: object
+      properties:
+        currentLocation:
+          $ref: "#/components/schemas/LocationData"
+        newLocation:
+          $ref: "#/components/schemas/LocationData"
+      description: 사업장 이전 시뮬레이션 결과
+    RiskData:
+      type: object
+      properties:
+        riskType:
+          type: string
+          description: 리스크 유형
+          example: 극심한 고온
+        riskScore:
+          type: integer
+          description: 리스크 점수 (0-100)
+          format: int32
+          example: 75
+        aal:
+          type: number
+          description: "AAL (연평균 자산 손실률, 0.0-1.0)"
+          format: double
+          example: 0.023
+      description: 리스크별 데이터
+    ClimateSimulationRequest:
+      required:
+      - hazardType
+      - scenario
+      - siteIds
+      - startYear
+      type: object
+      properties:
+        scenario:
+          type: string
+          description: SSP 시나리오
+          example: SSP2-4.5
+          enum:
+          - SSP1-2.6
+          - SSP2-4.5
+          - SSP5-8.5
+        hazardType:
+          type: string
+          description: 위험 유형
+          example: 극심한 고온
+        siteIds:
+          type: array
+          description: 시뮬레이션 대상 사업장 ID 목록
+          items:
+            type: string
+            description: 시뮬레이션 대상 사업장 ID 목록
+            format: uuid
+        startYear:
+          type: integer
+          description: 시작 연도
+          format: int32
+          example: 2024
+      description: 기후 시뮬레이션 요청
+    ClimateSimulationResponse:
+      type: object
+      properties:
+        scenario:
+          type: string
+          description: SSP 시나리오
+          example: SSP2-4.5
+        riskType:
+          type: string
+          description: 리스크 유형
+          example: 극심한 고온
+        yearlyData:
+          type: array
+          description: 연도별 시뮬레이션 데이터
+          items:
+            $ref: "#/components/schemas/YearlyData"
+      description: 기후 시뮬레이션 결과
+    SiteData:
+      type: object
+      properties:
+        siteId:
+          type: string
+          description: 사업장 ID
+          format: uuid
+        siteName:
+          type: string
+          description: 사업장 이름
+          example: 서울 본사
+        riskScore:
+          type: integer
+          description: 리스크 점수 (0-100)
+          format: int32
+          example: 75
+        localAverageTemperature:
+          type: number
+          description: 사업장 위치 평균 기온 (°C)
+          format: double
+          example: 15.2
+      description: 사업장 데이터
+    YearlyData:
+      type: object
+      properties:
+        year:
+          type: integer
+          description: 연도
+          format: int32
+          example: 2030
+        nationalAverageTemperature:
+          type: number
+          description: 전국 평균 기온 (°C)
+          format: double
+          example: 14.5
+        sites:
+          type: array
+          description: 사업장별 데이터
+          items:
+            $ref: "#/components/schemas/SiteData"
+      description: 연도별 데이터
+    CreateReportRequest:
+      type: object
+      properties:
+        siteId:
+          type: string
+          description: 사업장 ID (null이면 전체 사업장 리포트)
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+      description: 리포트 생성 요청
+    RegisterRequest:
+      required:
+      - email
+      - name
+      - password
+      type: object
+      properties:
+        email:
+          type: string
+          description: 이메일
+          example: user@example.com
+        name:
+          type: string
+          description: 이름
+          example: 홍길동
+        password:
+          maxLength: 2147483647
+          minLength: 8
+          type: string
+          description: 비밀번호
+          example: password123!
+        verificationCode:
+          type: string
+          description: 이메일 인증 코드
+          example: "123456"
+      description: 회원가입 요청
+    RefreshTokenRequest:
+      required:
+      - refreshToken
+      type: object
+      properties:
+        refreshToken:
+          type: string
+          description: 리프레시 토큰
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+      description: 토큰 갱신 요청
+    LoginResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+          description: 액세스 토큰
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        refreshToken:
+          type: string
+          description: 리프레시 토큰
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        userId:
+          type: string
+          description: 사용자 ID (이메일)
+          example: user@example.com
+      description: 로그인 응답
+    PasswordResetRequest:
+      required:
+      - email
+      type: object
+      properties:
+        email:
+          type: string
+          description: 이메일
+          example: user@example.com
+      description: 비밀번호 재설정 요청
+    PasswordResetConfirmRequest:
+      required:
+      - newPassword
+      - token
+      type: object
+      properties:
+        token:
+          type: string
+          description: 재설정 토큰
+        newPassword:
+          maxLength: 2147483647
+          minLength: 8
+          type: string
+          description: 새 비밀번호
+          example: newPassword123!
+      description: 비밀번호 재설정 확인 요청
+    LoginRequest:
+      required:
+      - email
+      - password
+      type: object
+      properties:
+        email:
+          type: string
+          description: 이메일
+          example: user@example.com
+        password:
+          type: string
+          description: 비밀번호
+          example: password123!
+      description: 로그인 요청
+    UpdateUserRequest:
+      type: object
+      properties:
+        language:
+          type: string
+          description: 언어 설정
+          example: ko
+          enum:
+          - ko
+          - en
+      description: 사용자 정보 수정 요청
+    UserResponse:
+      type: object
+      properties:
+        email:
+          type: string
+          description: 이메일
+          example: user@example.com
+        name:
+          type: string
+          description: 이름
+          example: 홍길동
+        language:
+          type: string
+          description: 언어 설정
+          example: ko
+          enum:
+          - ko
+          - en
+      description: 사용자 정보
+    UpdateSiteRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: 사업장 이름
+          example: 서울 본사
+        roadAddress:
+          type: string
+          description: 도로명 주소
+          example: 서울특별시 강남구 테헤란로 123
+        jibunAddress:
+          type: string
+          description: 지번 주소
+          example: 서울특별시 강남구 역삼동 123-45
+        latitude:
+          type: number
+          description: 위도
+          example: 37.5665
+        longitude:
+          type: number
+          description: 경도
+          example: 126.978
+        type:
+          type: string
+          description: 사업장 유형
+          example: data_center
+      description: 사업장 수정 요청
+    SiteResponse:
+      type: object
+      properties:
+        sites:
+          type: array
+          description: 사업장 목록
+          items:
+            $ref: "#/components/schemas/SiteInfo"
+      description: 사업장 목록
+    RiskVulnerability:
+      type: object
+      properties:
+        riskType:
+          type: string
+          description: 리스크 유형
+          example: 극심한 고온
+        vulnerabilityScore:
+          type: integer
+          description: 취약성 점수 (0-100)
+          format: int32
+          example: 75
+      description: 리스크별 취약성
+    VulnerabilityResponse:
+      type: object
+      properties:
+        siteId:
+          type: string
+          description: 사업장 ID
+          format: uuid
+        vulnerabilities:
+          type: array
+          description: 리스크별 취약성 점수
+          items:
+            $ref: "#/components/schemas/RiskVulnerability"
+      description: 취약성 분석
+    AnalysisTotalResponse:
+      type: object
+      properties:
+        siteId:
+          type: string
+          description: 사업장 ID
+          format: uuid
+        siteName:
+          type: string
+          description: 사업장 이름
+          example: 서울 본사
+        physicalRisks:
+          type: array
+          description: 9대 물리적 리스크 분석 결과
+          items:
+            $ref: "#/components/schemas/PhysicalRiskDetail"
+      description: 사업장 상세 분석 결과
+    PhysicalRiskDetail:
+      type: object
+      properties:
+        riskType:
+          type: string
+          description: 리스크 유형
+          example: 극심한 고온
+        riskScore:
+          maximum: 100
+          minimum: 0
+          type: integer
+          description: 리스크 점수
+          format: int32
+          example: 75
+        financialLossRate:
+          type: number
+          description: 재무 손실률 (0.0-1.0)
+          format: double
+          example: 0.023
+      description: 물리적 리스크 상세
+    LongTermScore:
+      type: object
+      properties:
+        year2020s:
+          type: integer
+          description: 2020년대 점수 (0-100)
+          format: int32
+          example: 72
+        year2030s:
+          type: integer
+          description: 2030년대 점수 (0-100)
+          format: int32
+          example: 78
+        year2040s:
+          type: integer
+          description: 2040년대 점수 (0-100)
+          format: int32
+          example: 84
+        year2050s:
+          type: integer
+          description: 2050년대 점수 (0-100)
+          format: int32
+          example: 89
+      description: 장기 리스크 점수 (연대별)
+    MidTermScore:
+      type: object
+      properties:
+        year2026:
+          type: integer
+          description: 2026년 점수 (0-100)
+          format: int32
+          example: 68
+        year2027:
+          type: integer
+          description: 2027년 점수 (0-100)
+          format: int32
+          example: 70
+        year2028:
+          type: integer
+          description: 2028년 점수 (0-100)
+          format: int32
+          example: 73
+        year2029:
+          type: integer
+          description: 2029년 점수 (0-100)
+          format: int32
+          example: 75
+        year2030:
+          type: integer
+          description: 2030년 점수 (0-100)
+          format: int32
+          example: 77
+      description: 중기 리스크 점수 (연도별)
+    PhysicalRiskScoreResponse:
+      type: object
+      properties:
+        scenarios:
+          type: array
+          description: SSP 시나리오별 리스크 점수 목록 (4개 시나리오)
+          items:
+            $ref: "#/components/schemas/SSPScenarioScore"
+      description: 시나리오별 물리적 리스크 점수
+    SSPScenarioScore:
+      type: object
+      properties:
+        scenario:
+          type: string
+          description: SSP 시나리오
+          example: SSP1-2.6
+          enum:
+          - SSP1-2.6
+          - SSP2-4.5
+          - SSP3-7.0
+          - SSP5-8.5
+        riskType:
+          type: string
+          description: 리스크 종류
+          example: 극심한 고온
+        shortTerm:
+          $ref: "#/components/schemas/ShortTermScore"
+        midTerm:
+          $ref: "#/components/schemas/MidTermScore"
+        longTerm:
+          $ref: "#/components/schemas/LongTermScore"
+      description: SSP 시나리오별 리스크 점수
+    ShortTermScore:
+      type: object
+      properties:
+        q1:
+          type: integer
+          description: 1분기 점수 (0-100)
+          format: int32
+          example: 65
+        q2:
+          type: integer
+          description: 2분기 점수 (0-100)
+          format: int32
+          example: 72
+        q3:
+          type: integer
+          description: 3분기 점수 (0-100)
+          format: int32
+          example: 78
+        q4:
+          type: integer
+          description: 4분기 점수 (0-100)
+          format: int32
+          example: 70
+      description: 단기 리스크 점수 (분기별)
+    DisasterEvent:
+      type: object
+      properties:
+        disasterType:
+          type: string
+          description: 재난 유형
+          example: 극심한 고온
+        year:
+          type: integer
+          description: 발생 연도
+          format: int32
+          example: 2023
+        warningDays:
+          type: integer
+          description: 주의 일수
+          format: int32
+          example: 15
+        severeDays:
+          type: integer
+          description: 심각 일수
+          format: int32
+          example: 5
+        overallStatus:
+          type: string
+          description: 통합 상태
+          example: 심각
+          enum:
+          - 경미
+          - 주의
+          - 심각
+      description: 재난 이벤트
+    PastEventsResponse:
+      type: object
+      properties:
+        siteId:
+          type: string
+          description: 사업장 ID
+          format: uuid
+        siteName:
+          type: string
+          description: 사업장 이름
+          example: 서울 본사
+        disasters:
+          type: array
+          description: 재난별 이력
+          items:
+            $ref: "#/components/schemas/DisasterEvent"
+      description: 과거 재난 이력
+    FinancialImpactResponse:
+      type: object
+      properties:
+        scenarios:
+          type: array
+          description: SSP 시나리오별 재무 영향 목록 (4개 시나리오)
+          items:
+            $ref: "#/components/schemas/SSPScenarioImpact"
+      description: 시나리오별 재무 영향 분석
+    LongTermAAL:
+      type: object
+      properties:
+        year2020s:
+          type: number
+          description: 2020년대 AAL
+          format: double
+          example: 0.028
+        year2030s:
+          type: number
+          description: 2030년대 AAL
+          format: double
+          example: 0.035
+        year2040s:
+          type: number
+          description: 2040년대 AAL
+          format: double
+          example: 0.042
+        year2050s:
+          type: number
+          description: 2050년대 AAL
+          format: double
+          example: 0.051
+      description: 장기 AAL (연대별)
+    MidTermAAL:
+      type: object
+      properties:
+        year2026:
+          type: number
+          description: 2026년 AAL
+          format: double
+          example: 0.023
+        year2027:
+          type: number
+          description: 2027년 AAL
+          format: double
+          example: 0.025
+        year2028:
+          type: number
+          description: 2028년 AAL
+          format: double
+          example: 0.027
+        year2029:
+          type: number
+          description: 2029년 AAL
+          format: double
+          example: 0.029
+        year2030:
+          type: number
+          description: 2030년 AAL
+          format: double
+          example: 0.031
+      description: 중기 AAL (연도별)
+    SSPScenarioImpact:
+      type: object
+      properties:
+        scenario:
+          type: string
+          description: SSP 시나리오
+          example: SSP1-2.6
+          enum:
+          - SSP1-2.6
+          - SSP2-4.5
+          - SSP3-7.0
+          - SSP5-8.5
+        riskType:
+          type: string
+          description: 리스크 종류
+          example: 극심한 고온
+        shortTerm:
+          $ref: "#/components/schemas/ShortTermAAL"
+        midTerm:
+          $ref: "#/components/schemas/MidTermAAL"
+        longTerm:
+          $ref: "#/components/schemas/LongTermAAL"
+      description: SSP 시나리오별 재무 영향
+    ShortTermAAL:
+      type: object
+      properties:
+        q1:
+          type: number
+          description: 1분기 AAL
+          format: double
+          example: 0.015
+        q2:
+          type: number
+          description: 2분기 AAL
+          format: double
+          example: 0.018
+        q3:
+          type: number
+          description: 3분기 AAL
+          format: double
+          example: 0.021
+        q4:
+          type: number
+          description: 4분기 AAL
+          format: double
+          example: 0.019
+      description: 단기 AAL (분기별)
+    DashboardSummaryResponse:
+      type: object
+      properties:
+        mainClimateRisk:
+          type: string
+          description: 전체 사업장의 주요 기후 리스크
+          example: 극심한 고온
+        sites:
+          type: array
+          description: 사업장 목록
+          items:
+            $ref: "#/components/schemas/SiteSummary"
+      description: 대시보드 요약 정보
+    SiteSummary:
+      type: object
+      properties:
+        siteId:
+          type: string
+          description: 사업장 ID
+          format: uuid
+        siteName:
+          type: string
+          description: 사업장 이름
+          example: 서울 본사
+        siteType:
+          type: string
+          description: 사업장 유형
+          example: 공장
+        location:
+          type: string
+          description: 위치
+          example: 서울특별시 강남구
+        totalRiskScore:
+          type: integer
+          description: 통합 리스크 점수 (0-100)
+          format: int32
+          example: 75
+      description: 사업장 요약
+    ReportPage:
+      type: object
+      properties:
+        pageNumber:
+          type: integer
+          description: 페이지 번호
+          format: int32
+          example: 1
+        imageUrl:
+          type: string
+          description: 이미지 URL
+          example: https://cdn.example.com/reports/page1.png
+        title:
+          type: string
+          description: 페이지 제목
+          example: 리스크 개요
+      description: 리포트 페이지
+    ReportWebViewResponse:
+      type: object
+      properties:
+        siteId:
+          type: string
+          description: 사업장 ID (전체 리포트인 경우 null)
+          format: uuid
+        pages:
+          type: array
+          description: 리포트 페이지 이미지 목록
+          items:
+            $ref: "#/components/schemas/ReportPage"
+      description: 웹 리포트 뷰
+    ReportPdfResponse:
+      type: object
+      properties:
+        downloadUrl:
+          type: string
+          description: PDF 다운로드 URL
+          example: https://cdn.example.com/reports/report-20250120.pdf
+        fileSize:
+          type: integer
+          description: 파일 크기 (bytes)
+          format: int64
+          example: 1048576
+        expiresAt:
+          type: string
+          description: 만료 시간
+          format: date-time
+      description: PDF 리포트
+    Industry:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        code:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+    HazardType:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        code:
+          type: string
+        name:
+          type: string
+        nameEn:
+          type: string
+        category:
+          type: string
+          enum:
+          - TEMPERATURE
+          - WATER
+          - WIND
+          - OTHER
+        description:
+          type: string
+  securitySchemes:
+    Bearer Authentication:
+      type: http
+      description: JWT 토큰을 입력하세요 (Bearer 접두사 불필요)
+      scheme: bearer
+      bearerFormat: JWT

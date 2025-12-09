@@ -6,7 +6,16 @@ import logging
 from src.core.config import settings
 from src.core.logging_config import setup_logging
 from src.core.middleware import RequestIDMiddleware
-from src.routes import analysis_router, reports_router, simulation_router, meta_router, recommendation_router, additional_data_router, disaster_history_router
+from src.routes import (
+    analysis_router,
+    reports_router,
+    simulation_router,
+    meta_router,
+    recommendation_router,
+    additional_data_router,
+    disaster_history_router,
+    dashboard_router
+)
 from src.services.report_service import ReportService
 from src.services.analysis_service import AnalysisService
 
@@ -64,6 +73,7 @@ app.include_router(meta_router)
 app.include_router(recommendation_router)
 app.include_router(additional_data_router)
 app.include_router(disaster_history_router)
+app.include_router(dashboard_router)
 
 
 @app.on_event("startup")

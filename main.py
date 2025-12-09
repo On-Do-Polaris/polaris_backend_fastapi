@@ -78,8 +78,14 @@ app.include_router(dashboard_router)
 # 정적 파일 서빙 (API 테스트 콘솔)
 try:
     from fastapi.staticfiles import StaticFiles
-    app.mount("/static", StaticFiles(directory="static"), name="static")
-    logger.info("Static files mounted at /static")
+    from pathlib import Path
+
+    static_dir = Path(__file__).parent / "static"
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+        logger.info(f"Static files mounted at /static from {static_dir}")
+    else:
+        logger.warning(f"Static directory not found: {static_dir}")
 except Exception as e:
     logger.warning(f"Failed to mount static files: {e}")
 

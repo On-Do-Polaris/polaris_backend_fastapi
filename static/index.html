@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Climate Risk Analysis Platform</title>
+    <title>ModelOps API 테스트 콘솔</title>
     <style>
         * {
             margin: 0;
@@ -12,112 +12,97 @@
         }
 
         :root {
-            --primary: #667eea;
-            --primary-dark: #5568d3;
+            --primary: #2563eb;
+            --primary-dark: #1e40af;
             --success: #10b981;
             --danger: #ef4444;
             --warning: #f59e0b;
+            --info: #06b6d4;
             --gray-50: #f9fafb;
             --gray-100: #f3f4f6;
             --gray-200: #e5e7eb;
             --gray-300: #d1d5db;
             --gray-600: #4b5563;
             --gray-700: #374151;
+            --gray-800: #1f2937;
             --gray-900: #111827;
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: var(--gray-50);
-            color: var(--gray-900);
-            line-height: 1.6;
-        }
-
-        .header {
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 1.5rem 2rem;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-
-        .header-content {
-            max-width: 1400px;
-            margin: 0 auto;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .logo {
-            font-size: 1.5rem;
-            font-weight: 700;
-        }
-
-        .api-key-badge {
-            background: rgba(255,255,255,0.2);
-            padding: 0.5rem 1rem;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            cursor: pointer;
+            min-height: 100vh;
+            padding: 2rem;
+            color: var(--gray-900);
         }
 
         .container {
             max-width: 1400px;
-            margin: 2rem auto;
-            padding: 0 2rem;
+            margin: 0 auto;
         }
 
-        .tabs {
-            display: flex;
-            gap: 0.5rem;
+        .header {
+            background: white;
+            border-radius: 16px;
+            padding: 2rem;
             margin-bottom: 2rem;
-            border-bottom: 2px solid var(--gray-200);
-            overflow-x: auto;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
         }
 
-        .tab {
-            padding: 1rem 1.5rem;
-            background: none;
-            border: none;
-            border-bottom: 3px solid transparent;
-            color: var(--gray-600);
-            font-size: 1rem;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-            white-space: nowrap;
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
         }
 
-        .tab:hover {
-            color: var(--primary);
-            background: var(--gray-50);
+        .logo {
+            font-size: 1.75rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
 
-        .tab.active {
-            color: var(--primary);
-            border-bottom-color: var(--primary);
+        .config-section {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
         }
 
-        .tab-content {
-            display: none;
+        .config-input {
+            padding: 0.5rem 1rem;
+            border: 2px solid var(--gray-200);
+            border-radius: 8px;
+            font-size: 0.9rem;
+            min-width: 250px;
         }
 
-        .tab-content.active {
-            display: block;
-            animation: fadeIn 0.3s;
+        .config-input:focus {
+            outline: none;
+            border-color: var(--primary);
         }
 
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        @media (max-width: 1024px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
         }
 
         .card {
             background: white;
-            border-radius: 12px;
+            border-radius: 16px;
             padding: 2rem;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            margin-bottom: 1.5rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
         }
 
         .card-header {
@@ -126,118 +111,36 @@
             align-items: center;
             margin-bottom: 1.5rem;
             padding-bottom: 1rem;
-            border-bottom: 2px solid var(--gray-100);
+            border-bottom: 3px solid var(--gray-100);
         }
 
         .card-title {
-            font-size: 1.5rem;
+            font-size: 1.35rem;
             font-weight: 700;
             color: var(--gray-900);
-        }
-
-        .sites-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 1.5rem;
-        }
-
-        .site-card {
-            background: white;
-            border: 2px solid var(--gray-200);
-            border-radius: 12px;
-            padding: 1.5rem;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-
-        .site-card:hover {
-            border-color: var(--primary);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
-            transform: translateY(-4px);
-        }
-
-        .site-card.selected {
-            border-color: var(--primary);
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
-        }
-
-        .site-name {
-            font-size: 1.25rem;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-        }
-
-        .site-type {
-            display: inline-block;
-            padding: 0.25rem 0.75rem;
-            background: var(--gray-100);
-            border-radius: 12px;
-            font-size: 0.85rem;
-            color: var(--gray-700);
-            margin-bottom: 0.75rem;
-        }
-
-        .site-location {
-            font-size: 0.9rem;
-            color: var(--gray-600);
-            margin-bottom: 1rem;
-        }
-
-        .risk-score {
             display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-
-        .risk-score-value {
-            font-size: 2rem;
-            font-weight: 700;
-        }
-
-        .risk-score.low { color: var(--success); }
-        .risk-score.medium { color: var(--warning); }
-        .risk-score.high { color: var(--danger); }
-
-        .btn {
-            padding: 0.75rem 1.5rem;
-            border: none;
-            border-radius: 8px;
-            font-size: 1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            display: inline-flex;
             align-items: center;
             gap: 0.5rem;
         }
 
-        .btn-primary {
-            background: var(--primary);
-            color: white;
+        .badge {
+            display: inline-block;
+            padding: 0.35rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
-        .btn-primary:hover {
-            background: var(--primary-dark);
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-        }
-
-        .btn-secondary {
-            background: var(--gray-200);
-            color: var(--gray-700);
-        }
-
-        .btn-secondary:hover {
-            background: var(--gray-300);
-        }
-
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
+        .badge.primary { background: #dbeafe; color: #1e40af; }
+        .badge.success { background: #d1fae5; color: #065f46; }
+        .badge.danger { background: #fee2e2; color: #991b1b; }
+        .badge.warning { background: #fef3c7; color: #92400e; }
+        .badge.info { background: #cffafe; color: #164e63; }
 
         .form-group {
-            margin-bottom: 1.5rem;
+            margin-bottom: 1.25rem;
         }
 
         .form-label {
@@ -245,6 +148,7 @@
             margin-bottom: 0.5rem;
             font-weight: 600;
             color: var(--gray-700);
+            font-size: 0.9rem;
         }
 
         .form-input, .form-select {
@@ -252,75 +156,93 @@
             padding: 0.75rem;
             border: 2px solid var(--gray-200);
             border-radius: 8px;
-            font-size: 1rem;
-            transition: border-color 0.2s;
+            font-size: 0.95rem;
+            transition: all 0.2s;
+            font-family: inherit;
         }
 
         .form-input:focus, .form-select:focus {
             outline: none;
             border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
         }
 
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 2rem;
+        .form-input::placeholder {
+            color: var(--gray-400);
         }
 
-        .stat-card {
-            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-            color: white;
-            padding: 1.5rem;
-            border-radius: 12px;
-            text-align: center;
-        }
-
-        .stat-label {
-            font-size: 0.9rem;
-            opacity: 0.9;
-            margin-bottom: 0.5rem;
-        }
-
-        .stat-value {
-            font-size: 2.5rem;
-            font-weight: 700;
-        }
-
-        .analysis-result {
-            background: var(--gray-50);
-            border-radius: 12px;
-            padding: 2rem;
-            margin-top: 2rem;
-        }
-
-        .risk-breakdown {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-            gap: 1rem;
-        }
-
-        .risk-item {
-            background: white;
-            padding: 1rem;
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
             border-radius: 8px;
-            border-left: 4px solid var(--primary);
-        }
-
-        .risk-item-name {
+            font-size: 0.95rem;
             font-weight: 600;
-            margin-bottom: 0.5rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            font-family: inherit;
         }
 
-        .risk-item-score {
-            font-size: 1.5rem;
-            font-weight: 700;
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: var(--primary-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4);
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-success:hover:not(:disabled) {
+            background: #059669;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-danger:hover:not(:disabled) {
+            background: #dc2626;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
+        }
+
+        .btn-info {
+            background: var(--info);
+            color: white;
+        }
+
+        .btn-info:hover:not(:disabled) {
+            background: #0891b2;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(6, 182, 212, 0.4);
+        }
+
+        .btn-block {
+            width: 100%;
         }
 
         .loading {
             display: inline-block;
-            width: 20px;
-            height: 20px;
+            width: 18px;
+            height: 18px;
             border: 3px solid rgba(255,255,255,0.3);
             border-top-color: white;
             border-radius: 50%;
@@ -332,574 +254,696 @@
         }
 
         .alert {
-            padding: 1rem 1.5rem;
-            border-radius: 8px;
+            padding: 1rem 1.25rem;
+            border-radius: 10px;
             margin-bottom: 1rem;
+            border-left: 4px solid;
+            font-size: 0.9rem;
         }
 
         .alert-success {
             background: #d1fae5;
             color: #065f46;
-            border-left: 4px solid var(--success);
+            border-color: var(--success);
         }
 
         .alert-error {
             background: #fee2e2;
             color: #991b1b;
-            border-left: 4px solid var(--danger);
+            border-color: var(--danger);
         }
 
-        .empty-state {
-            text-align: center;
-            padding: 4rem 2rem;
-            color: var(--gray-600);
+        .alert-info {
+            background: #dbeafe;
+            color: #1e40af;
+            border-color: var(--primary);
         }
 
-        .empty-state-icon {
-            font-size: 4rem;
-            margin-bottom: 1rem;
-            opacity: 0.5;
+        .alert-warning {
+            background: #fef3c7;
+            color: #92400e;
+            border-color: var(--warning);
         }
 
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.5);
-            z-index: 1000;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .modal.active {
-            display: flex;
-        }
-
-        .modal-content {
-            background: white;
-            border-radius: 12px;
-            padding: 2rem;
-            max-width: 500px;
-            width: 90%;
-            max-height: 80vh;
+        .result-box {
+            background: var(--gray-50);
+            border: 2px solid var(--gray-200);
+            border-radius: 10px;
+            padding: 1.5rem;
+            margin-top: 1rem;
+            max-height: 500px;
             overflow-y: auto;
         }
 
-        .modal-header {
-            font-size: 1.5rem;
-            font-weight: 700;
-            margin-bottom: 1.5rem;
+        .result-box pre {
+            margin: 0;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 0.85rem;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-wrap: break-word;
         }
 
-        .simulation-comparison {
+        .progress-container {
+            margin-top: 1rem;
+        }
+
+        .progress-bar {
+            height: 30px;
+            background: var(--gray-200);
+            border-radius: 15px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary), var(--info));
+            transition: width 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+
+        .progress-info {
+            margin-top: 0.75rem;
+            display: flex;
+            justify-content: space-between;
+            color: var(--gray-600);
+            font-size: 0.85rem;
+        }
+
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+
+        .status-indicator.online {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .status-indicator.offline {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.online {
+            background: #10b981;
+        }
+
+        .status-dot.offline {
+            background: #ef4444;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .full-width {
+            grid-column: 1 / -1;
+        }
+
+        .risk-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 2rem;
-            margin-top: 2rem;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
         }
 
-        .comparison-side {
+        .risk-item {
             background: white;
-            padding: 1.5rem;
-            border-radius: 12px;
             border: 2px solid var(--gray-200);
+            border-radius: 10px;
+            padding: 1rem;
+            text-align: center;
+            transition: all 0.2s;
         }
 
-        .comparison-title {
+        .risk-item:hover {
+            border-color: var(--primary);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+        }
+
+        .risk-name {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: var(--gray-700);
+        }
+
+        .risk-value {
+            font-size: 1.75rem;
             font-weight: 700;
-            margin-bottom: 1rem;
-            padding-bottom: 0.5rem;
-            border-bottom: 2px solid var(--gray-200);
+            color: var(--primary);
+        }
+
+        .quick-test-buttons {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .json-key {
+            color: #881391;
+            font-weight: 600;
+        }
+
+        .json-string {
+            color: #1a1aa6;
+        }
+
+        .json-number {
+            color: #1c00cf;
+        }
+
+        .json-boolean {
+            color: #0d22ff;
+        }
+
+        .json-null {
+            color: #808080;
         }
     </style>
 </head>
 <body>
-    <div class="header">
-        <div class="header-content">
-            <div class="logo">🌍 Climate Risk Analysis Platform</div>
-            <div class="api-key-badge" onclick="changeApiKey()">
-                🔑 <span id="apiKeyDisplay">test-api-key-12345</span>
-            </div>
-        </div>
-    </div>
-
     <div class="container">
-        <div class="tabs">
-            <button class="tab active" onclick="switchTab('dashboard')">📊 대시보드</button>
-            <button class="tab" onclick="switchTab('sites')">🏢 사업장 관리</button>
-            <button class="tab" onclick="switchTab('analysis')">📈 리스크 분석</button>
-            <button class="tab" onclick="switchTab('simulation')">🔄 시뮬레이션</button>
-            <button class="tab" onclick="switchTab('reports')">📄 보고서</button>
+        <div class="header">
+            <div class="header-content">
+                <div class="logo">🔬 ModelOps API 테스트 콘솔</div>
+                <div class="config-section">
+                    <input type="text"
+                           id="modelopsUrl"
+                           class="config-input"
+                           placeholder="ModelOps Base URL"
+                           value="http://localhost:8001">
+                    <div id="healthStatus"></div>
+                </div>
+            </div>
         </div>
 
-        <!-- Dashboard Tab -->
-        <div id="dashboard" class="tab-content active">
+        <div class="grid">
+            <!-- Health Check -->
             <div class="card">
                 <div class="card-header">
-                    <h2 class="card-title">대시보드 요약</h2>
-                    <button class="btn btn-primary" onclick="loadDashboard()">
-                        🔄 새로고침
+                    <h2 class="card-title">
+                        🏥 Health Check
+                        <span class="badge primary">GET</span>
+                    </h2>
+                </div>
+                <div class="quick-test-buttons">
+                    <button class="btn btn-success" onclick="checkHealth()">
+                        ✓ Health
+                    </button>
+                    <button class="btn btn-info" onclick="checkDatabaseHealth()">
+                        🗄️ Database
                     </button>
                 </div>
-                <div id="dashboard-content">
-                    <div class="empty-state">
-                        <div class="empty-state-icon">📊</div>
-                        <p>대시보드 데이터를 불러오려면 새로고침 버튼을 클릭하세요</p>
-                    </div>
-                </div>
+                <div id="healthResult" class="result-box" style="display: none;"></div>
             </div>
-        </div>
 
-        <!-- Sites Tab -->
-        <div id="sites" class="tab-content">
+            <!-- Risk Assessment Calculation -->
             <div class="card">
                 <div class="card-header">
-                    <h2 class="card-title">사업장 목록</h2>
+                    <h2 class="card-title">
+                        🎯 Risk Assessment
+                        <span class="badge success">POST</span>
+                    </h2>
                 </div>
-                <div id="sites-list" class="sites-grid"></div>
-            </div>
-        </div>
-
-        <!-- Analysis Tab -->
-        <div id="analysis" class="tab-content">
-            <div class="card">
-                <div class="card-header">
-                    <h2 class="card-title">리스크 분석 실행</h2>
-                </div>
-                <div id="analysis-form">
+                <form onsubmit="event.preventDefault(); calculateRiskAssessment();">
                     <div class="form-group">
-                        <label class="form-label">사업장 선택</label>
-                        <select id="analysis-site" class="form-select">
-                            <option value="">사업장을 선택하세요</option>
-                        </select>
+                        <label class="form-label">위도 (Latitude)</label>
+                        <input type="number"
+                               id="calcLatitude"
+                               class="form-input"
+                               step="0.000001"
+                               min="-90"
+                               max="90"
+                               value="37.5665"
+                               placeholder="37.5665"
+                               required>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">SSP 시나리오</label>
-                        <select id="analysis-ssp" class="form-select">
-                            <option value="SSP1-2.6">SSP1-2.6 (지속가능성)</option>
-                            <option value="SSP2-4.5" selected>SSP2-4.5 (중도)</option>
-                            <option value="SSP3-7.0">SSP3-7.0 (지역 경쟁)</option>
-                            <option value="SSP5-8.5">SSP5-8.5 (화석연료)</option>
-                        </select>
+                        <label class="form-label">경도 (Longitude)</label>
+                        <input type="number"
+                               id="calcLongitude"
+                               class="form-input"
+                               step="0.000001"
+                               min="-180"
+                               max="180"
+                               value="126.9780"
+                               placeholder="126.9780"
+                               required>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">분석 연도</label>
-                        <select id="analysis-year" class="form-select">
-                            <option value="2030">2030</option>
-                            <option value="2040">2040</option>
-                            <option value="2050" selected>2050</option>
-                        </select>
+                        <label class="form-label">Site ID (선택)</label>
+                        <input type="text"
+                               id="calcSiteId"
+                               class="form-input"
+                               placeholder="site-001">
                     </div>
-                    <button class="btn btn-primary" onclick="startAnalysis()">
-                        🚀 분석 시작
+                    <button type="submit" class="btn btn-primary btn-block" id="calcButton">
+                        🚀 계산 시작
                     </button>
-                </div>
-                <div id="analysis-result"></div>
+                </form>
+                <div id="calcResult"></div>
             </div>
-        </div>
 
-        <!-- Simulation Tab -->
-        <div id="simulation" class="tab-content">
+            <!-- Status Check -->
             <div class="card">
                 <div class="card-header">
-                    <h2 class="card-title">기후 시뮬레이션</h2>
+                    <h2 class="card-title">
+                        📊 Status Check
+                        <span class="badge info">GET</span>
+                    </h2>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">시나리오</label>
-                    <select id="sim-scenario" class="form-select">
-                        <option value="SSP2-4.5" selected>SSP2-4.5</option>
-                        <option value="SSP5-8.5">SSP5-8.5</option>
-                    </select>
+                    <label class="form-label">Request ID</label>
+                    <input type="text"
+                           id="statusRequestId"
+                           class="form-input"
+                           placeholder="request-id-from-calculation">
                 </div>
-                <div class="form-group">
-                    <label class="form-label">재해 유형</label>
-                    <select id="sim-hazard" class="form-select">
-                        <option value="폭염">폭염</option>
-                        <option value="태풍">태풍</option>
-                        <option value="가뭄">가뭄</option>
-                    </select>
-                </div>
-                <button class="btn btn-primary" onclick="runSimulation()">
-                    ▶️ 시뮬레이션 실행
+                <button class="btn btn-info btn-block" onclick="checkStatus()">
+                    🔍 상태 조회
                 </button>
-                <div id="simulation-result"></div>
+                <div id="statusResult"></div>
             </div>
-        </div>
 
-        <!-- Reports Tab -->
-        <div id="reports" class="tab-content">
+            <!-- Get Cached Results -->
             <div class="card">
                 <div class="card-header">
-                    <h2 class="card-title">보고서 생성</h2>
+                    <h2 class="card-title">
+                        💾 Get Cached Results
+                        <span class="badge warning">GET</span>
+                    </h2>
                 </div>
-                <div class="form-group">
-                    <label class="form-label">분석 ID</label>
-                    <input type="text" id="report-analysis-id" class="form-input"
-                           placeholder="11111111-1111-1111-1111-111111111111">
-                </div>
-                <div class="form-group">
-                    <label class="form-label">보고서 형식</label>
-                    <select id="report-format" class="form-select">
-                        <option value="pdf">PDF</option>
-                        <option value="docx">Word</option>
-                    </select>
-                </div>
-                <button class="btn btn-primary" onclick="generateReport()">
-                    📄 보고서 생성
-                </button>
-                <div id="report-result"></div>
+                <form onsubmit="event.preventDefault(); getCachedResults();">
+                    <div class="form-group">
+                        <label class="form-label">위도 (Latitude)</label>
+                        <input type="number"
+                               id="cacheLatitude"
+                               class="form-input"
+                               step="0.000001"
+                               value="37.5665"
+                               placeholder="37.5665">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">경도 (Longitude)</label>
+                        <input type="number"
+                               id="cacheLongitude"
+                               class="form-input"
+                               step="0.000001"
+                               value="126.9780"
+                               placeholder="126.9780">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">또는 Site ID</label>
+                        <input type="text"
+                               id="cacheSiteId"
+                               class="form-input"
+                               placeholder="site-001">
+                    </div>
+                    <button type="submit" class="btn btn-warning btn-block">
+                        📥 캐시 조회
+                    </button>
+                </form>
+                <div id="cacheResult"></div>
             </div>
-        </div>
-    </div>
 
-    <!-- API Key Modal -->
-    <div id="apiKeyModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">API Key 설정</div>
-            <div class="form-group">
-                <label class="form-label">API Key</label>
-                <input type="text" id="apiKeyInput" class="form-input" value="test-api-key-12345">
+            <!-- Full Workflow Test -->
+            <div class="card full-width">
+                <div class="card-header">
+                    <h2 class="card-title">
+                        🔄 전체 워크플로우 테스트
+                        <span class="badge danger">AUTO</span>
+                    </h2>
+                </div>
+                <div class="alert alert-info">
+                    이 테스트는 Risk Assessment 계산 → 상태 폴링 → 결과 조회까지 자동으로 수행합니다.
+                </div>
+                <div class="form-group">
+                    <label class="form-label">위도 (Latitude)</label>
+                    <input type="number"
+                           id="workflowLatitude"
+                           class="form-input"
+                           step="0.000001"
+                           value="35.1796"
+                           placeholder="35.1796 (부산)">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">경도 (Longitude)</label>
+                    <input type="number"
+                           id="workflowLongitude"
+                           class="form-input"
+                           step="0.000001"
+                           value="129.0756"
+                           placeholder="129.0756 (부산)">
+                </div>
+                <button class="btn btn-danger btn-block" onclick="runFullWorkflow()" id="workflowButton">
+                    ⚡ 전체 테스트 실행
+                </button>
+                <div id="workflowResult"></div>
             </div>
-            <button class="btn btn-primary" onclick="saveApiKey()">저장</button>
-            <button class="btn btn-secondary" onclick="closeModal()">취소</button>
         </div>
     </div>
 
     <script>
-        const API_BASE_URL = window.location.origin;
-        let currentApiKey = 'test-api-key-12345';
-        let sitesData = [];
+        let baseURL = 'http://localhost:8001';
+        let currentRequestId = null;
 
-        // Tab switching
-        function switchTab(tabName) {
-            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-
-            event.target.classList.add('active');
-            document.getElementById(tabName).classList.add('active');
-
-            // Auto-load data when switching to certain tabs
-            if (tabName === 'dashboard') {
-                loadDashboard();
-            } else if (tabName === 'sites') {
-                loadSites();
-            }
-        }
-
-        // API Key management
-        function changeApiKey() {
-            document.getElementById('apiKeyModal').classList.add('active');
-            document.getElementById('apiKeyInput').value = currentApiKey;
-        }
-
-        function saveApiKey() {
-            currentApiKey = document.getElementById('apiKeyInput').value;
-            document.getElementById('apiKeyDisplay').textContent = currentApiKey;
-            closeModal();
-        }
-
-        function closeModal() {
-            document.getElementById('apiKeyModal').classList.remove('active');
-        }
-
-        // Dashboard
-        async function loadDashboard() {
-            const content = document.getElementById('dashboard-content');
-            content.innerHTML = '<div class="empty-state"><div class="loading"></div><p>데이터 로딩 중...</p></div>';
-
-            try {
-                const response = await fetch(`${API_BASE_URL}/api/dashboard/summary`, {
-                    headers: { 'X-API-Key': currentApiKey }
-                });
-
-                if (!response.ok) throw new Error('데이터를 불러올 수 없습니다');
-
-                const data = await response.json();
-                sitesData = data.sites;
-
-                content.innerHTML = `
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <div class="stat-label">총 사업장 수</div>
-                            <div class="stat-value">${data.sites.length}</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-label">평균 리스크 점수</div>
-                            <div class="stat-value">${Math.round(data.sites.reduce((sum, s) => sum + s.totalRiskScore, 0) / data.sites.length)}</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-label">주요 기후 리스크</div>
-                            <div class="stat-value" style="font-size: 1.5rem;">${data.mainClimateRisk}</div>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <h3 style="margin-bottom: 1rem;">사업장별 리스크 현황</h3>
-                        <div class="sites-grid">
-                            ${data.sites.map(site => `
-                                <div class="site-card" onclick="viewSiteDetail('${site.siteId}')">
-                                    <div class="site-name">${site.siteName}</div>
-                                    <div class="site-type">${site.siteType}</div>
-                                    <div class="site-location">📍 ${site.location}</div>
-                                    <div class="site-location" style="font-size: 0.8rem; color: #999;">
-                                        ${site.latitude}, ${site.longitude}
-                                    </div>
-                                    <div class="risk-score ${getRiskLevel(site.totalRiskScore)}">
-                                        <div class="risk-score-value">${site.totalRiskScore}</div>
-                                        <div>/ 100</div>
-                                    </div>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-                `;
-
-                // Update sites dropdown
-                updateSitesDropdown(data.sites);
-
-            } catch (error) {
-                content.innerHTML = `<div class="alert alert-error">❌ ${error.message}</div>`;
-            }
-        }
-
-        function getRiskLevel(score) {
-            if (score >= 75) return 'high';
-            if (score >= 50) return 'medium';
-            return 'low';
-        }
-
-        function updateSitesDropdown(sites) {
-            const select = document.getElementById('analysis-site');
-            select.innerHTML = '<option value="">사업장을 선택하세요</option>' +
-                sites.map(site => `<option value="${site.siteId}">${site.siteName} (${site.location})</option>`).join('');
-        }
-
-        function viewSiteDetail(siteId) {
-            switchTab('analysis');
-            document.querySelector('.tab:nth-child(3)').classList.add('active');
-            document.getElementById('analysis-site').value = siteId;
-        }
-
-        // Sites list
-        async function loadSites() {
-            if (sitesData.length > 0) {
-                displaySites(sitesData);
-                return;
-            }
-
-            try {
-                const response = await fetch(`${API_BASE_URL}/api/dashboard/summary`, {
-                    headers: { 'X-API-Key': currentApiKey }
-                });
-                const data = await response.json();
-                sitesData = data.sites;
-                displaySites(sitesData);
-            } catch (error) {
-                document.getElementById('sites-list').innerHTML =
-                    `<div class="alert alert-error">❌ ${error.message}</div>`;
-            }
-        }
-
-        function displaySites(sites) {
-            document.getElementById('sites-list').innerHTML = sites.map(site => `
-                <div class="site-card" onclick="viewSiteDetail('${site.siteId}')">
-                    <div class="site-name">${site.siteName}</div>
-                    <div class="site-type">${site.siteType}</div>
-                    <div class="site-location">📍 ${site.location}</div>
-                    <div class="site-location" style="font-size: 0.85rem; color: #666; margin-top: 0.5rem;">
-                        위도: ${site.latitude}<br>
-                        경도: ${site.longitude}
-                    </div>
-                    <div class="risk-score ${getRiskLevel(site.totalRiskScore)}">
-                        <div class="risk-score-value">${site.totalRiskScore}</div>
-                        <div>/ 100</div>
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        // Analysis
-        async function startAnalysis() {
-            const siteId = document.getElementById('analysis-site').value;
-            if (!siteId) {
-                alert('사업장을 선택해주세요');
-                return;
-            }
-
-            const resultDiv = document.getElementById('analysis-result');
-            resultDiv.innerHTML = '<div class="alert alert-success">⏳ 분석을 시작합니다...</div>';
-
-            const site = sitesData.find(s => s.siteId === siteId);
-
-            try {
-                const response = await fetch(`${API_BASE_URL}/api/analysis`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-API-Key': currentApiKey
-                    },
-                    body: JSON.stringify({
-                        siteId: siteId,
-                        siteName: site.siteName,
-                        location: {
-                            latitude: site.latitude,
-                            longitude: site.longitude,
-                            address: site.location
-                        },
-                        industry: 'manufacturing',
-                        assetValue: 1000000000,
-                        employees: 500,
-                        ssp: document.getElementById('analysis-ssp').value,
-                        analysisYear: parseInt(document.getElementById('analysis-year').value)
-                    })
-                });
-
-                const data = await response.json();
-
-                resultDiv.innerHTML = `
-                    <div class="alert alert-success">✅ 분석이 완료되었습니다!</div>
-                    <div class="analysis-result">
-                        <h3 style="margin-bottom: 1rem;">분석 ID: ${data.analysisId}</h3>
-                        <p><strong>사업장:</strong> ${site.siteName}</p>
-                        <p><strong>시나리오:</strong> ${data.scenario}</p>
-                        <p><strong>상태:</strong> ${data.status}</p>
-                        <button class="btn btn-primary" style="margin-top: 1rem;" onclick="viewAnalysisResult('${data.analysisId}')">
-                            📊 결과 상세보기
-                        </button>
-                    </div>
-                `;
-            } catch (error) {
-                resultDiv.innerHTML = `<div class="alert alert-error">❌ ${error.message}</div>`;
-            }
-        }
-
-        async function viewAnalysisResult(analysisId) {
-            const resultDiv = document.getElementById('analysis-result');
-            resultDiv.innerHTML = '<div class="alert alert-success">⏳ 결과를 불러오는 중...</div>';
-
-            try {
-                const response = await fetch(`${API_BASE_URL}/api/analysis/${analysisId}`, {
-                    headers: { 'X-API-Key': currentApiKey }
-                });
-
-                const data = await response.json();
-
-                const risks = [
-                    { name: '태풍', score: 75 },
-                    { name: '폭염', score: 85 },
-                    { name: '가뭄', score: 60 },
-                    { name: '내륙침수', score: 70 },
-                    { name: '해안침수', score: 45 },
-                    { name: '한파', score: 55 },
-                    { name: '산불', score: 40 },
-                    { name: '물부족', score: 65 },
-                    { name: '도시침수', score: 72 }
-                ];
-
-                resultDiv.innerHTML = `
-                    <div class="analysis-result">
-                        <h3 style="margin-bottom: 1.5rem;">상세 분석 결과</h3>
-                        <div class="risk-breakdown">
-                            ${risks.map(risk => `
-                                <div class="risk-item">
-                                    <div class="risk-item-name">${risk.name}</div>
-                                    <div class="risk-item-score ${getRiskLevel(risk.score)}">${risk.score}</div>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-                `;
-            } catch (error) {
-                resultDiv.innerHTML = `<div class="alert alert-error">❌ ${error.message}</div>`;
-            }
-        }
-
-        // Simulation
-        async function runSimulation() {
-            const resultDiv = document.getElementById('simulation-result');
-            resultDiv.innerHTML = '<div class="alert alert-success">⏳ 시뮬레이션 실행 중...</div>';
-
-            try {
-                const response = await fetch(`${API_BASE_URL}/api/simulation`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-API-Key': currentApiKey
-                    },
-                    body: JSON.stringify({
-                        siteId: sitesData[0].siteId,
-                        baselineYear: 2025,
-                        targetYear: 2050,
-                        ssp: document.getElementById('sim-scenario').value,
-                        adaptationMeasures: []
-                    })
-                });
-
-                const data = await response.json();
-
-                resultDiv.innerHTML = `
-                    <div class="alert alert-success">✅ 시뮬레이션 완료!</div>
-                    <div class="analysis-result">
-                        <h3 style="margin-bottom: 1rem;">시뮬레이션 결과</h3>
-                        <p><strong>ID:</strong> ${data.simulationId}</p>
-                        <p><strong>기준연도:</strong> ${data.baselineYear} → <strong>목표연도:</strong> ${data.targetYear}</p>
-                        <p><strong>시나리오:</strong> ${data.scenario}</p>
-                    </div>
-                `;
-            } catch (error) {
-                resultDiv.innerHTML = `<div class="alert alert-error">❌ ${error.message}</div>`;
-            }
-        }
-
-        // Reports
-        async function generateReport() {
-            const analysisId = document.getElementById('report-analysis-id').value;
-            if (!analysisId) {
-                alert('분석 ID를 입력해주세요');
-                return;
-            }
-
-            const resultDiv = document.getElementById('report-result');
-            resultDiv.innerHTML = '<div class="alert alert-success">⏳ 보고서 생성 중...</div>';
-
-            try {
-                const response = await fetch(`${API_BASE_URL}/api/reports`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-API-Key': currentApiKey
-                    },
-                    body: JSON.stringify({
-                        analysisId: analysisId,
-                        format: document.getElementById('report-format').value,
-                        language: 'ko',
-                        sections: ['executive_summary', 'risk_analysis', 'recommendations']
-                    })
-                });
-
-                const data = await response.json();
-
-                resultDiv.innerHTML = `
-                    <div class="alert alert-success">✅ 보고서가 생성되었습니다!</div>
-                    <div class="analysis-result">
-                        <p><strong>보고서 ID:</strong> ${data.reportId}</p>
-                        <p><strong>상태:</strong> ${data.status}</p>
-                        <button class="btn btn-primary" style="margin-top: 1rem;">
-                            📥 보고서 다운로드
-                        </button>
-                    </div>
-                `;
-            } catch (error) {
-                resultDiv.innerHTML = `<div class="alert alert-error">❌ ${error.message}</div>`;
-            }
-        }
-
-        // Auto-load dashboard on page load
-        window.addEventListener('load', () => {
-            loadDashboard();
+        // Initialize
+        document.getElementById('modelopsUrl').addEventListener('change', (e) => {
+            baseURL = e.target.value.replace(/\/$/, '');
+            checkHealth();
         });
+
+        // Auto health check on load
+        window.addEventListener('load', () => {
+            checkHealth();
+        });
+
+        // Utility: Format JSON
+        function formatJSON(obj) {
+            return JSON.stringify(obj, null, 2);
+        }
+
+        // Utility: Show result
+        function showResult(elementId, data, type = 'success') {
+            const element = document.getElementById(elementId);
+            const alertClass = type === 'error' ? 'alert-error' :
+                              type === 'warning' ? 'alert-warning' :
+                              type === 'info' ? 'alert-info' : 'alert-success';
+
+            let html = '';
+            if (typeof data === 'string') {
+                html = `<div class="alert ${alertClass}">${data}</div>`;
+            } else {
+                html = `<div class="result-box"><pre>${formatJSON(data)}</pre></div>`;
+            }
+
+            element.innerHTML = html;
+            element.style.display = 'block';
+        }
+
+        // Health Check
+        async function checkHealth() {
+            const statusDiv = document.getElementById('healthStatus');
+            statusDiv.innerHTML = '<div class="status-indicator offline"><div class="status-dot offline"></div>확인 중...</div>';
+
+            try {
+                const response = await fetch(`${baseURL}/health`);
+                const data = await response.json();
+
+                statusDiv.innerHTML = '<div class="status-indicator online"><div class="status-dot online"></div>온라인</div>';
+                showResult('healthResult', data, 'success');
+            } catch (error) {
+                statusDiv.innerHTML = '<div class="status-indicator offline"><div class="status-dot offline"></div>오프라인</div>';
+                showResult('healthResult', `연결 실패: ${error.message}`, 'error');
+            }
+        }
+
+        async function checkDatabaseHealth() {
+            try {
+                const response = await fetch(`${baseURL}/health/db`);
+                const data = await response.json();
+                showResult('healthResult', data, 'success');
+            } catch (error) {
+                showResult('healthResult', `Database 연결 실패: ${error.message}`, 'error');
+            }
+        }
+
+        // Calculate Risk Assessment
+        async function calculateRiskAssessment() {
+            const button = document.getElementById('calcButton');
+            button.disabled = true;
+            button.innerHTML = '<div class="loading"></div> 계산 중...';
+
+            const latitude = parseFloat(document.getElementById('calcLatitude').value);
+            const longitude = parseFloat(document.getElementById('calcLongitude').value);
+            const siteId = document.getElementById('calcSiteId').value;
+
+            const payload = {
+                latitude,
+                longitude
+            };
+
+            if (siteId) {
+                payload.site_id = siteId;
+            }
+
+            try {
+                const response = await fetch(`${baseURL}/api/v1/risk-assessment/calculate`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    currentRequestId = data.request_id;
+                    document.getElementById('statusRequestId').value = data.request_id;
+                    showResult('calcResult', data, 'success');
+
+                    // Show alert with request_id
+                    const alert = `
+                        <div class="alert alert-success">
+                            ✅ 계산이 시작되었습니다!<br>
+                            <strong>Request ID:</strong> ${data.request_id}
+                        </div>
+                    `;
+                    document.getElementById('calcResult').innerHTML = alert + document.getElementById('calcResult').innerHTML;
+                } else {
+                    showResult('calcResult', data, 'error');
+                }
+            } catch (error) {
+                showResult('calcResult', `요청 실패: ${error.message}`, 'error');
+            } finally {
+                button.disabled = false;
+                button.innerHTML = '🚀 계산 시작';
+            }
+        }
+
+        // Check Status
+        async function checkStatus() {
+            const requestId = document.getElementById('statusRequestId').value;
+            if (!requestId) {
+                showResult('statusResult', '⚠️ Request ID를 입력해주세요', 'warning');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${baseURL}/api/v1/risk-assessment/status?request_id=${requestId}`);
+                const data = await response.json();
+
+                if (response.ok) {
+                    // Show progress bar
+                    const progress = data.progress || 0;
+                    const progressHTML = `
+                        <div class="progress-container">
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${progress}%">
+                                    ${progress.toFixed(1)}%
+                                </div>
+                            </div>
+                            <div class="progress-info">
+                                <span>상태: <strong>${data.status}</strong></span>
+                                <span>${data.current || 0} / ${data.total || 9}</span>
+                            </div>
+                            ${data.current_risk ? `<div class="alert alert-info" style="margin-top: 1rem;">현재 처리 중: <strong>${data.current_risk}</strong></div>` : ''}
+                        </div>
+                    `;
+
+                    document.getElementById('statusResult').innerHTML = progressHTML;
+                    showResult('statusResult', data, 'info');
+                } else {
+                    showResult('statusResult', data, 'error');
+                }
+            } catch (error) {
+                showResult('statusResult', `요청 실패: ${error.message}`, 'error');
+            }
+        }
+
+        // Get Cached Results
+        async function getCachedResults() {
+            const latitude = document.getElementById('cacheLatitude').value;
+            const longitude = document.getElementById('cacheLongitude').value;
+            const siteId = document.getElementById('cacheSiteId').value;
+
+            if (!siteId && (!latitude || !longitude)) {
+                showResult('cacheResult', '⚠️ Site ID 또는 위도/경도를 입력해주세요', 'warning');
+                return;
+            }
+
+            const params = new URLSearchParams();
+            if (siteId) params.append('site_id', siteId);
+            if (latitude) params.append('latitude', latitude);
+            if (longitude) params.append('longitude', longitude);
+
+            try {
+                const response = await fetch(`${baseURL}/api/v1/risk-assessment/results?${params}`);
+                const data = await response.json();
+
+                if (response.ok) {
+                    // Display summary
+                    const summary = data.summary || {};
+                    const summaryHTML = `
+                        <div class="alert alert-success">
+                            ✅ 캐시된 결과를 찾았습니다!
+                        </div>
+                        <div class="risk-grid">
+                            ${Object.entries(data.integrated_risk || {}).map(([risk, value]) => `
+                                <div class="risk-item">
+                                    <div class="risk-name">${risk}</div>
+                                    <div class="risk-value">${value.risk_score?.toFixed(2) || 'N/A'}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+
+                    document.getElementById('cacheResult').innerHTML = summaryHTML;
+                    showResult('cacheResult', data, 'success');
+                } else if (response.status === 404) {
+                    showResult('cacheResult', '❌ 해당 위치의 캐시된 결과가 없습니다', 'error');
+                } else {
+                    showResult('cacheResult', data, 'error');
+                }
+            } catch (error) {
+                showResult('cacheResult', `요청 실패: ${error.message}`, 'error');
+            }
+        }
+
+        // Full Workflow Test
+        async function runFullWorkflow() {
+            const button = document.getElementById('workflowButton');
+            button.disabled = true;
+            button.innerHTML = '<div class="loading"></div> 실행 중...';
+
+            const latitude = parseFloat(document.getElementById('workflowLatitude').value);
+            const longitude = parseFloat(document.getElementById('workflowLongitude').value);
+
+            const resultDiv = document.getElementById('workflowResult');
+            resultDiv.innerHTML = '<div class="alert alert-info">⏳ Step 1/3: 리스크 평가 계산 요청 중...</div>';
+
+            try {
+                // Step 1: Calculate
+                const calcResponse = await fetch(`${baseURL}/api/v1/risk-assessment/calculate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ latitude, longitude })
+                });
+
+                if (!calcResponse.ok) {
+                    throw new Error('계산 요청 실패');
+                }
+
+                const calcData = await calcResponse.json();
+                const requestId = calcData.request_id;
+
+                resultDiv.innerHTML += `<div class="alert alert-success">✅ Step 1 완료: Request ID = ${requestId}</div>`;
+                resultDiv.innerHTML += '<div class="alert alert-info">⏳ Step 2/3: 작업 완료 대기 중 (폴링)...</div>';
+
+                // Step 2: Poll Status
+                let completed = false;
+                let attempts = 0;
+                const maxAttempts = 60; // 2분 (2초 간격)
+
+                while (!completed && attempts < maxAttempts) {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+
+                    const statusResponse = await fetch(`${baseURL}/api/v1/risk-assessment/status?request_id=${requestId}`);
+                    const statusData = await statusResponse.json();
+
+                    const progress = statusData.progress || 0;
+                    const progressHTML = `
+                        <div class="progress-container">
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${progress}%">
+                                    ${progress.toFixed(1)}%
+                                </div>
+                            </div>
+                            <div class="progress-info">
+                                <span>상태: <strong>${statusData.status}</strong></span>
+                                <span>${statusData.current || 0} / ${statusData.total || 9}</span>
+                            </div>
+                        </div>
+                    `;
+
+                    // Update progress
+                    const existingProgress = resultDiv.querySelector('.progress-container');
+                    if (existingProgress) {
+                        existingProgress.outerHTML = progressHTML;
+                    } else {
+                        resultDiv.innerHTML += progressHTML;
+                    }
+
+                    if (statusData.status === 'completed') {
+                        completed = true;
+                        resultDiv.innerHTML += '<div class="alert alert-success">✅ Step 2 완료: 계산 완료!</div>';
+                    } else if (statusData.status === 'failed') {
+                        throw new Error('계산 실패');
+                    }
+
+                    attempts++;
+                }
+
+                if (!completed) {
+                    throw new Error('타임아웃: 2분 내에 완료되지 않았습니다');
+                }
+
+                // Step 3: Get Results
+                resultDiv.innerHTML += '<div class="alert alert-info">⏳ Step 3/3: 결과 조회 중...</div>';
+
+                const resultResponse = await fetch(`${baseURL}/api/v1/risk-assessment/results?latitude=${latitude}&longitude=${longitude}`);
+                const resultData = await resultResponse.json();
+
+                if (resultResponse.ok) {
+                    resultDiv.innerHTML += '<div class="alert alert-success">✅ Step 3 완료: 결과 조회 성공!</div>';
+
+                    // Display results
+                    const riskHTML = `
+                        <div class="risk-grid">
+                            ${Object.entries(resultData.integrated_risk || {}).map(([risk, value]) => `
+                                <div class="risk-item">
+                                    <div class="risk-name">${risk}</div>
+                                    <div class="risk-value">${value.risk_score?.toFixed(2) || 'N/A'}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+
+                    resultDiv.innerHTML += riskHTML;
+                    showResult('workflowResult', resultData, 'success');
+                } else {
+                    throw new Error('결과 조회 실패');
+                }
+
+            } catch (error) {
+                resultDiv.innerHTML += `<div class="alert alert-error">❌ 오류: ${error.message}</div>`;
+            } finally {
+                button.disabled = false;
+                button.innerHTML = '⚡ 전체 테스트 실행';
+            }
+        }
     </script>
 </body>
 </html>

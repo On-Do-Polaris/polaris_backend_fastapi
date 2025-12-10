@@ -1,7 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 import uvicorn
 import logging
+import httpx
 
 from src.core.config import settings
 from src.core.logging_config import setup_logging
@@ -150,6 +152,49 @@ async def root():
     """루트 경로 - API 테스트 콘솔로 리다이렉트"""
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/static/index.html")
+
+
+@app.api_route("/modelops-proxy/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+async def modelops_proxy(path: str, request: Request):
+    """ModelOps API 프록시 엔드포인트"""
+    import os
+
+    # ModelOps 서버 URL 가져오기
+    modelops_url = os.getenv('MODELOPS_BASE_URL', 'http://localhost:8001')
+    target_url = f"{modelops_url}/{path}"
+
+    # 쿼리 파라미터 포함
+    if request.url.query:
+        target_url = f"{target_url}?{request.url.query}"
+
+    # 요청 본문 읽기
+    body = await request.body()
+
+    # 헤더 복사 (Host 제외)
+    headers = dict(request.headers)
+    headers.pop('host', None)
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            response = await client.request(
+                method=request.method,
+                url=target_url,
+                headers=headers,
+                content=body,
+            )
+
+            return Response(
+                content=response.content,
+                status_code=response.status_code,
+                headers=dict(response.headers),
+            )
+        except httpx.RequestError as e:
+            logger.error(f"ModelOps proxy error: {e}")
+            return Response(
+                content=f'{{"error": "Failed to connect to ModelOps server: {str(e)}"}}',
+                status_code=503,
+                media_type="application/json"
+            )
 
 
 if __name__ == "__main__":

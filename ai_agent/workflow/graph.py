@@ -20,6 +20,7 @@ from langgraph.graph import StateGraph, END
 from .state import SuperAgentState
 from .nodes import (
 	data_collection_node,
+	risk_assessment_node,
 	report_template_node,
 	impact_analysis_node,
 	strategy_generation_node,
@@ -176,8 +177,9 @@ def create_workflow_graph(config):
 	# StateGraph 초기화
 	workflow = StateGraph(SuperAgentState)
 
-	# ========== 노드 추가 (Node 1 유지 + Phase 2) ==========
+	# ========== 노드 추가 (Node 1, 3 + Phase 2) ==========
 	workflow.add_node('data_collection', lambda state: data_collection_node(state, config))
+	workflow.add_node('risk_assessment', lambda state: risk_assessment_node(state, config))
 	workflow.add_node('building_characteristics', lambda state: building_characteristics_node(state, config))
 	workflow.add_node('report_template', lambda state: report_template_node(state, config))
 	workflow.add_node('impact_analysis', lambda state: impact_analysis_node(state, config))
@@ -192,8 +194,11 @@ def create_workflow_graph(config):
 	# 시작점: Data Collection (Node 1)
 	workflow.set_entry_point('data_collection')
 
-	# 1. Data Collection -> Report Template (Phase 2 진입)
-	workflow.add_edge('data_collection', 'report_template')
+	# 1. Data Collection -> Risk Assessment (통합 H×E×V×AAL 계산)
+	workflow.add_edge('data_collection', 'risk_assessment')
+
+	# 2. Risk Assessment -> Report Template (Phase 2 진입)
+	workflow.add_edge('risk_assessment', 'report_template')
 
 	# 2. Report Template -> Building Characteristics (병렬 브랜치 1)
 	workflow.add_edge('report_template', 'building_characteristics')

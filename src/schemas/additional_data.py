@@ -16,6 +16,7 @@ class DataCategory(str, Enum):
 
 class AdditionalDataUploadRequest(BaseModel):
     """추가 데이터 업로드 요청 (ERD site_additional_data 기준)"""
+    site_id: UUID = Field(..., alias="siteId", description="사업장 ID")
     data_category: DataCategory = Field(..., alias="dataCategory", description="데이터 카테고리")
     raw_text: Optional[str] = Field(None, alias="rawText", description="자유 형식 텍스트")
     structured_data: Optional[dict] = Field(None, alias="structuredData", description="정형화된 JSONB 데이터")

@@ -103,7 +103,7 @@ class AnalysisService:
         return result
 
     async def start_analysis(self, site_id: UUID, request: StartAnalysisRequest) -> AnalysisJobStatus:
-        """Spring Boot API 호환 - 분석 작업 시작"""
+        """Spring Boot API 호환 - 분석 작업 시작 (문서 스펙 기준)"""
         job_id = uuid4()
 
         if settings.USE_MOCK_DATA:
@@ -117,16 +117,17 @@ class AnalysisService:
             )
 
         try:
-            # Spring Boot 요청 스펙: latitude, longitude, industryType만 전달됨
+            # Spring Boot 문서 스펙: site 객체 + hazardTypes, priority, options
             site_info = {
-                'id': str(site_id),
-                'name': f'Site {site_id}',
-                'lat': request.latitude,
-                'lng': request.longitude,
-                'type': request.industry_type
+                'id': str(request.site.id),
+                'name': request.site.name,
+                'lat': request.site.latitude,
+                'lng': request.site.longitude,
+                'address': request.site.address,
+                'type': request.site.industry
             }
 
-            # Spring Boot는 additional_data를 보내지 않으므로 None
+            # Spring Boot는 additional_data를 보내지 않음
             result = await self._run_agent_analysis(site_info, additional_data=None)
             self._analysis_results[site_id] = result
 

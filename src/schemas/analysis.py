@@ -36,10 +36,11 @@ class AdditionalDataInput(BaseModel):
 
 
 class StartAnalysisRequest(BaseModel):
-    """Spring Boot API 호환 - 분석 시작 요청"""
-    latitude: float = Field(..., description="위도")
-    longitude: float = Field(..., description="경도")
-    industry_type: str = Field(..., alias="industryType", description="산업 유형")
+    """Spring Boot API 호환 - 분석 시작 요청 (문서 스펙 기준)"""
+    site: SiteInfo = Field(..., description="사업장 정보")
+    hazard_types: list[str] = Field(..., alias="hazardTypes", description="분석할 위험 유형 목록")
+    priority: Optional[Priority] = Field(Priority.NORMAL, description="작업 우선순위")
+    options: Optional[AnalysisOptions] = Field(None, description="분석 옵션")
 
     class Config:
         populate_by_name = True
@@ -47,6 +48,7 @@ class StartAnalysisRequest(BaseModel):
 
 class EnhanceAnalysisRequest(BaseModel):
     """추가 데이터를 반영하여 분석 향상"""
+    site_id: UUID = Field(..., alias="siteId", description="사업장 ID")
     job_id: UUID = Field(..., alias="jobId", description="원본 분석 작업 ID")
     additional_data: AdditionalDataInput = Field(..., alias="additionalData", description="추가 데이터 (필수)")
 

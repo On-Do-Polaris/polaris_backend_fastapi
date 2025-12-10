@@ -44,14 +44,13 @@ class Priority(str, Enum):
 
 
 class SiteInfo(BaseModel):
-    """사업장 정보 (ERD sites 테이블 기준)"""
+    """사업장 정보 (Spring Boot API 문서 스펙 기준)"""
     id: UUID
     name: str
-    road_address: Optional[str] = Field(None, alias="roadAddress", description="도로명 주소")
-    jibun_address: Optional[str] = Field(None, alias="jibunAddress", description="지번 주소")
+    address: str = Field(..., description="주소 (도로명 우선, 없으면 지번)")
     latitude: float
     longitude: float
-    type: str = Field(..., description="업종/유형")
+    industry: str = Field(..., description="산업 분류 (data_center, factory, office, warehouse, retail)")
 
     class Config:
         populate_by_name = True

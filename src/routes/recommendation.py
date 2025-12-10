@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from uuid import UUID
 
 from src.schemas.recommendation import (
@@ -35,13 +35,13 @@ async def start_batch_recommendation(
     return await service.start_batch_recommendation(request)
 
 
-@router.get("/batch/{batch_id}/progress", response_model=BatchProgressResponse)
+@router.get("/batch/progress", response_model=BatchProgressResponse)
 async def get_batch_progress(
-    batch_id: UUID,
+    batch_id: UUID = Query(..., alias="batchId"),
     api_key: str = Depends(verify_api_key),
 ):
     """
-    배치 작업 진행 상태 조회
+    배치 작업 진행 상태 조회 - query parameters 사용
 
     **폴링 권장 간격**: 5초
 
@@ -62,13 +62,13 @@ async def get_batch_progress(
     return result
 
 
-@router.get("/batch/{batch_id}/result", response_model=SiteRecommendationResultResponse)
+@router.get("/batch/result", response_model=SiteRecommendationResultResponse)
 async def get_batch_result(
-    batch_id: UUID,
+    batch_id: UUID = Query(..., alias="batchId"),
     api_key: str = Depends(verify_api_key),
 ):
     """
-    배치 작업 완료 후 결과 조회
+    배치 작업 완료 후 결과 조회 - query parameters 사용
 
     **주의**: 배치 작업이 완료(100%)된 후에만 결과를 조회할 수 있습니다.
 
@@ -89,13 +89,13 @@ async def get_batch_result(
     return result
 
 
-@router.delete("/batch/{batch_id}", status_code=204)
+@router.delete("/batch", status_code=204)
 async def cancel_batch_job(
-    batch_id: UUID,
+    batch_id: UUID = Query(..., alias="batchId"),
     api_key: str = Depends(verify_api_key),
 ):
     """
-    배치 작업 취소
+    배치 작업 취소 - query parameters 사용
 
     **주의**: 이미 완료된 작업은 취소할 수 없습니다.
     """

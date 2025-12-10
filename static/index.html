@@ -448,11 +448,6 @@
             <div class="header-content">
                 <div class="logo">🔬 ModelOps API 테스트 콘솔</div>
                 <div class="config-section">
-                    <input type="text"
-                           id="modelopsUrl"
-                           class="config-input"
-                           placeholder="ModelOps Base URL"
-                           value="http://localhost:8001">
                     <div id="healthStatus"></div>
                 </div>
             </div>
@@ -625,14 +620,8 @@
     </div>
 
     <script>
-        let baseURL = 'http://localhost:8001';
+        let baseURL = '/modelops-proxy';
         let currentRequestId = null;
-
-        // Initialize
-        document.getElementById('modelopsUrl').addEventListener('change', (e) => {
-            baseURL = e.target.value.replace(/\/$/, '');
-            checkHealth();
-        });
 
         // Auto health check on load
         window.addEventListener('load', () => {

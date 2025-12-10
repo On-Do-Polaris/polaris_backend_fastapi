@@ -1,20 +1,28 @@
 """
 파일명: modelops_client.py
-최종 수정일: 2025-12-03
-버전: v01
-파일 개요: ModelOps API 호출 클라이언트
+최종 수정일: 2025-12-10
+버전: v02
+파일 개요: ModelOps API 호출 클라이언트 (통합 Risk Assessment API)
 
 역할:
 	- ModelOps FastAPI 서버와 통신
-	- Vulnerability, Exposure, Hazard Score, AAL 계산 요청
+	- 통합 H×E×V×AAL 계산 요청
+	- WebSocket 실시간 진행상황 지원
 	- 비동기 작업 상태 폴링
-	- ERD 기준 데이터 변환 및 전달
+	- 캐싱된 결과 조회
+
+변경사항:
+	- 기존 separate endpoints (vulnerability, exposure, hazard, aal) 제거
+	- 신규 unified endpoint (risk-assessment/calculate) 추가
+	- WebSocket 지원 추가
+	- Health check 엔드포인트 추가
 """
 
 import httpx
 import logging
-from typing import Dict, Any, Optional
+import json
 import asyncio
+from typing import Dict, Any, Optional, Callable
 from urllib.parse import urljoin
 
 logger = logging.getLogger(__name__)
@@ -22,11 +30,12 @@ logger = logging.getLogger(__name__)
 
 class ModelOpsClient:
 	"""
-	ModelOps API 클라이언트
+	ModelOps API 클라이언트 (통합 Risk Assessment)
 
 	역할:
-	- ModelOps 서버에 리스크 계산 요청 (Vulnerability, Exposure, Hazard, AAL)
-	- 동기/비동기 응답 처리
+	- 통합 H×E×V×AAL 계산 요청
+	- WebSocket 실시간 진행상황 수신
+	- 캐싱된 결과 조회
 	- 재시도 로직 및 타임아웃 관리
 	"""
 
@@ -70,229 +79,287 @@ class ModelOpsClient:
 		if hasattr(self, 'client'):
 			self.client.close()
 
-	def calculate_vulnerability(
-		self,
-		site_id: str,
-		building_info: Dict[str, Any],
-		location: Dict[str, Any]
-	) -> Dict[str, Any]:
-		"""
-		Vulnerability 점수 계산 요청 (9대 리스크)
-
-		Args:
-			site_id: 사업장 ID
-			building_info: 건물 정보 (from additional_data.building_info)
-			location: 위치 정보 (latitude, longitude)
-
-		Returns:
-			9개 리스크별 vulnerability 점수 (0-100)
-		"""
-		self.logger.info(f"Vulnerability 계산 요청: site_id={site_id}")
-
-		payload = {
-			"site_id": site_id,
-			"building_info": building_info or {},
-			"location": location
-		}
-
-		try:
-			response = self.client.post("/api/v1/calculate/vulnerability", json=payload)
-			response.raise_for_status()
-
-			result = response.json()
-			self.logger.info(f"Vulnerability 계산 완료: status={result.get('status')}")
-
-			# 202 Accepted (비동기)인 경우 상태 폴링
-			if response.status_code == 202:
-				request_id = result.get('request_id')
-				result = self._poll_status(request_id, resource_type='vulnerability')
-
-			return result
-
-		except httpx.HTTPStatusError as e:
-			self.logger.error(f"Vulnerability 계산 실패 (HTTP {e.response.status_code}): {e.response.text}")
-			raise
-		except Exception as e:
-			self.logger.error(f"Vulnerability 계산 중 오류: {str(e)}")
-			raise
-
-	def calculate_exposure(
-		self,
-		site_id: str,
-		asset_info: Dict[str, Any],
-		location: Dict[str, Any]
-	) -> Dict[str, Any]:
-		"""
-		Exposure 점수 계산 요청 (9대 리스크)
-
-		Args:
-			site_id: 사업장 ID
-			asset_info: 자산 정보 (from additional_data.asset_info)
-			location: 위치 정보 (latitude, longitude)
-
-		Returns:
-			9개 리스크별 exposure 점수 (0-1)
-		"""
-		self.logger.info(f"Exposure 계산 요청: site_id={site_id}")
-
-		payload = {
-			"site_id": site_id,
-			"asset_info": asset_info or {},
-			"location": location
-		}
-
-		try:
-			response = self.client.post("/api/v1/calculate/exposure", json=payload)
-			response.raise_for_status()
-
-			result = response.json()
-			self.logger.info(f"Exposure 계산 완료: status={result.get('status')}")
-
-			# 202 Accepted (비동기)인 경우 상태 폴링
-			if response.status_code == 202:
-				request_id = result.get('request_id')
-				result = self._poll_status(request_id, resource_type='exposure')
-
-			return result
-
-		except httpx.HTTPStatusError as e:
-			self.logger.error(f"Exposure 계산 실패 (HTTP {e.response.status_code}): {e.response.text}")
-			raise
-		except Exception as e:
-			self.logger.error(f"Exposure 계산 중 오류: {str(e)}")
-			raise
-
-	def get_hazard_scores(
+	def calculate_risk_assessment(
 		self,
 		latitude: float,
 		longitude: float,
-		scenario_id: int = 2,
-		start_year: int = 2025,
-		end_year: int = 2050
+		site_id: Optional[str] = None,
+		building_info: Optional[Dict[str, Any]] = None,
+		asset_info: Optional[Dict[str, Any]] = None
 	) -> Dict[str, Any]:
 		"""
-		Hazard Score 조회 (배치 처리된 기후 데이터)
+		통합 리스크 평가 계산 요청 (H×E×V×AAL 일괄 계산)
 
 		Args:
-			latitude: 위도
-			longitude: 경도
-			scenario_id: SSP 시나리오 ID (1: SSP1-2.6, 2: SSP2-4.5, 3: SSP3-7.0, 4: SSP5-8.5)
-			start_year: 시작 연도
-			end_year: 종료 연도
+			latitude: 위도 (-90 ~ 90)
+			longitude: 경도 (-180 ~ 180)
+			site_id: 사업장 ID (선택)
+			building_info: 건물 정보 (선택)
+			asset_info: 자산 정보 (선택)
 
 		Returns:
-			9개 리스크별 hazard 점수 (0-1)
+			{
+				"request_id": str,
+				"status": str,
+				"websocket_url": str,
+				"message": str,
+				"site_id": str (optional)
+			}
 		"""
-		self.logger.info(f"Hazard Score 조회: lat={latitude}, lng={longitude}, scenario={scenario_id}")
+		self.logger.info(f"통합 리스크 평가 계산 요청: lat={latitude}, lng={longitude}, site_id={site_id}")
 
-		params = {
+		# 유효성 검증
+		if not (-90 <= latitude <= 90):
+			raise ValueError(f"Invalid latitude: {latitude}. Must be between -90 and 90.")
+		if not (-180 <= longitude <= 180):
+			raise ValueError(f"Invalid longitude: {longitude}. Must be between -180 and 180.")
+
+		payload = {
 			"latitude": latitude,
-			"longitude": longitude,
-			"scenario_id": scenario_id,
-			"start_year": start_year,
-			"end_year": end_year
+			"longitude": longitude
 		}
 
+		if site_id:
+			payload["site_id"] = site_id
+		if building_info:
+			payload["building_info"] = building_info
+		if asset_info:
+			payload["asset_info"] = asset_info
+
 		try:
-			response = self.client.get("/api/v1/hazard-scores", params=params)
+			response = self.client.post("/api/v1/risk-assessment/calculate", json=payload)
 			response.raise_for_status()
 
 			result = response.json()
-			self.logger.info(f"Hazard Score 조회 완료: grid_id={result.get('grid_id')}")
+			self.logger.info(
+				f"통합 리스크 평가 계산 시작: request_id={result.get('request_id')}, "
+				f"status={result.get('status')}"
+			)
+
+			return result
+
+		except httpx.HTTPStatusError as e:
+			self.logger.error(f"통합 리스크 평가 계산 실패 (HTTP {e.response.status_code}): {e.response.text}")
+			raise
+		except Exception as e:
+			self.logger.error(f"통합 리스크 평가 계산 중 오류: {str(e)}")
+			raise
+
+	def get_risk_assessment_status(self, request_id: str) -> Dict[str, Any]:
+		"""
+		리스크 평가 진행 상태 조회
+
+		Args:
+			request_id: 요청 ID
+
+		Returns:
+			{
+				"status": str,  # queued, processing, completed, failed
+				"current": int,  # 현재 처리 중인 리스크 번호 (1-9)
+				"total": int,  # 전체 리스크 개수 (9)
+				"current_risk": str,  # 현재 처리 중인 리스크 타입
+				"progress": float  # 진행률 (%)
+			}
+		"""
+		self.logger.debug(f"리스크 평가 상태 조회: request_id={request_id}")
+
+		try:
+			response = self.client.get(
+				"/api/v1/risk-assessment/status",
+				params={"request_id": request_id}
+			)
+			response.raise_for_status()
+
+			result = response.json()
+			self.logger.debug(f"상태 조회 완료: status={result.get('status')}, progress={result.get('progress', 0):.1f}%")
+
+			return result
+
+		except httpx.HTTPStatusError as e:
+			self.logger.error(f"상태 조회 실패 (HTTP {e.response.status_code}): {e.response.text}")
+			raise
+		except Exception as e:
+			self.logger.error(f"상태 조회 중 오류: {str(e)}")
+			raise
+
+	def get_cached_results(
+		self,
+		latitude: Optional[float] = None,
+		longitude: Optional[float] = None,
+		site_id: Optional[str] = None
+	) -> Dict[str, Any]:
+		"""
+		캐싱된 리스크 평가 결과 조회
+
+		Args:
+			latitude: 위도 (선택)
+			longitude: 경도 (선택)
+			site_id: 사업장 ID (선택)
+
+		Note:
+			site_id 또는 (latitude AND longitude) 중 하나는 필수
+
+		Returns:
+			{
+				"latitude": float,
+				"longitude": float,
+				"site_id": str (optional),
+				"hazard": {risk_type: {...}},
+				"exposure": {risk_type: {...}},
+				"vulnerability": {risk_type: {...}},
+				"integrated_risk": {risk_type: {...}},
+				"aal_scaled": {risk_type: {...}},
+				"summary": {...},
+				"calculated_at": str
+			}
+		"""
+		# 유효성 검증
+		if not site_id and not (latitude and longitude):
+			raise ValueError("site_id 또는 (latitude, longitude)가 필요합니다.")
+
+		self.logger.info(f"캐싱된 결과 조회: lat={latitude}, lng={longitude}, site_id={site_id}")
+
+		params = {}
+		if site_id:
+			params["site_id"] = site_id
+		if latitude is not None:
+			params["latitude"] = latitude
+		if longitude is not None:
+			params["longitude"] = longitude
+
+		try:
+			response = self.client.get("/api/v1/risk-assessment/results", params=params)
+			response.raise_for_status()
+
+			result = response.json()
+			self.logger.info(f"캐싱된 결과 조회 완료: risk_count={result.get('summary', {}).get('risk_count', 0)}")
 
 			return result
 
 		except httpx.HTTPStatusError as e:
 			if e.response.status_code == 404:
-				self.logger.warning(f"해당 위치의 Hazard 데이터 없음: lat={latitude}, lng={longitude}")
-				return None
-			self.logger.error(f"Hazard Score 조회 실패 (HTTP {e.response.status_code}): {e.response.text}")
+				self.logger.warning(f"캐싱된 결과 없음: lat={latitude}, lng={longitude}, site_id={site_id}")
+				raise ValueError(f"해당 위치의 리스크 평가 결과가 없습니다.")
+			self.logger.error(f"캐싱된 결과 조회 실패 (HTTP {e.response.status_code}): {e.response.text}")
 			raise
 		except Exception as e:
-			self.logger.error(f"Hazard Score 조회 중 오류: {str(e)}")
+			self.logger.error(f"캐싱된 결과 조회 중 오류: {str(e)}")
 			raise
 
-	def calculate_aal(
+	async def connect_websocket(
 		self,
-		site_id: str,
-		hazard_scores: Dict[str, Any],
-		vulnerability_scores: Dict[str, float],
-		asset_info: Dict[str, Any],
-		climate_data: Dict[str, Any]
-	) -> Dict[str, Any]:
+		request_id: str,
+		on_progress: Optional[Callable[[Dict], None]] = None,
+		on_complete: Optional[Callable[[Dict], None]] = None,
+		on_error: Optional[Callable[[str], None]] = None,
+		max_retries: int = 3
+	) -> None:
 		"""
-		AAL (연평균 재무 손실률) 계산 요청
+		WebSocket을 통한 실시간 진행상황 수신
 
 		Args:
-			site_id: 사업장 ID
-			hazard_scores: 9개 리스크별 hazard 점수 (4개 시나리오별)
-			vulnerability_scores: 9개 리스크별 vulnerability 점수
-			asset_info: 자산 정보 (총 자산 가치, 보험 가입률)
-			climate_data: 기후 데이터 (grid_id, scenario_id, variables)
+			request_id: 요청 ID
+			on_progress: 진행 상태 업데이트 콜백
+			on_complete: 완료 콜백
+			on_error: 에러 콜백
+			max_retries: 최대 재연결 시도 횟수
 
-		Returns:
-			9개 리스크별 AAL 결과 (4개 시나리오별)
+		Note:
+			이 메서드는 websockets 라이브러리가 필요합니다.
+			pip install websockets>=12.0
 		"""
-		self.logger.info(f"AAL 계산 요청: site_id={site_id}")
-
-		payload = {
-			"site_id": site_id,
-			"hazard_scores": hazard_scores,
-			"vulnerability_scores": vulnerability_scores,
-			"asset_info": asset_info,
-			"climate_data": climate_data
-		}
-
 		try:
-			response = self.client.post("/api/v1/calculate/aal", json=payload)
-			response.raise_for_status()
+			import websockets
+		except ImportError:
+			self.logger.error("websockets 라이브러리가 설치되지 않았습니다. pip install websockets>=12.0")
+			raise ImportError("websockets 라이브러리가 필요합니다: pip install websockets>=12.0")
 
-			result = response.json()
-			self.logger.info(f"AAL 계산 완료: status={result.get('status')}")
+		# WebSocket URL 생성
+		ws_url = self.base_url.replace("http://", "ws://").replace("https://", "wss://")
+		ws_url = f"{ws_url}/api/v1/risk-assessment/ws/{request_id}"
 
-			# 202 Accepted (비동기)인 경우 상태 폴링
-			if response.status_code == 202:
-				request_id = result.get('request_id')
-				result = self._poll_status(request_id, resource_type='aal')
+		self.logger.info(f"WebSocket 연결 시도: {ws_url}")
 
-			return result
+		retry_count = 0
+		while retry_count < max_retries:
+			try:
+				async with websockets.connect(ws_url) as websocket:
+					self.logger.info(f"WebSocket 연결 성공: request_id={request_id}")
 
-		except httpx.HTTPStatusError as e:
-			self.logger.error(f"AAL 계산 실패 (HTTP {e.response.status_code}): {e.response.text}")
-			raise
-		except Exception as e:
-			self.logger.error(f"AAL 계산 중 오류: {str(e)}")
-			raise
+					async for message in websocket:
+						try:
+							data = json.loads(message)
+							status = data.get("status")
+
+							if status == "processing":
+								if on_progress:
+									on_progress(data)
+								self.logger.debug(
+									f"진행 중: {data.get('current_risk')} "
+									f"({data.get('current')}/{data.get('total')})"
+								)
+
+							elif status == "completed":
+								if on_complete:
+									on_complete(data)
+								self.logger.info(f"계산 완료: request_id={request_id}")
+								return
+
+							elif status == "failed":
+								error_msg = data.get("error", {}).get("message", "Unknown error")
+								if on_error:
+									on_error(error_msg)
+								self.logger.error(f"계산 실패: {error_msg}")
+								raise Exception(f"ModelOps 계산 실패: {error_msg}")
+
+						except json.JSONDecodeError as e:
+							self.logger.warning(f"WebSocket 메시지 파싱 실패: {e}")
+							continue
+
+			except websockets.exceptions.ConnectionClosed as e:
+				retry_count += 1
+				self.logger.warning(
+					f"WebSocket 연결 끊김 (재시도 {retry_count}/{max_retries}): {e}"
+				)
+				if retry_count < max_retries:
+					await asyncio.sleep(2 ** retry_count)  # Exponential backoff
+				else:
+					self.logger.error("WebSocket 재연결 시도 초과")
+					if on_error:
+						on_error("WebSocket 연결 실패")
+					raise
+
+			except Exception as e:
+				self.logger.error(f"WebSocket 오류: {str(e)}")
+				if on_error:
+					on_error(str(e))
+				raise
 
 	def _poll_status(
 		self,
 		request_id: str,
-		resource_type: str,
 		poll_interval: float = 2.0,
 		max_wait_time: float = 300.0
 	) -> Dict[str, Any]:
 		"""
-		비동기 작업 상태 폴링
+		비동기 작업 상태 폴링 (HTTP Polling 방식)
 
 		Args:
 			request_id: 요청 ID
-			resource_type: 리소스 타입 (vulnerability, exposure, aal)
 			poll_interval: 폴링 간격 (초)
 			max_wait_time: 최대 대기 시간 (초)
 
 		Returns:
-			완료된 계산 결과
+			완료된 계산 결과 상태
 		"""
-		self.logger.info(f"작업 상태 폴링 시작: request_id={request_id}, type={resource_type}")
+		self.logger.info(f"작업 상태 폴링 시작: request_id={request_id}")
 
-		start_time = asyncio.get_event_loop().time()
+		import time
+		start_time = time.time()
 
 		while True:
 			try:
-				response = self.client.get(f"/api/v1/status/{request_id}")
-				response.raise_for_status()
-
-				status_data = response.json()
+				status_data = self.get_risk_assessment_status(request_id)
 				status = status_data.get('status')
 
 				if status == 'completed':
@@ -306,19 +373,23 @@ class ModelOpsClient:
 
 				elif status in ['queued', 'processing']:
 					progress = status_data.get('progress', 0)
-					self.logger.debug(f"작업 진행 중: request_id={request_id}, progress={progress}%")
+					current_risk = status_data.get('current_risk', '')
+					self.logger.debug(
+						f"작업 진행 중: request_id={request_id}, "
+						f"progress={progress:.1f}%, current_risk={current_risk}"
+					)
 
 					# 타임아웃 체크
-					elapsed = asyncio.get_event_loop().time() - start_time
+					elapsed = time.time() - start_time
 					if elapsed > max_wait_time:
 						raise TimeoutError(f"작업 타임아웃: request_id={request_id}")
 
 					# 다음 폴링까지 대기
-					asyncio.sleep(poll_interval)
+					time.sleep(poll_interval)
 
 				else:
 					self.logger.warning(f"알 수 없는 상태: request_id={request_id}, status={status}")
-					asyncio.sleep(poll_interval)
+					time.sleep(poll_interval)
 
 			except httpx.HTTPStatusError as e:
 				self.logger.error(f"상태 조회 실패 (HTTP {e.response.status_code}): {e.response.text}")
@@ -327,137 +398,62 @@ class ModelOpsClient:
 				self.logger.error(f"상태 폴링 중 오류: {str(e)}")
 				raise
 
-	def start_batch_recommendation(
-		self,
-		sites: list,
-		recommendation_type: str = "mitigation_priority",
-		scenario: Optional[str] = None
-	) -> Dict[str, Any]:
+	def health_check(self) -> Dict[str, Any]:
 		"""
-		배치 추천 작업 시작 (ModelOps)
-
-		Args:
-			sites: 사업장 리스크 데이터 리스트
-			recommendation_type: 추천 타입 (mitigation_priority, cost_optimization, etc.)
-			scenario: 기후 시나리오 (optional)
-
-		Returns:
-			{"batch_id": str, "status": str, "created_at": str}
-		"""
-		self.logger.info(f"배치 추천 작업 시작: sites={len(sites)}, type={recommendation_type}")
-
-		payload = {
-			"sites": sites,
-			"recommendation_type": recommendation_type,
-			"scenario": scenario
-		}
-
-		try:
-			response = self.client.post("/api/v1/batch/recommend-sites", json=payload)
-			response.raise_for_status()
-
-			result = response.json()
-			self.logger.info(f"배치 작업 시작 완료: batch_id={result.get('batch_id')}")
-			return result
-
-		except httpx.HTTPStatusError as e:
-			self.logger.error(f"배치 추천 시작 실패 (HTTP {e.response.status_code}): {e.response.text}")
-			raise
-		except Exception as e:
-			self.logger.error(f"배치 추천 작업 시작 중 오류: {str(e)}")
-			raise
-
-	def get_batch_progress(self, batch_id: str) -> Dict[str, Any]:
-		"""
-		배치 작업 진행률 조회
-
-		Args:
-			batch_id: 배치 작업 ID
+		ModelOps 서버 상태 확인
 
 		Returns:
 			{
-				"batch_id": str,
-				"status": str,  # "pending", "processing", "completed", "failed"
-				"progress": float,  # 0.0 to 1.0
-				"processed_count": int,
-				"total_count": int,
-				"updated_at": str
-			}
-		"""
-		self.logger.info(f"배치 진행률 조회: batch_id={batch_id}")
-
-		try:
-			response = self.client.get(f"/api/v1/batch/{batch_id}/progress")
-			response.raise_for_status()
-
-			result = response.json()
-			self.logger.debug(f"배치 진행률: {result.get('progress', 0):.1%}")
-			return result
-
-		except httpx.HTTPStatusError as e:
-			self.logger.error(f"배치 진행률 조회 실패 (HTTP {e.response.status_code}): {e.response.text}")
-			raise
-		except Exception as e:
-			self.logger.error(f"배치 진행률 조회 중 오류: {str(e)}")
-			raise
-
-	def get_batch_results(self, batch_id: str) -> Dict[str, Any]:
-		"""
-		배치 작업 결과 조회
-
-		Args:
-			batch_id: 배치 작업 ID
-
-		Returns:
-			{
-				"batch_id": str,
 				"status": str,
-				"results": List[Dict],  # 각 사업장별 추천 결과
-				"completed_at": str
+				"service": str,
+				"timestamp": str
 			}
 		"""
-		self.logger.info(f"배치 결과 조회: batch_id={batch_id}")
+		self.logger.debug("Health check 요청")
 
 		try:
-			response = self.client.get(f"/api/v1/batch/{batch_id}/results")
+			response = self.client.get("/health")
 			response.raise_for_status()
 
 			result = response.json()
-			self.logger.info(f"배치 결과 조회 완료: {len(result.get('results', []))} 건")
+			self.logger.debug(f"Health check 완료: status={result.get('status')}")
+
 			return result
 
 		except httpx.HTTPStatusError as e:
-			self.logger.error(f"배치 결과 조회 실패 (HTTP {e.response.status_code}): {e.response.text}")
+			self.logger.error(f"Health check 실패 (HTTP {e.response.status_code}): {e.response.text}")
 			raise
 		except Exception as e:
-			self.logger.error(f"배치 결과 조회 중 오류: {str(e)}")
+			self.logger.error(f"Health check 중 오류: {str(e)}")
 			raise
 
-	def cancel_batch_job(self, batch_id: str) -> Dict[str, Any]:
+	def database_health(self) -> Dict[str, Any]:
 		"""
-		배치 작업 취소
-
-		Args:
-			batch_id: 배치 작업 ID
+		ModelOps 데이터베이스 연결 확인
 
 		Returns:
-			{"batch_id": str, "status": "cancelled"}
+			{
+				"status": str,
+				"database": str,
+				"timestamp": str
+			}
 		"""
-		self.logger.info(f"배치 작업 취소: batch_id={batch_id}")
+		self.logger.debug("Database health check 요청")
 
 		try:
-			response = self.client.delete(f"/api/v1/batch/{batch_id}")
+			response = self.client.get("/health/db")
 			response.raise_for_status()
 
 			result = response.json()
-			self.logger.info(f"배치 작업 취소 완료: batch_id={batch_id}")
+			self.logger.debug(f"Database health check 완료: status={result.get('status')}")
+
 			return result
 
 		except httpx.HTTPStatusError as e:
-			self.logger.error(f"배치 작업 취소 실패 (HTTP {e.response.status_code}): {e.response.text}")
+			self.logger.error(f"Database health check 실패 (HTTP {e.response.status_code}): {e.response.text}")
 			raise
 		except Exception as e:
-			self.logger.error(f"배치 작업 취소 중 오류: {str(e)}")
+			self.logger.error(f"Database health check 중 오류: {str(e)}")
 			raise
 
 

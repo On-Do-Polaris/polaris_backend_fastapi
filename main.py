@@ -75,6 +75,20 @@ app.include_router(additional_data_router)
 app.include_router(disaster_history_router)
 app.include_router(dashboard_router)
 
+# 정적 파일 서빙 (API 테스트 콘솔)
+try:
+    from fastapi.staticfiles import StaticFiles
+    from pathlib import Path
+
+    static_dir = Path(__file__).parent / "static"
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+        logger.info(f"Static files mounted at /static from {static_dir}")
+    else:
+        logger.warning(f"Static directory not found: {static_dir}")
+except Exception as e:
+    logger.warning(f"Failed to mount static files: {e}")
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -133,11 +147,9 @@ async def shutdown_event():
 
 @app.get("/")
 async def root():
-    return {
-        "name": settings.APP_NAME,
-        "version": settings.APP_VERSION,
-        "status": "running",
-    }
+    """루트 경로 - API 테스트 콘솔로 리다이렉트"""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/static/index.html")
 
 
 if __name__ == "__main__":

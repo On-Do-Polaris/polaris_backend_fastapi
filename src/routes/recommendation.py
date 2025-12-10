@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from uuid import UUID
 
 router = APIRouter(prefix="/api/recommendation", tags=["Site Recommendation (DEPRECATED)"])
 

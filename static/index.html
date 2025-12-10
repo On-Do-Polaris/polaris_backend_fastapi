@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Climate Risk Analysis Platform</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #667eea;
+            --primary-dark: #5568d3;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --gray-50: #f9fafb;
+            --gray-100: #f3f4f6;
+            --gray-200: #e5e7eb;
+            --gray-300: #d1d5db;
+            --gray-600: #4b5563;
+            --gray-700: #374151;
+            --gray-900: #111827;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--gray-50);
+            color: var(--gray-900);
+            line-height: 1.6;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1.5rem 2rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+
+        .api-key-badge {
+            background: rgba(255,255,255,0.2);
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 2rem auto;
+            padding: 0 2rem;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 2rem;
+            border-bottom: 2px solid var(--gray-200);
+            overflow-x: auto;
+        }
+
+        .tab {
+            padding: 1rem 1.5rem;
+            background: none;
+            border: none;
+            border-bottom: 3px solid transparent;
+            color: var(--gray-600);
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        .tab:hover {
+            color: var(--primary);
+            background: var(--gray-50);
+        }
+
+        .tab.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+            animation: fadeIn 0.3s;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 1.5rem;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid var(--gray-100);
+        }
+
+        .card-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--gray-900);
+        }
+
+        .sites-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .site-card {
+            background: white;
+            border: 2px solid var(--gray-200);
+            border-radius: 12px;
+            padding: 1.5rem;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .site-card:hover {
+            border-color: var(--primary);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+            transform: translateY(-4px);
+        }
+
+        .site-card.selected {
+            border-color: var(--primary);
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+        }
+
+        .site-name {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .site-type {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            background: var(--gray-100);
+            border-radius: 12px;
+            font-size: 0.85rem;
+            color: var(--gray-700);
+            margin-bottom: 0.75rem;
+        }
+
+        .site-location {
+            font-size: 0.9rem;
+            color: var(--gray-600);
+            margin-bottom: 1rem;
+        }
+
+        .risk-score {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .risk-score-value {
+            font-size: 2rem;
+            font-weight: 700;
+        }
+
+        .risk-score.low { color: var(--success); }
+        .risk-score.medium { color: var(--warning); }
+        .risk-score.high { color: var(--danger); }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-secondary {
+            background: var(--gray-200);
+            color: var(--gray-700);
+        }
+
+        .btn-secondary:hover {
+            background: var(--gray-300);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            color: var(--gray-700);
+        }
+
+        .form-input, .form-select {
+            width: 100%;
+            padding: 0.75rem;
+            border: 2px solid var(--gray-200);
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.2s;
+        }
+
+        .form-input:focus, .form-select:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+            padding: 1.5rem;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            opacity: 0.9;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+        }
+
+        .analysis-result {
+            background: var(--gray-50);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-top: 2rem;
+        }
+
+        .risk-breakdown {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 1rem;
+        }
+
+        .risk-item {
+            background: white;
+            padding: 1rem;
+            border-radius: 8px;
+            border-left: 4px solid var(--primary);
+        }
+
+        .risk-item-name {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .risk-item-score {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .alert {
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+
+        .alert-success {
+            background: #d1fae5;
+            color: #065f46;
+            border-left: 4px solid var(--success);
+        }
+
+        .alert-error {
+            background: #fee2e2;
+            color: #991b1b;
+            border-left: 4px solid var(--danger);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: var(--gray-600);
+        }
+
+        .empty-state-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+        }
+
+        .simulation-comparison {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+
+        .comparison-side {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 12px;
+            border: 2px solid var(--gray-200);
+        }
+
+        .comparison-title {
+            font-weight: 700;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--gray-200);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-content">
+            <div class="logo">🌍 Climate Risk Analysis Platform</div>
+            <div class="api-key-badge" onclick="changeApiKey()">
+                🔑 <span id="apiKeyDisplay">test-api-key-12345</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('dashboard')">📊 대시보드</button>
+            <button class="tab" onclick="switchTab('sites')">🏢 사업장 관리</button>
+            <button class="tab" onclick="switchTab('analysis')">📈 리스크 분석</button>
+            <button class="tab" onclick="switchTab('simulation')">🔄 시뮬레이션</button>
+            <button class="tab" onclick="switchTab('reports')">📄 보고서</button>
+        </div>
+
+        <!-- Dashboard Tab -->
+        <div id="dashboard" class="tab-content active">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">대시보드 요약</h2>
+                    <button class="btn btn-primary" onclick="loadDashboard()">
+                        🔄 새로고침
+                    </button>
+                </div>
+                <div id="dashboard-content">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📊</div>
+                        <p>대시보드 데이터를 불러오려면 새로고침 버튼을 클릭하세요</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sites Tab -->
+        <div id="sites" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">사업장 목록</h2>
+                </div>
+                <div id="sites-list" class="sites-grid"></div>
+            </div>
+        </div>
+
+        <!-- Analysis Tab -->
+        <div id="analysis" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">리스크 분석 실행</h2>
+                </div>
+                <div id="analysis-form">
+                    <div class="form-group">
+                        <label class="form-label">사업장 선택</label>
+                        <select id="analysis-site" class="form-select">
+                            <option value="">사업장을 선택하세요</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">SSP 시나리오</label>
+                        <select id="analysis-ssp" class="form-select">
+                            <option value="SSP1-2.6">SSP1-2.6 (지속가능성)</option>
+                            <option value="SSP2-4.5" selected>SSP2-4.5 (중도)</option>
+                            <option value="SSP3-7.0">SSP3-7.0 (지역 경쟁)</option>
+                            <option value="SSP5-8.5">SSP5-8.5 (화석연료)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">분석 연도</label>
+                        <select id="analysis-year" class="form-select">
+                            <option value="2030">2030</option>
+                            <option value="2040">2040</option>
+                            <option value="2050" selected>2050</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-primary" onclick="startAnalysis()">
+                        🚀 분석 시작
+                    </button>
+                </div>
+                <div id="analysis-result"></div>
+            </div>
+        </div>
+
+        <!-- Simulation Tab -->
+        <div id="simulation" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">기후 시뮬레이션</h2>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">시나리오</label>
+                    <select id="sim-scenario" class="form-select">
+                        <option value="SSP2-4.5" selected>SSP2-4.5</option>
+                        <option value="SSP5-8.5">SSP5-8.5</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">재해 유형</label>
+                    <select id="sim-hazard" class="form-select">
+                        <option value="폭염">폭염</option>
+                        <option value="태풍">태풍</option>
+                        <option value="가뭄">가뭄</option>
+                    </select>
+                </div>
+                <button class="btn btn-primary" onclick="runSimulation()">
+                    ▶️ 시뮬레이션 실행
+                </button>
+                <div id="simulation-result"></div>
+            </div>
+        </div>
+
+        <!-- Reports Tab -->
+        <div id="reports" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">보고서 생성</h2>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">분석 ID</label>
+                    <input type="text" id="report-analysis-id" class="form-input"
+                           placeholder="11111111-1111-1111-1111-111111111111">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">보고서 형식</label>
+                    <select id="report-format" class="form-select">
+                        <option value="pdf">PDF</option>
+                        <option value="docx">Word</option>
+                    </select>
+                </div>
+                <button class="btn btn-primary" onclick="generateReport()">
+                    📄 보고서 생성
+                </button>
+                <div id="report-result"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- API Key Modal -->
+    <div id="apiKeyModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">API Key 설정</div>
+            <div class="form-group">
+                <label class="form-label">API Key</label>
+                <input type="text" id="apiKeyInput" class="form-input" value="test-api-key-12345">
+            </div>
+            <button class="btn btn-primary" onclick="saveApiKey()">저장</button>
+            <button class="btn btn-secondary" onclick="closeModal()">취소</button>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = window.location.origin;
+        let currentApiKey = 'test-api-key-12345';
+        let sitesData = [];
+
+        // Tab switching
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+
+            event.target.classList.add('active');
+            document.getElementById(tabName).classList.add('active');
+
+            // Auto-load data when switching to certain tabs
+            if (tabName === 'dashboard') {
+                loadDashboard();
+            } else if (tabName === 'sites') {
+                loadSites();
+            }
+        }
+
+        // API Key management
+        function changeApiKey() {
+            document.getElementById('apiKeyModal').classList.add('active');
+            document.getElementById('apiKeyInput').value = currentApiKey;
+        }
+
+        function saveApiKey() {
+            currentApiKey = document.getElementById('apiKeyInput').value;
+            document.getElementById('apiKeyDisplay').textContent = currentApiKey;
+            closeModal();
+        }
+
+        function closeModal() {
+            document.getElementById('apiKeyModal').classList.remove('active');
+        }
+
+        // Dashboard
+        async function loadDashboard() {
+            const content = document.getElementById('dashboard-content');
+            content.innerHTML = '<div class="empty-state"><div class="loading"></div><p>데이터 로딩 중...</p></div>';
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/dashboard/summary`, {
+                    headers: { 'X-API-Key': currentApiKey }
+                });
+
+                if (!response.ok) throw new Error('데이터를 불러올 수 없습니다');
+
+                const data = await response.json();
+                sitesData = data.sites;
+
+                content.innerHTML = `
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-label">총 사업장 수</div>
+                            <div class="stat-value">${data.sites.length}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">평균 리스크 점수</div>
+                            <div class="stat-value">${Math.round(data.sites.reduce((sum, s) => sum + s.totalRiskScore, 0) / data.sites.length)}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">주요 기후 리스크</div>
+                            <div class="stat-value" style="font-size: 1.5rem;">${data.mainClimateRisk}</div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <h3 style="margin-bottom: 1rem;">사업장별 리스크 현황</h3>
+                        <div class="sites-grid">
+                            ${data.sites.map(site => `
+                                <div class="site-card" onclick="viewSiteDetail('${site.siteId}')">
+                                    <div class="site-name">${site.siteName}</div>
+                                    <div class="site-type">${site.siteType}</div>
+                                    <div class="site-location">📍 ${site.location}</div>
+                                    <div class="site-location" style="font-size: 0.8rem; color: #999;">
+                                        ${site.latitude}, ${site.longitude}
+                                    </div>
+                                    <div class="risk-score ${getRiskLevel(site.totalRiskScore)}">
+                                        <div class="risk-score-value">${site.totalRiskScore}</div>
+                                        <div>/ 100</div>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+
+                // Update sites dropdown
+                updateSitesDropdown(data.sites);
+
+            } catch (error) {
+                content.innerHTML = `<div class="alert alert-error">❌ ${error.message}</div>`;
+            }
+        }
+
+        function getRiskLevel(score) {
+            if (score >= 75) return 'high';
+            if (score >= 50) return 'medium';
+            return 'low';
+        }
+
+        function updateSitesDropdown(sites) {
+            const select = document.getElementById('analysis-site');
+            select.innerHTML = '<option value="">사업장을 선택하세요</option>' +
+                sites.map(site => `<option value="${site.siteId}">${site.siteName} (${site.location})</option>`).join('');
+        }
+
+        function viewSiteDetail(siteId) {
+            switchTab('analysis');
+            document.querySelector('.tab:nth-child(3)').classList.add('active');
+            document.getElementById('analysis-site').value = siteId;
+        }
+
+        // Sites list
+        async function loadSites() {
+            if (sitesData.length > 0) {
+                displaySites(sitesData);
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/dashboard/summary`, {
+                    headers: { 'X-API-Key': currentApiKey }
+                });
+                const data = await response.json();
+                sitesData = data.sites;
+                displaySites(sitesData);
+            } catch (error) {
+                document.getElementById('sites-list').innerHTML =
+                    `<div class="alert alert-error">❌ ${error.message}</div>`;
+            }
+        }
+
+        function displaySites(sites) {
+            document.getElementById('sites-list').innerHTML = sites.map(site => `
+                <div class="site-card" onclick="viewSiteDetail('${site.siteId}')">
+                    <div class="site-name">${site.siteName}</div>
+                    <div class="site-type">${site.siteType}</div>
+                    <div class="site-location">📍 ${site.location}</div>
+                    <div class="site-location" style="font-size: 0.85rem; color: #666; margin-top: 0.5rem;">
+                        위도: ${site.latitude}<br>
+                        경도: ${site.longitude}
+                    </div>
+                    <div class="risk-score ${getRiskLevel(site.totalRiskScore)}">
+                        <div class="risk-score-value">${site.totalRiskScore}</div>
+                        <div>/ 100</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Analysis
+        async function startAnalysis() {
+            const siteId = document.getElementById('analysis-site').value;
+            if (!siteId) {
+                alert('사업장을 선택해주세요');
+                return;
+            }
+
+            const resultDiv = document.getElementById('analysis-result');
+            resultDiv.innerHTML = '<div class="alert alert-success">⏳ 분석을 시작합니다...</div>';
+
+            const site = sitesData.find(s => s.siteId === siteId);
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/analysis`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-API-Key': currentApiKey
+                    },
+                    body: JSON.stringify({
+                        siteId: siteId,
+                        siteName: site.siteName,
+                        location: {
+                            latitude: site.latitude,
+                            longitude: site.longitude,
+                            address: site.location
+                        },
+                        industry: 'manufacturing',
+                        assetValue: 1000000000,
+                        employees: 500,
+                        ssp: document.getElementById('analysis-ssp').value,
+                        analysisYear: parseInt(document.getElementById('analysis-year').value)
+                    })
+                });
+
+                const data = await response.json();
+
+                resultDiv.innerHTML = `
+                    <div class="alert alert-success">✅ 분석이 완료되었습니다!</div>
+                    <div class="analysis-result">
+                        <h3 style="margin-bottom: 1rem;">분석 ID: ${data.analysisId}</h3>
+                        <p><strong>사업장:</strong> ${site.siteName}</p>
+                        <p><strong>시나리오:</strong> ${data.scenario}</p>
+                        <p><strong>상태:</strong> ${data.status}</p>
+                        <button class="btn btn-primary" style="margin-top: 1rem;" onclick="viewAnalysisResult('${data.analysisId}')">
+                            📊 결과 상세보기
+                        </button>
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="alert alert-error">❌ ${error.message}</div>`;
+            }
+        }
+
+        async function viewAnalysisResult(analysisId) {
+            const resultDiv = document.getElementById('analysis-result');
+            resultDiv.innerHTML = '<div class="alert alert-success">⏳ 결과를 불러오는 중...</div>';
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/analysis/${analysisId}`, {
+                    headers: { 'X-API-Key': currentApiKey }
+                });
+
+                const data = await response.json();
+
+                const risks = [
+                    { name: '태풍', score: 75 },
+                    { name: '폭염', score: 85 },
+                    { name: '가뭄', score: 60 },
+                    { name: '내륙침수', score: 70 },
+                    { name: '해안침수', score: 45 },
+                    { name: '한파', score: 55 },
+                    { name: '산불', score: 40 },
+                    { name: '물부족', score: 65 },
+                    { name: '도시침수', score: 72 }
+                ];
+
+                resultDiv.innerHTML = `
+                    <div class="analysis-result">
+                        <h3 style="margin-bottom: 1.5rem;">상세 분석 결과</h3>
+                        <div class="risk-breakdown">
+                            ${risks.map(risk => `
+                                <div class="risk-item">
+                                    <div class="risk-item-name">${risk.name}</div>
+                                    <div class="risk-item-score ${getRiskLevel(risk.score)}">${risk.score}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="alert alert-error">❌ ${error.message}</div>`;
+            }
+        }
+
+        // Simulation
+        async function runSimulation() {
+            const resultDiv = document.getElementById('simulation-result');
+            resultDiv.innerHTML = '<div class="alert alert-success">⏳ 시뮬레이션 실행 중...</div>';
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/simulation`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-API-Key': currentApiKey
+                    },
+                    body: JSON.stringify({
+                        siteId: sitesData[0].siteId,
+                        baselineYear: 2025,
+                        targetYear: 2050,
+                        ssp: document.getElementById('sim-scenario').value,
+                        adaptationMeasures: []
+                    })
+                });
+
+                const data = await response.json();
+
+                resultDiv.innerHTML = `
+                    <div class="alert alert-success">✅ 시뮬레이션 완료!</div>
+                    <div class="analysis-result">
+                        <h3 style="margin-bottom: 1rem;">시뮬레이션 결과</h3>
+                        <p><strong>ID:</strong> ${data.simulationId}</p>
+                        <p><strong>기준연도:</strong> ${data.baselineYear} → <strong>목표연도:</strong> ${data.targetYear}</p>
+                        <p><strong>시나리오:</strong> ${data.scenario}</p>
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="alert alert-error">❌ ${error.message}</div>`;
+            }
+        }
+
+        // Reports
+        async function generateReport() {
+            const analysisId = document.getElementById('report-analysis-id').value;
+            if (!analysisId) {
+                alert('분석 ID를 입력해주세요');
+                return;
+            }
+
+            const resultDiv = document.getElementById('report-result');
+            resultDiv.innerHTML = '<div class="alert alert-success">⏳ 보고서 생성 중...</div>';
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/reports`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-API-Key': currentApiKey
+                    },
+                    body: JSON.stringify({
+                        analysisId: analysisId,
+                        format: document.getElementById('report-format').value,
+                        language: 'ko',
+                        sections: ['executive_summary', 'risk_analysis', 'recommendations']
+                    })
+                });
+
+                const data = await response.json();
+
+                resultDiv.innerHTML = `
+                    <div class="alert alert-success">✅ 보고서가 생성되었습니다!</div>
+                    <div class="analysis-result">
+                        <p><strong>보고서 ID:</strong> ${data.reportId}</p>
+                        <p><strong>상태:</strong> ${data.status}</p>
+                        <button class="btn btn-primary" style="margin-top: 1rem;">
+                            📥 보고서 다운로드
+                        </button>
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="alert alert-error">❌ ${error.message}</div>`;
+            }
+        }
+
+        // Auto-load dashboard on page load
+        window.addEventListener('load', () => {
+            loadDashboard();
+        });
+    </script>
+</body>
+</html>

@@ -78,7 +78,6 @@ reports/
 output/
 results/
 *.pdf
-*.html
 *.png
 *.jpg
 *.jpeg

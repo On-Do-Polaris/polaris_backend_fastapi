@@ -51,6 +51,8 @@ class DashboardService:
                 siteId=UUID("11111111-1111-1111-1111-111111111111"),
                 siteName="서울 본사",
                 siteType="본사",
+                latitude=37.5665,
+                longitude=126.9780,
                 location="서울특별시 강남구",
                 totalRiskScore=75
             ),
@@ -58,6 +60,8 @@ class DashboardService:
                 siteId=UUID("22222222-2222-2222-2222-222222222222"),
                 siteName="부산 공장",
                 siteType="공장",
+                latitude=35.1796,
+                longitude=129.0756,
                 location="부산광역시 해운대구",
                 totalRiskScore=82
             ),
@@ -65,6 +69,8 @@ class DashboardService:
                 siteId=UUID("33333333-3333-3333-3333-333333333333"),
                 siteName="대전 연구소",
                 siteType="연구소",
+                latitude=36.3504,
+                longitude=127.3845,
                 location="대전광역시 유성구",
                 totalRiskScore=65
             ),
@@ -72,6 +78,8 @@ class DashboardService:
                 siteId=UUID("44444444-4444-4444-4444-444444444444"),
                 siteName="광주 물류센터",
                 siteType="물류센터",
+                latitude=35.1595,
+                longitude=126.8526,
                 location="광주광역시 북구",
                 totalRiskScore=70
             )

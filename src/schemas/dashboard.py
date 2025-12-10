@@ -8,6 +8,8 @@ class SiteSummary(BaseModel):
     site_id: UUID = Field(..., alias="siteId", description="사업장 ID")
     site_name: str = Field(..., alias="siteName", description="사업장 이름")
     site_type: str = Field(..., alias="siteType", description="사업장 유형")
+    latitude: float = Field(..., description="위도")
+    longitude: float = Field(..., description="경도")
     location: str = Field(..., description="위치")
     total_risk_score: int = Field(..., alias="totalRiskScore", ge=0, le=100, description="통합 리스크 점수 (0-100)")
 

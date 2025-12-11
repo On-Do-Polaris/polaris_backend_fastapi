@@ -20,11 +20,37 @@ class AnalysisOptions(BaseModel):
         populate_by_name = True
 
 
+class AdditionalDataInput(BaseModel):
+    """추가 데이터 입력 (사용자 제공 컨텍스트)"""
+    raw_text: Optional[str] = Field(None, alias="rawText", description="자유 형식 텍스트 (사용자 제공)")
+    metadata: Optional[dict] = Field(None, description="메타데이터 (선택)")
+
+    # 구조화된 추가 데이터 (ERD에서 제거된 필드들을 여기로 이동)
+    building_info: Optional[dict] = Field(None, alias="buildingInfo", description="건물 정보 (building_age, building_type, seismic_design, gross_floor_area 등)")
+    asset_info: Optional[dict] = Field(None, alias="assetInfo", description="자산 정보 (floor_area, asset_value, employee_count 등)")
+    power_usage: Optional[dict] = Field(None, alias="powerUsage", description="전력 사용량 (it_power_kwh, cooling_power_kwh, total_power_kwh 등)")
+    insurance: Optional[dict] = Field(None, description="보험 정보 (coverage_rate 등)")
+
+    class Config:
+        populate_by_name = True
+
+
 class StartAnalysisRequest(BaseModel):
-    site: SiteInfo
-    hazard_types: Optional[list[HazardType]] = Field(None, alias="hazardTypes")
-    priority: Priority = Priority.NORMAL
-    options: Optional[AnalysisOptions] = None
+    """Spring Boot API 호환 - 분석 시작 요청 (문서 스펙 기준)"""
+    site: SiteInfo = Field(..., description="사업장 정보")
+    hazard_types: list[str] = Field(..., alias="hazardTypes", description="분석할 위험 유형 목록")
+    priority: Optional[Priority] = Field(Priority.NORMAL, description="작업 우선순위")
+    options: Optional[AnalysisOptions] = Field(None, description="분석 옵션")
+
+    class Config:
+        populate_by_name = True
+
+
+class EnhanceAnalysisRequest(BaseModel):
+    """추가 데이터를 반영하여 분석 향상"""
+    site_id: UUID = Field(..., alias="siteId", description="사업장 ID")
+    job_id: UUID = Field(..., alias="jobId", description="원본 분석 작업 ID")
+    additional_data: AdditionalDataInput = Field(..., alias="additionalData", description="추가 데이터 (필수)")
 
     class Config:
         populate_by_name = True

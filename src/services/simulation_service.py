@@ -113,18 +113,32 @@ class SimulationService:
                 'wildfire': '산불',
             }
 
+            # AAL 분석 결과 가져오기
+            base_aal_results = result.get('aal_analysis', {})
+            candidate_aal_results = candidate_result.get('aal_analysis', {})
+
             for risk_type, risk_data in base_scores.items():
+                # AAL v11: final_aal_percentage를 0-1 스케일로 변환
+                aal_data = base_aal_results.get(risk_type, {})
+                aal_percentage = aal_data.get('final_aal_percentage', 0.0)
+                aal_rate = aal_percentage / 100.0  # % → 0-1 스케일
+
                 current_risks.append(RiskData(
                     riskType=hazard_names.get(risk_type, risk_type),
                     riskScore=int(risk_data.get('physical_risk_score_100', 0)),
-                    aal=risk_data.get('financial_loss', 0) / 50000000000,
+                    aal=aal_rate,
                 ))
 
             for risk_type, risk_data in candidate_scores.items():
+                # AAL v11: final_aal_percentage를 0-1 스케일로 변환
+                aal_data = candidate_aal_results.get(risk_type, {})
+                aal_percentage = aal_data.get('final_aal_percentage', 0.0)
+                aal_rate = aal_percentage / 100.0  # % → 0-1 스케일
+
                 new_risks.append(RiskData(
                     riskType=hazard_names.get(risk_type, risk_type),
                     riskScore=int(risk_data.get('physical_risk_score_100', 0)),
-                    aal=risk_data.get('financial_loss', 0) / 50000000000,
+                    aal=aal_rate,
                 ))
 
             return RelocationSimulationResponse(

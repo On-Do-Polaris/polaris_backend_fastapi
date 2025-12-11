@@ -9,8 +9,11 @@
 	- 2025-11-17: v04 - LangSmith 트레이싱 설정 추가
 '''
 import os
+from dotenv import load_dotenv
 from typing import Dict, Any
 
+# override=True: 시스템 환경변수를 .env 파일 값으로 덮어씀
+load_dotenv(override=True)
 
 class Config:
 	"""
@@ -37,6 +40,8 @@ class Config:
 		기본 설정 로드
 		프로젝트의 기본값을 설정
 		"""
+		load_dotenv()
+
 		# ===== 일반 설정 =====
 		self.PROJECT_NAME = "SKAX Physical Risk Analyzer"
 		self.VERSION = "1.0.0"
@@ -148,14 +153,15 @@ class Config:
 			'output_dir': './reports',
 			'formats': ['json', 'pdf', 'html'],
 			'include_visualizations': True,
-			'language': 'ko',  # 'ko', 'en'
+			'default_language': 'ko',  # 기본 언어
+			'supported_languages': ['ko', 'en'],  # 지원 언어 목록
 			'template_dir': './templates'
 		}
 
 		# ===== LLM 설정 (대응 전략 생성용) =====
 		self.LLM_CONFIG = {
 			'provider': 'openai',  # 'openai', 'anthropic', 'local'
-			'model': 'gpt-4',
+			'model': 'gpt-4o-mini',
 			'api_key': os.getenv('OPENAI_API_KEY', ''),
 			'temperature': 0.7,
 			'max_tokens': 2000

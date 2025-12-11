@@ -44,19 +44,13 @@ class Priority(str, Enum):
 
 
 class SiteInfo(BaseModel):
+    """사업장 정보 (Spring Boot API 문서 스펙 기준)"""
     id: UUID
     name: str
-    address: Optional[str] = None
-    city: Optional[str] = None
+    address: str = Field(..., description="주소 (도로명 우선, 없으면 지번)")
     latitude: float
     longitude: float
-    industry: str
-    building_age: Optional[int] = Field(None, alias="buildingAge")
-    building_type: Optional[str] = Field(None, alias="buildingType")
-    seismic_design: bool = Field(False, alias="seismicDesign")
-    floor_area: Optional[float] = Field(None, alias="floorArea")
-    asset_value: Optional[float] = Field(None, alias="assetValue")
-    employee_count: Optional[int] = Field(None, alias="employeeCount")
+    industry: str = Field(..., description="산업 분류 (data_center, factory, office, warehouse, retail)")
 
     class Config:
         populate_by_name = True

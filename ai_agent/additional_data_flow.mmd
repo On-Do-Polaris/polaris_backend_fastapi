@@ -1,0 +1,36 @@
+---
+config:
+  flowchart:
+    curve: basis
+---
+graph TB;
+    %% 추가 데이터 플로우 (워크플로우 외부 전처리)
+
+    Input[["사용자 입력<br/>(additional_data)"]]
+    Helper["AdditionalDataHelper<br/>(LLM 1회 호출)"]
+    Guidelines[["Agent별 가이드라인<br/>(additional_data_guidelines)"]]
+
+    Input -->|"raw_text, metadata"| Helper
+    Helper -->|"generate_guidelines()"| Guidelines
+
+    subgraph AgentGuidelines["가이드라인 내용"]
+        direction LR
+        G1["building_characteristics:<br/>relevance, suggested_insights"]
+        G2["impact_analysis:<br/>relevance, suggested_insights"]
+        G3["strategy_generation:<br/>relevance, suggested_insights"]
+        G4["report_generation:<br/>relevance, suggested_insights"]
+    end
+
+    Guidelines --> AgentGuidelines
+
+    %% 메인 워크플로우 연결 (점선)
+    Guidelines -.->|"State에 주입"| MainWorkflow["메인 워크플로우<br/>(LangGraph)"]
+
+    %% 스타일
+    classDef preprocessing fill:#e1f5ff,stroke:#0288d1,stroke-width:2px
+    classDef guideline fill:#fff9c4,stroke:#fbc02d,stroke-width:2px
+    classDef main fill:#f2f0ff,stroke:#7c4dff,stroke-width:2px
+
+    class Input,Helper preprocessing
+    class Guidelines,AgentGuidelines guideline
+    class MainWorkflow main

@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from typing import Optional
+from typing import Optional, List
 
 
 class Settings(BaseSettings):
@@ -17,14 +17,19 @@ class Settings(BaseSettings):
     # API Key Authentication
     API_KEY: str = "your-secret-api-key"  # 환경변수로 설정
 
-    # Database (PostgreSQL)
-    DATABASE_URL: Optional[str] = "postgresql+asyncpg://user:password@localhost:5432/polaris"
+    # CORS Settings (프론트엔드 허용 도메인)
+    CORS_ORIGINS: str = "*"  # 쉼표로 구분된 도메인 목록 또는 "*"
+    # 예시: "http://localhost:3000,https://polaris.example.com"
+
+    # Database (PostgreSQL Datawarehouse)
+    # Default: Local development datawarehouse
+    DATABASE_URL: Optional[str] = "postgresql://skala_dw_user:1234@localhost:5433/skala_datawarehouse"
     DATABASE_POOL_SIZE: int = 5
     DATABASE_MAX_OVERFLOW: int = 10
 
     # LLM Settings
     OPENAI_API_KEY: Optional[str] = None
-    LLM_MODEL: str = "gpt-4"
+    LLM_MODEL: str = "gpt-4o-mini"
 
     # Agent Settings
     AGENT_TIMEOUT: int = 300  # 5분
@@ -32,11 +37,18 @@ class Settings(BaseSettings):
     # Mock Data (개발/테스트용)
     USE_MOCK_DATA: bool = True  # False로 설정하면 실제 ai_agent 사용
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
-        extra = "ignore"  # 정의되지 않은 환경변수 무시
+    def get_cors_origins(self) -> List[str]:
+        """CORS 허용 도메인 목록 반환"""
+        if self.CORS_ORIGINS == "*":
+            return ["*"]
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "case_sensitive": True,
+        "extra": "ignore"  # 정의되지 않은 환경변수 무시
+    }
 
 
 settings = Settings()

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.schemas.reports import (
     CreateReportRequest,
@@ -26,13 +26,13 @@ async def create_report(
     return await service.create_report(request)
 
 
-@router.get("/web/{report_id}")
+@router.get("/web")
 async def get_report_web_view(
-    report_id: str,
+    report_id: str = Query(..., alias="reportId"),
     api_key: str = Depends(verify_api_key),
     service = Depends(get_report_service),
 ):
-    """웹 리포트 뷰 조회 - 프론트엔드 렌더링용 데이터 반환
+    """웹 리포트 뷰 조회 - 프론트엔드 렌더링용 데이터 반환 - query parameters 사용
 
     Args:
         report_id: 리포트 ID (create_report에서 반환된 reportId)
@@ -54,13 +54,13 @@ async def get_report_web_view(
     return result
 
 
-@router.get("/pdf/{report_id}")
+@router.get("/pdf")
 async def get_report_pdf(
-    report_id: str,
+    report_id: str = Query(..., alias="reportId"),
     api_key: str = Depends(verify_api_key),
     service = Depends(get_report_service),
 ):
-    """PDF 리포트 다운로드
+    """PDF 리포트 다운로드 - query parameters 사용
 
     Args:
         report_id: 리포트 ID (create_report에서 반환된 reportId)

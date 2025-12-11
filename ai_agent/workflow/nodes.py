@@ -142,16 +142,18 @@ def data_collection_node(state: SuperAgentState, config: Any) -> Dict:
 # vulnerability_analysis_node 함수 삭제됨 (2025-12-01)
 
 
-# ========== Node 3: 연평균 재무 손실률 분석 (9개 Sub Agent 병렬 실행) ==========
-@traceable(name="aal_analysis_node", tags=["workflow", "node", "aal", "parallel"])
-def aal_analysis_node(state: SuperAgentState, config: Any) -> Dict:
+# ========== Node 3: 통합 리스크 평가 (H×E×V×AAL 일괄 계산) ==========
+@traceable(name="risk_assessment_node", tags=["workflow", "node", "risk-assessment", "unified"])
+def risk_assessment_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
-	연평균 재무 손실률 (AAL) 분석 노드 (ModelOps API 호출)
+	통합 리스크 평가 노드 (H×E×V×AAL 일괄 계산)
 
-	변경사항:
-	- ModelOps API를 호출하여 AAL 계산 (기존 Agent 제거)
-	- ERD 기준 데이터 전달 (위경도, 사업장 종류, 추가 데이터)
-	- 트리거 역할만 수행
+	변경사항 (2025-12-10):
+	- aal_analysis_node + physical_risk_score_node 병합
+	- 단일 통합 API 호출: calculate_risk_assessment()
+	- 9개 물리적 리스크 동시 계산 (H, E, V, Integrated Risk, AAL)
+	- WebSocket 지원 (선택적)
+	- 캐싱된 결과 조회
 
 	Args:
 		state: 현재 워크플로우 상태
@@ -160,7 +162,7 @@ def aal_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 	Returns:
 		업데이트된 상태 딕셔너리
 	"""
-	print("[Node 3] 연평균 재무 손실률 (AAL) 분석 시작 (ModelOps API 호출)...")
+	print("[Node 3] 통합 리스크 평가 시작 (H×E×V×AAL 일괄 계산)...")
 
 	try:
 		from ai_agent.services import get_modelops_client
@@ -168,58 +170,142 @@ def aal_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 		# ModelOps 클라이언트 초기화
 		modelops_client = get_modelops_client()
 
-		# Scratch Space에서 원본 데이터 로드
-		session_id = state.get('scratch_session_id')
-		collected_data = scratch_manager.load_data(session_id, "climate_raw.json", format="json")
+		# Step 1: 위치 및 사업장 정보 추출
+		target_location = state.get('target_location', {})
+		latitude = target_location.get('latitude')
+		longitude = target_location.get('longitude')
+		site_id = state.get('site_id', target_location.get('site_id'))
 
-		# Vulnerability 분석 결과에서 vulnerability_scores 추출
-		vulnerability_analysis = state.get('vulnerability_analysis', {})
-		vulnerability_scores = vulnerability_analysis.get('vulnerability_scores', {})
+		if not latitude or not longitude:
+			raise ValueError("위경도 정보가 필요합니다")
 
-		# additional_data에서 정보 추출 (ERD 기준)
+		print(f"  - 위치: lat={latitude}, lng={longitude}, site_id={site_id}")
+
+		# Step 2: 건물 및 자산 정보 추출
 		additional_data = state.get('additional_data', {})
+		building_info = additional_data.get('building_info', {}) if additional_data else {}
 		asset_info = additional_data.get('asset_info', {}) if additional_data else {}
-		insurance_info = additional_data.get('insurance', {}) if additional_data else {}
 
-		# 자산 정보 준비
-		asset_data = {
-			'total_asset_value': asset_info.get('total_asset_value', state.get('asset_value', 50000000000)),
-			'insurance_coverage_rate': insurance_info.get('coverage_rate', 0.0)
-		}
-
-		# Hazard 점수 추출 (collected_data에서)
-		hazard_scores = {}
-		# TODO: collected_data 구조에 맞춰 hazard_scores 추출 로직 구현
-
-		# 기후 데이터 준비
-		climate_data = {
-			'grid_id': collected_data.get('grid_id'),
-			'scenario_id': state.get('scenario_id', 2),
-			'start_year': state.get('start_year', 2025),
-			'end_year': state.get('end_year', 2050),
-			'variables': collected_data.get('variables', {})
-		}
-
-		# ModelOps API 호출: AAL 계산
-		site_id = state.get('site_id', state.get('target_location', {}).get('site_id', 'unknown'))
-		aal_result = modelops_client.calculate_aal(
+		# Step 3: 통합 API 호출
+		print("  - 통합 리스크 평가 API 호출 (H×E×V×AAL)")
+		response = modelops_client.calculate_risk_assessment(
+			latitude=latitude,
+			longitude=longitude,
 			site_id=site_id,
-			hazard_scores=hazard_scores,
-			vulnerability_scores=vulnerability_scores,
-			asset_info=asset_data,
-			climate_data=climate_data
+			building_info=building_info,
+			asset_info=asset_info
 		)
 
-		print(f"  - ModelOps AAL 계산 완료: request_id={aal_result.get('request_id')}")
+		request_id = response['request_id']
+		print(f"  - 계산 요청 완료: request_id={request_id}")
 
-		# 결과 변환 (기존 형식과 호환)
-		aal_analysis = aal_result.get('results', {})
+		# Step 4: 진행상황 추적 (HTTP Polling 방식)
+		# Note: WebSocket은 async 환경에서만 사용 가능
+		print("  - 계산 진행상황 폴링 시작...")
+		modelops_client._poll_status(request_id)
+		print("  - 계산 완료!")
 
+		# Step 5: 캐싱된 결과 조회
+		print("  - 결과 조회 중...")
+		results = modelops_client.get_cached_results(
+			latitude=latitude,
+			longitude=longitude,
+			site_id=site_id
+		)
+
+		# Step 6: State 변수로 매핑 (기존 형식 호환성 유지)
+		print("  - 결과 매핑 중...")
+
+		hazard_scores = {}
+		exposure_scores = {}
+		vulnerability_scores = {}
+		physical_risk_scores = {}
+		aal_values = {}
+
+		# 9개 리스크별 데이터 파싱
+		risk_types = ['extreme_heat', 'extreme_cold', 'wildfire', 'drought',
+		              'water_stress', 'sea_level_rise', 'river_flood', 'urban_flood', 'typhoon']
+
+		for risk_type in risk_types:
+			# Hazard
+			h_data = results.get('hazard', {}).get(risk_type, {})
+			hazard_scores[f'{risk_type}_hazard_score'] = h_data.get('hazard_score_100', 0)
+
+			# Exposure
+			e_data = results.get('exposure', {}).get(risk_type, {})
+			exposure_scores[f'{risk_type}_exposure_score'] = e_data.get('exposure_score', 0)
+
+			# Vulnerability
+			v_data = results.get('vulnerability', {}).get(risk_type, {})
+			vulnerability_scores[f'{risk_type}_vulnerability_score'] = v_data.get('vulnerability_score', 0)
+
+			# Physical Risk (Integrated)
+			ir_data = results.get('integrated_risk', {}).get(risk_type, {})
+			physical_risk_scores[risk_type] = {
+				'hazard_score': ir_data.get('h_score', 0),
+				'exposure_score': ir_data.get('e_score', 0),
+				'vulnerability_score': ir_data.get('v_score', 0),
+				'physical_risk_score_100': ir_data.get('integrated_risk_score', 0),
+				'risk_level': ir_data.get('risk_level', 'Unknown'),
+				'status': 'completed'
+			}
+
+			# AAL
+			aal_data = results.get('aal_scaled', {}).get(risk_type, {})
+			aal_values[f'{risk_type}_aal'] = {
+				'base_aal': aal_data.get('base_aal', 0),
+				'final_aal_percentage': aal_data.get('final_aal', 0),
+				'status': 'completed'
+			}
+
+			print(f"  - {risk_type}: "
+			      f"H={ir_data.get('h_score', 0):.2f}, "
+			      f"E={ir_data.get('e_score', 0):.2f}, "
+			      f"V={ir_data.get('v_score', 0):.2f}, "
+			      f"Risk={ir_data.get('integrated_risk_score', 0):.2f}, "
+			      f"AAL={aal_data.get('final_aal', 0):.4f}%")
+
+		# Summary 정보
+		summary = results.get('summary', {})
+		print(f"  - 평균 통합 리스크: {summary.get('average_integrated_risk', 0):.2f}")
+		print(f"  - 총 AAL: {summary.get('total_final_aal', 0):.4f}%")
+
+		# Vulnerability 분석 결과 (하위 호환성)
+		vulnerability_analysis = {
+			'vulnerability_scores': vulnerability_scores,
+			'status': 'completed'
+		}
+
+		# AAL 분석 결과 (하위 호환성)
+		aal_analysis = {
+			'aal_scaled_results': aal_values,
+			'status': 'completed',
+			'request_id': request_id
+		}
+
+		# Step 7: State 업데이트 반환
 		return {
+			'hazard_scores': hazard_scores,
+			'exposure_scores': exposure_scores,
+			'vulnerability_scores': vulnerability_scores,
+			'vulnerability_analysis': vulnerability_analysis,
+			'physical_risk_scores': physical_risk_scores,
+			'physical_score_status': 'completed',
+			'aal_values': aal_values,
 			'aal_analysis': aal_analysis,
 			'aal_status': 'completed',
-			'current_step': 'physical_risk_score',
-			'logs': [f'연평균 재무 손실률 (AAL) 분석 완료 (ModelOps API, request_id={aal_result.get("request_id")})']
+			'risk_assessment_summary': summary,
+			'current_step': 'impact_analysis',
+			'logs': [
+				f'통합 리스크 평가 완료 (request_id={request_id})',
+				f'9개 물리적 리스크 분석 완료',
+				f'평균 Hazard: {summary.get("average_hazard", 0):.2f}',
+				f'평균 Exposure: {summary.get("average_exposure", 0):.2f}',
+				f'평균 Vulnerability: {summary.get("average_vulnerability", 0):.2f}',
+				f'평균 통합 리스크: {summary.get("average_integrated_risk", 0):.2f}',
+				f'총 AAL: {summary.get("total_final_aal", 0):.4f}%',
+				f'최고 리스크: {summary.get("highest_integrated_risk", {}).get("risk_type", "N/A")}'
+			]
 		}
 
 	except Exception as e:
@@ -227,128 +313,9 @@ def aal_analysis_node(state: SuperAgentState, config: Any) -> Dict:
 		import traceback
 		traceback.print_exc()
 		return {
-			'aal_status': 'failed',
-			'errors': [f'AAL 분석 오류 (ModelOps API): {str(e)}']
-		}
-
-
-# ========== Node 3a: 물리적 리스크 종합 점수 산출 (ModelOps API 호출) ==========
-@traceable(name="physical_risk_score_node", tags=["workflow", "node", "physical-risk", "modelops"])
-def physical_risk_score_node(state: SuperAgentState, config: Any) -> Dict:
-	"""
-	물리적 리스크 종합 점수 산출 노드 (ModelOps API 호출)
-
-	변경사항:
-	- ModelOps에서 H, E, V를 모두 계산하여 조합된 Physical Risk Score 반환
-	- 기존 Agent 제거, 트리거 역할만 수행
-
-	Args:
-		state: 현재 워크플로우 상태
-		config: 설정 객체
-
-	Returns:
-		업데이트된 상태 딕셔너리
-	"""
-	print("[Node 3a] 물리적 리스크 종합 점수 산출 시작 (ModelOps API 호출)...")
-
-	try:
-		from ai_agent.services import get_modelops_client
-
-		# ModelOps 클라이언트 초기화
-		modelops_client = get_modelops_client()
-
-		# 사업장 정보 추출 (ERD 기준)
-		target_location = state.get('target_location', {})
-		site_id = state.get('site_id', target_location.get('site_id', 'unknown'))
-
-		location = {
-			'latitude': target_location.get('latitude', 37.5665),
-			'longitude': target_location.get('longitude', 126.9780)
-		}
-
-		# additional_data에서 정보 추출
-		additional_data = state.get('additional_data', {})
-		building_info = additional_data.get('building_info', {}) if additional_data else {}
-		asset_info = additional_data.get('asset_info', {}) if additional_data else {}
-
-		# Step 1: Vulnerability 계산 (ModelOps API)
-		print("  - Step 1: Vulnerability 계산 요청 (ModelOps)")
-		vulnerability_result = modelops_client.calculate_vulnerability(
-			site_id=site_id,
-			building_info=building_info,
-			location=location
-		)
-
-		# Step 2: Exposure 계산 (ModelOps API)
-		print("  - Step 2: Exposure 계산 요청 (ModelOps)")
-		exposure_result = modelops_client.calculate_exposure(
-			site_id=site_id,
-			asset_info=asset_info,
-			location=location
-		)
-
-		# Step 3: Hazard Score 조회 (ModelOps API)
-		print("  - Step 3: Hazard Score 조회 (ModelOps)")
-		scenario_id = state.get('scenario_id', 2)
-		hazard_result = modelops_client.get_hazard_scores(
-			latitude=location['latitude'],
-			longitude=location['longitude'],
-			scenario_id=scenario_id,
-			start_year=state.get('start_year', 2025),
-			end_year=state.get('end_year', 2050)
-		)
-
-		# 결과 통합 (H × E × V 형태로 변환)
-		physical_risk_scores = {}
-		vulnerability_scores = vulnerability_result.get('results', {})
-		exposure_scores = exposure_result.get('results', {})
-		hazard_scores = hazard_result.get('hazard_scores', {}) if hazard_result else {}
-
-		for risk_type in ['extreme_heat', 'extreme_cold', 'wildfire', 'drought',
-		                  'water_stress', 'sea_level_rise', 'river_flood', 'urban_flood', 'typhoon']:
-			v_data = vulnerability_scores.get(risk_type, {})
-			e_data = exposure_scores.get(risk_type, {})
-			h_data = hazard_scores.get(risk_type, {})
-
-			# Physical Risk Score = (H + E + V) / 3 (평균 기반)
-			h_score = h_data.get('score', 0) if isinstance(h_data, dict) else 0
-			e_score = e_data.get('score', 0) if isinstance(e_data, dict) else 0
-			v_score = v_data.get('score', 0) if isinstance(v_data, dict) else 0
-
-			physical_risk_score = (h_score + e_score + v_score) / 3.0
-
-			physical_risk_scores[risk_type] = {
-				'hazard_score': h_score,
-				'exposure_score': e_score,
-				'vulnerability_score': v_score,
-				'physical_risk_score_100': physical_risk_score,
-				'status': 'completed'
-			}
-
-			print(f"  - {risk_type}: H={h_score:.2f}, E={e_score:.2f}, V={v_score:.2f}, "
-			      f"Score={physical_risk_score:.2f}/100")
-
-		# Vulnerability 분석 결과를 state에 저장 (AAL 계산에 사용)
-		vulnerability_analysis = {
-			'vulnerability_scores': {f'{k}_vulnerability_score': v['vulnerability_score']
-			                         for k, v in physical_risk_scores.items()},
-			'status': 'completed'
-		}
-
-		return {
-			'physical_risk_scores': physical_risk_scores,
-			'physical_score_status': 'completed',
-			'vulnerability_analysis': vulnerability_analysis,
-			'logs': ['물리적 리스크 점수 산출 완료 (ModelOps API)']
-		}
-
-	except Exception as e:
-		print(f"[Node 3a] 오류: {str(e)}")
-		import traceback
-		traceback.print_exc()
-		return {
 			'physical_score_status': 'failed',
-			'errors': [f'물리적 리스크 점수 산출 오류 (ModelOps API): {str(e)}']
+			'aal_status': 'failed',
+			'errors': [f'통합 리스크 평가 오류 (ModelOps API): {str(e)}']
 		}
 
 

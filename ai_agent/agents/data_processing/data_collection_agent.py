@@ -101,38 +101,49 @@ class DataCollectionAgent:
 
 	def _collect_climate_data(self, location: Dict, params: Dict) -> Dict:
 		"""
-		기후 데이터 수집 (PostgreSQL에서 조회)
+		기후 데이터 수집 (PostgreSQL에서 조회 - ERD v03 Wide Format)
 
 		Args:
 			location: 위치 정보 (latitude, longitude, admin_code)
-			params: 분석 파라미터 (start_year, end_year, scenario_id)
+			params: 분석 파라미터 (start_year, end_year, scenario)
 
 		Returns:
-			기후 데이터 딕셔너리
+			기후 데이터 딕셔너리 (Wide Format: ssp1, ssp2, ssp3, ssp5 columns)
 		"""
 		latitude = location['latitude']
 		longitude = location['longitude']
 		admin_code = location.get('admin_code')
 		start_year = params.get('start_year', 2000)
 		end_year = params.get('end_year', 2023)
-		scenario_id = params.get('scenario_id', 2)  # Default: SSP2-4.5
 
-		self.logger.info(f"Fetching climate data for ({latitude}, {longitude}) from {start_year} to {end_year}")
+		# ERD v03: scenario_id → scenario (string)
+		# For backward compatibility, convert scenario_id to scenario string
+		scenario_id = params.get('scenario_id')
+		scenario = params.get('scenario')
 
-		# PostgreSQL에서 종합 데이터 조회 (ERD 기반)
+		if scenario_id and not scenario:
+			# Convert old scenario_id (1,2,3,5) to new scenario string
+			scenario_map = {1: 'ssp1', 2: 'ssp2', 3: 'ssp3', 5: 'ssp5'}
+			scenario = scenario_map.get(scenario_id)
+
+		# If scenario is None, fetch all scenarios (Wide format)
+
+		self.logger.info(f"Fetching climate data for ({latitude}, {longitude}) from {start_year} to {end_year}, scenario={scenario or 'all'}")
+
+		# PostgreSQL에서 종합 데이터 조회 (ERD v03 Wide Format)
 		all_data = self.db_manager.collect_all_climate_data(
 			latitude=latitude,
 			longitude=longitude,
 			start_year=start_year,
 			end_year=end_year,
-			scenario_id=scenario_id,
+			scenario=scenario,
 			admin_code=admin_code
 		)
 
 		return {
 			'location': all_data['location'],
 			'period': all_data['period'],
-			'scenario_id': all_data['scenario_id'],
+			'scenario': all_data['scenario'],  # Changed from scenario_id
 			'grid_info': all_data.get('grid'),
 			'admin_info': all_data.get('admin'),
 			'monthly_data': all_data.get('monthly_data', {}),

@@ -16,7 +16,8 @@ from src.routes import (
     recommendation_router,
     additional_data_router,
     disaster_history_router,
-    dashboard_router
+    dashboard_router,
+    past_router
 )
 from src.services.report_service import ReportService
 from src.services.analysis_service import AnalysisService
@@ -76,6 +77,7 @@ app.include_router(recommendation_router)
 app.include_router(additional_data_router)
 app.include_router(disaster_history_router)
 app.include_router(dashboard_router)
+app.include_router(past_router)
 
 # 정적 파일 서빙 (API 테스트 콘솔)
 try:

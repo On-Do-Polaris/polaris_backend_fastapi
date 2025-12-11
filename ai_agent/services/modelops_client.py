@@ -1,60 +1,62 @@
 """
 파일명: modelops_client.py
-최종 수정일: 2025-12-10
-버전: v02
-파일 개요: ModelOps API 호출 클라이언트 (통합 Risk Assessment API)
+최종 수정일: 2025-12-11
+버전: v03
+파일 개요: ModelOps API 호출 클라이언트 (Site Assessment API)
 
 역할:
 	- ModelOps FastAPI 서버와 통신
-	- 통합 H×E×V×AAL 계산 요청
-	- WebSocket 실시간 진행상황 지원
-	- 비동기 작업 상태 폴링
-	- 캐싱된 결과 조회
+	- 사업장 리스크 계산 (H×E×V×AAL)
+	- 이전 후보지 추천 (~1000개 격자 평가)
+	- Health check 엔드포인트 지원
 
-변경사항:
-	- 기존 separate endpoints (vulnerability, exposure, hazard, aal) 제거
-	- 신규 unified endpoint (risk-assessment/calculate) 추가
-	- WebSocket 지원 추가
-	- Health check 엔드포인트 추가
+변경사항 (v03):
+	- API 엔드포인트 변경: /api/v1/risk-assessment/* → /api/v1/site-assessment/*
+	- WebSocket 지원 제거 (동기 API로 변경)
+	- status 폴링 제거 (동기 계산으로 변경)
+	- cached results 조회 제거
+	- 사업장 이전 후보지 추천 API 추가
 """
 
 import httpx
 import logging
-import json
-import asyncio
-from typing import Dict, Any, Optional, Callable
-from urllib.parse import urljoin
+from typing import Dict, Any, Optional, List
 
 logger = logging.getLogger(__name__)
 
 
 class ModelOpsClient:
 	"""
-	ModelOps API 클라이언트 (통합 Risk Assessment)
+	ModelOps API 클라이언트 (Site Assessment)
 
 	역할:
-	- 통합 H×E×V×AAL 계산 요청
-	- WebSocket 실시간 진행상황 수신
-	- 캐싱된 결과 조회
-	- 재시도 로직 및 타임아웃 관리
+	- 사업장 리스크 계산 (H×E×V×AAL)
+	- 이전 후보지 추천 (~1000개 격자 평가)
+	- Health check 및 재시도 로직
 	"""
 
 	def __init__(
 		self,
-		base_url: str = "http://localhost:8001",
+		base_url: Optional[str] = None,
 		api_key: Optional[str] = None,
-		timeout: float = 60.0,
+		timeout: float = 300.0,
 		max_retries: int = 3
 	):
 		"""
 		ModelOpsClient 초기화
 
 		Args:
-			base_url: ModelOps API Base URL
+			base_url: ModelOps API Base URL (None인 경우 환경변수 MODELOPS_URL 사용)
 			api_key: API 인증 키 (선택)
-			timeout: 요청 타임아웃 (초)
+			timeout: 요청 타임아웃 (초) - 기본 300초 (후보지 추천은 시간이 오래 걸림)
 			max_retries: 최대 재시도 횟수
 		"""
+		import os
+
+		# 환경변수에서 URL 로드 (base_url이 None인 경우)
+		if base_url is None:
+			base_url = os.getenv('MODELOPS_URL', 'http://localhost:8001')
+
 		self.base_url = base_url.rstrip('/')
 		self.api_key = api_key
 		self.timeout = timeout
@@ -79,324 +81,187 @@ class ModelOpsClient:
 		if hasattr(self, 'client'):
 			self.client.close()
 
-	def calculate_risk_assessment(
+	def calculate_site_risk(
 		self,
 		latitude: float,
 		longitude: float,
+		building_info: Dict[str, Any],
 		site_id: Optional[str] = None,
-		building_info: Optional[Dict[str, Any]] = None,
 		asset_info: Optional[Dict[str, Any]] = None
 	) -> Dict[str, Any]:
 		"""
-		통합 리스크 평가 계산 요청 (H×E×V×AAL 일괄 계산)
+		사업장 리스크 계산 요청 (H×E×V×AAL 통합 계산)
 
 		Args:
 			latitude: 위도 (-90 ~ 90)
 			longitude: 경도 (-180 ~ 180)
+			building_info: 건물 정보 (필수)
+				{
+					"building_type": "office",  # office, factory, warehouse, etc.
+					"structure": "철근콘크리트",  # 철근콘크리트, 철골, 목조, etc.
+					"building_age": 15,  # 건물 연식 (년)
+					"total_area_m2": 2500,  # 전체 면적 (m2)
+					"ground_floors": 5,  # 지상 층수
+					"basement_floors": 1,  # 지하 층수
+					"has_piloti": false,  # 필로티 구조 여부
+					"elevation_m": 10  # 지면 고도 (m)
+				}
 			site_id: 사업장 ID (선택)
-			building_info: 건물 정보 (선택)
 			asset_info: 자산 정보 (선택)
+				{
+					"total_value": 50000000000,  # 총 자산 가치 (원)
+					"insurance_coverage_rate": 0.3  # 보험 커버리지 비율 (0~1)
+				}
 
 		Returns:
 			{
-				"request_id": str,
-				"status": str,
-				"websocket_url": str,
-				"message": str,
-				"site_id": str (optional)
+				"site_id": str,
+				"latitude": float,
+				"longitude": float,
+				"hazard": {risk_type: {...}, ...},  # 9개 리스크별 H 점수
+				"exposure": {risk_type: {...}, ...},  # 9개 리스크별 E 점수
+				"vulnerability": {risk_type: {...}, ...},  # 9개 리스크별 V 점수
+				"integrated_risk": {risk_type: {...}, ...},  # H×E×V/10000
+				"aal_scaled": {risk_type: {...}, ...},  # 최종 AAL
+				"summary": {
+					"total_integrated_risk": float,  # 9개 리스크 합산
+					"total_final_aal": float,  # 9개 AAL 합산
+					"risk_count": int  # 평가된 리스크 개수
+				},
+				"calculated_at": str  # ISO 8601 형식
 			}
 		"""
-		self.logger.info(f"통합 리스크 평가 계산 요청: lat={latitude}, lng={longitude}, site_id={site_id}")
+		self.logger.info(f"사업장 리스크 계산 요청: lat={latitude}, lng={longitude}, site_id={site_id}")
 
 		# 유효성 검증
 		if not (-90 <= latitude <= 90):
 			raise ValueError(f"Invalid latitude: {latitude}. Must be between -90 and 90.")
 		if not (-180 <= longitude <= 180):
 			raise ValueError(f"Invalid longitude: {longitude}. Must be between -180 and 180.")
+		if not building_info:
+			raise ValueError("building_info is required")
 
 		payload = {
 			"latitude": latitude,
-			"longitude": longitude
+			"longitude": longitude,
+			"building_info": building_info
 		}
 
 		if site_id:
 			payload["site_id"] = site_id
-		if building_info:
-			payload["building_info"] = building_info
 		if asset_info:
 			payload["asset_info"] = asset_info
 
 		try:
-			response = self.client.post("/api/v1/risk-assessment/calculate", json=payload)
+			response = self.client.post("/api/v1/site-assessment/calculate", json=payload)
 			response.raise_for_status()
 
 			result = response.json()
-			self.logger.info(
-				f"통합 리스크 평가 계산 시작: request_id={result.get('request_id')}, "
-				f"status={result.get('status')}"
-			)
+			total_aal = result.get('summary', {}).get('total_final_aal', 0)
+			self.logger.info(f"사업장 리스크 계산 완료: total_aal={total_aal:.6f}")
 
 			return result
 
 		except httpx.HTTPStatusError as e:
-			self.logger.error(f"통합 리스크 평가 계산 실패 (HTTP {e.response.status_code}): {e.response.text}")
+			self.logger.error(f"사업장 리스크 계산 실패 (HTTP {e.response.status_code}): {e.response.text}")
 			raise
 		except Exception as e:
-			self.logger.error(f"통합 리스크 평가 계산 중 오류: {str(e)}")
+			self.logger.error(f"사업장 리스크 계산 중 오류: {str(e)}")
 			raise
 
-	def get_risk_assessment_status(self, request_id: str) -> Dict[str, Any]:
-		"""
-		리스크 평가 진행 상태 조회
-
-		Args:
-			request_id: 요청 ID
-
-		Returns:
-			{
-				"status": str,  # queued, processing, completed, failed
-				"current": int,  # 현재 처리 중인 리스크 번호 (1-9)
-				"total": int,  # 전체 리스크 개수 (9)
-				"current_risk": str,  # 현재 처리 중인 리스크 타입
-				"progress": float  # 진행률 (%)
-			}
-		"""
-		self.logger.debug(f"리스크 평가 상태 조회: request_id={request_id}")
-
-		try:
-			response = self.client.get(
-				"/api/v1/risk-assessment/status",
-				params={"request_id": request_id}
-			)
-			response.raise_for_status()
-
-			result = response.json()
-			self.logger.debug(f"상태 조회 완료: status={result.get('status')}, progress={result.get('progress', 0):.1f}%")
-
-			return result
-
-		except httpx.HTTPStatusError as e:
-			self.logger.error(f"상태 조회 실패 (HTTP {e.response.status_code}): {e.response.text}")
-			raise
-		except Exception as e:
-			self.logger.error(f"상태 조회 중 오류: {str(e)}")
-			raise
-
-	def get_cached_results(
+	def recommend_relocation_sites(
 		self,
-		latitude: Optional[float] = None,
-		longitude: Optional[float] = None,
-		site_id: Optional[str] = None
+		candidate_grids: List[Dict[str, float]],
+		building_info: Dict[str, Any],
+		asset_info: Optional[Dict[str, Any]] = None,
+		max_candidates: int = 3,
+		ssp_scenario: str = "ssp2",
+		target_year: int = 2040
 	) -> Dict[str, Any]:
 		"""
-		캐싱된 리스크 평가 결과 조회
+		사업장 이전 후보지 추천 요청 (~1000개 격자 평가)
 
 		Args:
-			latitude: 위도 (선택)
-			longitude: 경도 (선택)
-			site_id: 사업장 ID (선택)
-
-		Note:
-			site_id 또는 (latitude AND longitude) 중 하나는 필수
+			candidate_grids: 후보지 격자 목록
+				[
+					{"latitude": 37.5665, "longitude": 126.9780},
+					{"latitude": 37.5666, "longitude": 126.9781},
+					...
+				]
+			building_info: 건물 정보 (필수)
+			asset_info: 자산 정보 (선택)
+			max_candidates: 최대 추천 후보지 개수 (기본: 3)
+			ssp_scenario: SSP 시나리오 (기본: "ssp2")
+			target_year: 목표 연도 (기본: 2040)
 
 		Returns:
 			{
-				"latitude": float,
-				"longitude": float,
-				"site_id": str (optional),
-				"hazard": {risk_type: {...}},
-				"exposure": {risk_type: {...}},
-				"vulnerability": {risk_type: {...}},
-				"integrated_risk": {risk_type: {...}},
-				"aal_scaled": {risk_type: {...}},
-				"summary": {...},
-				"calculated_at": str
+				"candidates": [
+					{
+						"rank": 1,
+						"latitude": 37.5665,
+						"longitude": 126.9780,
+						"total_aal": 0.123456,
+						"average_integrated_risk": 45.67,
+						"risk_details": {
+							"extreme_heat": {...},
+							"extreme_cold": {...},
+							...  # 9개 리스크
+						}
+					},
+					...
+				],
+				"total_grids_evaluated": 1000,
+				"search_criteria": {
+					"max_candidates": 3,
+					"ssp_scenario": "ssp2",
+					"target_year": 2040
+				},
+				"calculated_at": "2025-12-11T..."
 			}
 		"""
+		total_grids = len(candidate_grids)
+		self.logger.info(f"이전 후보지 추천 요청: {total_grids}개 격자")
+
 		# 유효성 검증
-		if not site_id and not (latitude and longitude):
-			raise ValueError("site_id 또는 (latitude, longitude)가 필요합니다.")
+		if total_grids == 0:
+			raise ValueError("candidate_grids는 최소 1개 이상이어야 합니다.")
+		if not building_info:
+			raise ValueError("building_info is required")
 
-		self.logger.info(f"캐싱된 결과 조회: lat={latitude}, lng={longitude}, site_id={site_id}")
+		payload = {
+			"candidate_grids": candidate_grids,
+			"building_info": building_info,
+			"search_criteria": {
+				"max_candidates": max_candidates,
+				"ssp_scenario": ssp_scenario,
+				"target_year": target_year
+			}
+		}
 
-		params = {}
-		if site_id:
-			params["site_id"] = site_id
-		if latitude is not None:
-			params["latitude"] = latitude
-		if longitude is not None:
-			params["longitude"] = longitude
+		if asset_info:
+			payload["asset_info"] = asset_info
 
 		try:
-			response = self.client.get("/api/v1/risk-assessment/results", params=params)
+			response = self.client.post("/api/v1/site-assessment/recommend-locations", json=payload)
 			response.raise_for_status()
 
 			result = response.json()
-			self.logger.info(f"캐싱된 결과 조회 완료: risk_count={result.get('summary', {}).get('risk_count', 0)}")
+			evaluated = result.get('total_grids_evaluated', 0)
+			self.logger.info(f"이전 후보지 추천 완료: {evaluated}개 격자 평가")
+
+			if result.get('candidates'):
+				top1_aal = result['candidates'][0]['total_aal']
+				self.logger.info(f"  Top 1 AAL: {top1_aal:.6f}")
 
 			return result
 
 		except httpx.HTTPStatusError as e:
-			if e.response.status_code == 404:
-				self.logger.warning(f"캐싱된 결과 없음: lat={latitude}, lng={longitude}, site_id={site_id}")
-				raise ValueError(f"해당 위치의 리스크 평가 결과가 없습니다.")
-			self.logger.error(f"캐싱된 결과 조회 실패 (HTTP {e.response.status_code}): {e.response.text}")
+			self.logger.error(f"이전 후보지 추천 실패 (HTTP {e.response.status_code}): {e.response.text}")
 			raise
 		except Exception as e:
-			self.logger.error(f"캐싱된 결과 조회 중 오류: {str(e)}")
+			self.logger.error(f"이전 후보지 추천 중 오류: {str(e)}")
 			raise
-
-	async def connect_websocket(
-		self,
-		request_id: str,
-		on_progress: Optional[Callable[[Dict], None]] = None,
-		on_complete: Optional[Callable[[Dict], None]] = None,
-		on_error: Optional[Callable[[str], None]] = None,
-		max_retries: int = 3
-	) -> None:
-		"""
-		WebSocket을 통한 실시간 진행상황 수신
-
-		Args:
-			request_id: 요청 ID
-			on_progress: 진행 상태 업데이트 콜백
-			on_complete: 완료 콜백
-			on_error: 에러 콜백
-			max_retries: 최대 재연결 시도 횟수
-
-		Note:
-			이 메서드는 websockets 라이브러리가 필요합니다.
-			pip install websockets>=12.0
-		"""
-		try:
-			import websockets
-		except ImportError:
-			self.logger.error("websockets 라이브러리가 설치되지 않았습니다. pip install websockets>=12.0")
-			raise ImportError("websockets 라이브러리가 필요합니다: pip install websockets>=12.0")
-
-		# WebSocket URL 생성
-		ws_url = self.base_url.replace("http://", "ws://").replace("https://", "wss://")
-		ws_url = f"{ws_url}/api/v1/risk-assessment/ws/{request_id}"
-
-		self.logger.info(f"WebSocket 연결 시도: {ws_url}")
-
-		retry_count = 0
-		while retry_count < max_retries:
-			try:
-				async with websockets.connect(ws_url) as websocket:
-					self.logger.info(f"WebSocket 연결 성공: request_id={request_id}")
-
-					async for message in websocket:
-						try:
-							data = json.loads(message)
-							status = data.get("status")
-
-							if status == "processing":
-								if on_progress:
-									on_progress(data)
-								self.logger.debug(
-									f"진행 중: {data.get('current_risk')} "
-									f"({data.get('current')}/{data.get('total')})"
-								)
-
-							elif status == "completed":
-								if on_complete:
-									on_complete(data)
-								self.logger.info(f"계산 완료: request_id={request_id}")
-								return
-
-							elif status == "failed":
-								error_msg = data.get("error", {}).get("message", "Unknown error")
-								if on_error:
-									on_error(error_msg)
-								self.logger.error(f"계산 실패: {error_msg}")
-								raise Exception(f"ModelOps 계산 실패: {error_msg}")
-
-						except json.JSONDecodeError as e:
-							self.logger.warning(f"WebSocket 메시지 파싱 실패: {e}")
-							continue
-
-			except websockets.exceptions.ConnectionClosed as e:
-				retry_count += 1
-				self.logger.warning(
-					f"WebSocket 연결 끊김 (재시도 {retry_count}/{max_retries}): {e}"
-				)
-				if retry_count < max_retries:
-					await asyncio.sleep(2 ** retry_count)  # Exponential backoff
-				else:
-					self.logger.error("WebSocket 재연결 시도 초과")
-					if on_error:
-						on_error("WebSocket 연결 실패")
-					raise
-
-			except Exception as e:
-				self.logger.error(f"WebSocket 오류: {str(e)}")
-				if on_error:
-					on_error(str(e))
-				raise
-
-	def _poll_status(
-		self,
-		request_id: str,
-		poll_interval: float = 2.0,
-		max_wait_time: float = 300.0
-	) -> Dict[str, Any]:
-		"""
-		비동기 작업 상태 폴링 (HTTP Polling 방식)
-
-		Args:
-			request_id: 요청 ID
-			poll_interval: 폴링 간격 (초)
-			max_wait_time: 최대 대기 시간 (초)
-
-		Returns:
-			완료된 계산 결과 상태
-		"""
-		self.logger.info(f"작업 상태 폴링 시작: request_id={request_id}")
-
-		import time
-		start_time = time.time()
-
-		while True:
-			try:
-				status_data = self.get_risk_assessment_status(request_id)
-				status = status_data.get('status')
-
-				if status == 'completed':
-					self.logger.info(f"작업 완료: request_id={request_id}")
-					return status_data
-
-				elif status == 'failed':
-					error_msg = status_data.get('error', {}).get('message', 'Unknown error')
-					self.logger.error(f"작업 실패: request_id={request_id}, error={error_msg}")
-					raise Exception(f"ModelOps 작업 실패: {error_msg}")
-
-				elif status in ['queued', 'processing']:
-					progress = status_data.get('progress', 0)
-					current_risk = status_data.get('current_risk', '')
-					self.logger.debug(
-						f"작업 진행 중: request_id={request_id}, "
-						f"progress={progress:.1f}%, current_risk={current_risk}"
-					)
-
-					# 타임아웃 체크
-					elapsed = time.time() - start_time
-					if elapsed > max_wait_time:
-						raise TimeoutError(f"작업 타임아웃: request_id={request_id}")
-
-					# 다음 폴링까지 대기
-					time.sleep(poll_interval)
-
-				else:
-					self.logger.warning(f"알 수 없는 상태: request_id={request_id}, status={status}")
-					time.sleep(poll_interval)
-
-			except httpx.HTTPStatusError as e:
-				self.logger.error(f"상태 조회 실패 (HTTP {e.response.status_code}): {e.response.text}")
-				raise
-			except Exception as e:
-				self.logger.error(f"상태 폴링 중 오류: {str(e)}")
-				raise
 
 	def health_check(self) -> Dict[str, Any]:
 		"""
@@ -473,13 +338,13 @@ def get_modelops_client() -> ModelOpsClient:
 	if _modelops_client is None:
 		# 환경 변수에서 설정 로드
 		import os
-		base_url = os.getenv('MODELOPS_BASE_URL', 'http://localhost:8001')
+		base_url = os.getenv('MODELOPS_URL', 'http://localhost:8001')
 		api_key = os.getenv('MODELOPS_API_KEY')
 
 		_modelops_client = ModelOpsClient(
 			base_url=base_url,
 			api_key=api_key,
-			timeout=60.0,
+			timeout=300.0,  # 후보지 추천은 시간이 오래 걸릴 수 있음
 			max_retries=3
 		)
 

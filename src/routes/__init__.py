@@ -7,6 +7,7 @@ from .recommendation import router as recommendation_router
 from .additional_data import router as additional_data_router
 from .disaster_history import router as disaster_history_router
 from .dashboard import router as dashboard_router
+from .past import router as past_router
 
 __all__ = [
     "analysis_router",
@@ -17,4 +18,5 @@ __all__ = [
     "additional_data_router",
     "disaster_history_router",
     "dashboard_router",
+    "past_router",
 ]

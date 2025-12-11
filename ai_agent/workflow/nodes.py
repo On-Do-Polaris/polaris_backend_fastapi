@@ -50,12 +50,12 @@ from ..agents.data_processing.building_characteristics_agent import BuildingChar
 scratch_manager = ScratchSpaceManager(base_path="./scratch", default_ttl_hours=4)
 
 
-# ========== Node 1: 데이터 수집 (Scratch Space 기반) ==========
-@traceable(name="data_collection_node", tags=["workflow", "node", "data-collection"])
+# ========== Node 1: ModelOps API 요청 트리거 ==========
+@traceable(name="modelops_trigger_node", tags=["workflow", "node", "modelops-trigger"])
 def data_collection_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
-	데이터 수집 노드 (Scratch Space 기반)
-	대상 위치의 기후 데이터를 수집하고 Scratch Space에 저장
+	ModelOps API 요청 트리거 노드
+	사업장 리스크 계산 요청을 ModelOps로 전송하고 200 응답 확인
 
 	Args:
 		state: 현재 워크플로우 상태
@@ -64,105 +64,18 @@ def data_collection_node(state: SuperAgentState, config: Any) -> Dict:
 	Returns:
 		업데이트된 상태 딕셔너리
 	"""
-	print("[Node 1] 데이터 수집 시작 (Scratch Space 기반)...")
+	print("[Node 1] ModelOps API 요청 트리거...")
 
-	# Mock 데이터 테스트: scratch_session_id가 이미 있으면 스킵
-	if state.get('scratch_session_id'):
-		existing_session_id = state.get('scratch_session_id')
-		print(f"  [SKIP] Mock 데이터 사용 (session: {existing_session_id})")
+	# Workflow Mock 모드 체크
+	if config.WORKFLOW_MOCK_MODE:
+		print("  [MOCK] Using mock ModelOps request")
 		return {
-			'scratch_session_id': existing_session_id,
-			'data_collection_status': 'skipped',
-			'logs': [f'데이터 수집 스킵 (Mock session: {existing_session_id})']
-		}
-
-	try:
-		# 1. Scratch Space 세션 생성
-		session_id = scratch_manager.create_session(
-			ttl_hours=4,
-			metadata={
-				"location": state['target_location'],
-				"analysis_type": "climate_risk"
-			}
-		)
-		print(f"  [OK] Scratch session created: {session_id}")
-
-		# 2. 데이터 수집
-		agent = DataCollectionAgent(config)
-		collected_data = agent.collect(
-			state['target_location'],
-			state.get('analysis_params', {})
-		)
-
-		# 3. 원본 데이터 → Scratch Space 저장
-		scratch_manager.save_data(
-			session_id,
-			"climate_raw.json",
-			collected_data,
-			format="json"
-		)
-		print(f"  [OK] Raw data saved to scratch space")
-
-		# 4. 요약 통계 계산
-		climate_data = collected_data.get('climate_data', {})
-		climate_summary = {
-			"location": collected_data.get('location', {}),
-			"data_years": list(range(2025, 2051)),
-			"ssp_scenarios": ["ssp1-2.6", "ssp2-4.5", "ssp3-7.0", "ssp5-8.5"],
-			"statistics": {
-				"wsdi_mean": float(np.mean(climate_data.get('wsdi', [0]))),
-				"wsdi_max": float(np.max(climate_data.get('wsdi', [0]))),
-				"wsdi_min": float(np.min(climate_data.get('wsdi', [0]))),
-			}
-		}
-
-		# 5. State에는 참조와 요약만
-		return {
-			'scratch_session_id': session_id,
-			'climate_summary': climate_summary,
+			'modelops_request_id': 'mock_request_12345',
+			'modelops_status': 'triggered',
 			'data_collection_status': 'completed',
-			'current_step': 'vulnerability_analysis',
-			'logs': [
-				'데이터 수집 완료',
-				f'Scratch session: {session_id}',
-				f'TTL: 4 hours'
-			]
+			'current_step': 'risk_assessment',
+			'logs': ['Workflow Mock: ModelOps 요청 완료']
 		}
-
-	except Exception as e:
-		print(f"[Node 1] 오류: {str(e)}")
-		return {
-			'data_collection_status': 'failed',
-			'errors': [f'데이터 수집 오류: {str(e)}']
-		}
-
-
-# ========== Node 2 (REMOVED): 취약성 분석 노드 삭제됨 ==========
-# ModelOps가 H, E, V를 모두 계산하므로 이 노드는 더 이상 필요하지 않습니다.
-# vulnerability_analysis_node 함수 삭제됨 (2025-12-01)
-
-
-# ========== Node 3: 통합 리스크 평가 (H×E×V×AAL 일괄 계산) ==========
-@traceable(name="risk_assessment_node", tags=["workflow", "node", "risk-assessment", "unified"])
-def risk_assessment_node(state: SuperAgentState, config: Any) -> Dict:
-	"""
-	통합 리스크 평가 노드 (H×E×V×AAL 일괄 계산)
-
-	변경사항 (2025-12-10):
-	- aal_analysis_node + physical_risk_score_node 병합
-	- 단일 통합 API 호출: calculate_risk_assessment()
-	- 9개 물리적 리스크 동시 계산 (H, E, V, Integrated Risk, AAL)
-	- WebSocket 지원 (선택적)
-	- 캐싱된 결과 조회
-
-	Args:
-		state: 현재 워크플로우 상태
-		config: 설정 객체
-
-	Returns:
-		업데이트된 상태 딕셔너리
-	"""
-	print("[Node 3] 통합 리스크 평가 시작 (H×E×V×AAL 일괄 계산)...")
 
 	try:
 		from ai_agent.services import get_modelops_client
@@ -186,9 +99,9 @@ def risk_assessment_node(state: SuperAgentState, config: Any) -> Dict:
 		building_info = additional_data.get('building_info', {}) if additional_data else {}
 		asset_info = additional_data.get('asset_info', {}) if additional_data else {}
 
-		# Step 3: 통합 API 호출
-		print("  - 통합 리스크 평가 API 호출 (H×E×V×AAL)")
-		response = modelops_client.calculate_risk_assessment(
+		# Step 3: ModelOps API 호출 (POST 요청)
+		print("  - ModelOps API 호출 중...")
+		response = modelops_client.calculate_site_risk(
 			latitude=latitude,
 			longitude=longitude,
 			site_id=site_id,
@@ -196,24 +109,141 @@ def risk_assessment_node(state: SuperAgentState, config: Any) -> Dict:
 			asset_info=asset_info
 		)
 
-		request_id = response['request_id']
-		print(f"  - 계산 요청 완료: request_id={request_id}")
+		# Step 4: 200 응답 확인 (calculate_site_risk가 성공하면 이미 200 응답을 받은 것)
+		print(f"  [OK] ModelOps API 요청 성공 (HTTP 200)")
+		print(f"  - site_id: {response.get('site_id')}")
+		print(f"  - 계산 시각: {response.get('calculated_at')}")
 
-		# Step 4: 진행상황 추적 (HTTP Polling 방식)
-		# Note: WebSocket은 async 환경에서만 사용 가능
-		print("  - 계산 진행상황 폴링 시작...")
-		modelops_client._poll_status(request_id)
-		print("  - 계산 완료!")
+		# Step 5: State 업데이트 (Node 3에서 DB 조회에 필요한 정보만 저장)
+		return {
+			'modelops_request_id': response.get('site_id'),  # site_id를 request_id로 사용
+			'modelops_latitude': latitude,
+			'modelops_longitude': longitude,
+			'modelops_site_id': site_id,
+			'modelops_status': 'triggered',
+			'data_collection_status': 'completed',
+			'current_step': 'risk_assessment',
+			'logs': [
+				'ModelOps API 요청 성공 (HTTP 200)',
+				f'Site ID: {site_id}',
+				f'위치: ({latitude}, {longitude})'
+			]
+		}
 
-		# Step 5: 캐싱된 결과 조회
-		print("  - 결과 조회 중...")
-		results = modelops_client.get_cached_results(
-			latitude=latitude,
-			longitude=longitude,
-			site_id=site_id
-		)
+	except Exception as e:
+		print(f"[Node 1] 오류: {str(e)}")
+		import traceback
+		traceback.print_exc()
+		return {
+			'data_collection_status': 'failed',
+			'modelops_status': 'failed',
+			'errors': [f'ModelOps API 요청 오류: {str(e)}']
+		}
 
-		# Step 6: State 변수로 매핑 (기존 형식 호환성 유지)
+
+# ========== Node 2 (REMOVED): 취약성 분석 노드 삭제됨 ==========
+# ModelOps가 H, E, V를 모두 계산하므로 이 노드는 더 이상 필요하지 않습니다.
+# vulnerability_analysis_node 함수 삭제됨 (2025-12-01)
+
+
+# ========== Node 3: DB에서 리스크 결과 조회 ==========
+@traceable(name="risk_results_fetch_node", tags=["workflow", "node", "risk-fetch", "database"])
+def risk_assessment_node(state: SuperAgentState, config: Any) -> Dict:
+	"""
+	DB에서 리스크 평가 결과 조회 노드
+
+	변경사항 (2025-12-11):
+	- Node 1에서 ModelOps API 트리거 완료
+	- Node 3에서 DB에서 결과 조회
+	- DatabaseManager를 사용하여 site_assessment_results 테이블 쿼리
+
+	Args:
+		state: 현재 워크플로우 상태
+		config: 설정 객체
+
+	Returns:
+		업데이트된 상태 딕셔너리
+	"""
+	print("[Node 3] DB에서 리스크 결과 조회 시작...")
+
+	# Workflow Mock 모드 체크
+	if config.WORKFLOW_MOCK_MODE:
+		print("  [MOCK] Using mock risk assessment data")
+		from ..utils.mock_data import get_mock_risk_assessment
+		mock_data = get_mock_risk_assessment()
+		return mock_data
+
+	try:
+		from ai_agent.utils.database import DatabaseManager
+
+		# DatabaseManager 초기화
+		db = DatabaseManager()
+
+		# Step 1: Node 1에서 저장한 정보 추출
+		latitude = state.get('modelops_latitude')
+		longitude = state.get('modelops_longitude')
+		site_id = state.get('modelops_site_id')
+
+		if not latitude or not longitude:
+			raise ValueError("위경도 정보가 필요합니다 (Node 1에서 설정되어야 함)")
+
+		print(f"  - 조회 위치: lat={latitude}, lng={longitude}, site_id={site_id}")
+
+		# Step 2: DB에서 결과 조회 (site_assessment_results 테이블)
+		print("  - DB에서 계산 결과 조회 중...")
+
+		# 쿼리 작성: site_id 또는 lat/lng로 최신 결과 조회
+		if site_id:
+			query = """
+				SELECT
+					site_id, latitude, longitude,
+					hazard_data, exposure_data, vulnerability_data,
+					integrated_risk_data, aal_data, summary_data,
+					calculated_at
+				FROM site_assessment_results
+				WHERE site_id = %s
+				ORDER BY calculated_at DESC
+				LIMIT 1
+			"""
+			params = (site_id,)
+		else:
+			query = """
+				SELECT
+					site_id, latitude, longitude,
+					hazard_data, exposure_data, vulnerability_data,
+					integrated_risk_data, aal_data, summary_data,
+					calculated_at
+				FROM site_assessment_results
+				WHERE latitude = %s AND longitude = %s
+				ORDER BY calculated_at DESC
+				LIMIT 1
+			"""
+			params = (latitude, longitude)
+
+		result_rows = db.execute_query(query, params)
+
+		if not result_rows or len(result_rows) == 0:
+			raise ValueError(f"DB에 결과가 없습니다 (site_id={site_id}, lat={latitude}, lng={longitude})")
+
+		# Step 3: 결과 파싱
+		row = result_rows[0]
+		results = {
+			'site_id': row[0],
+			'latitude': row[1],
+			'longitude': row[2],
+			'hazard': row[3],  # JSONB
+			'exposure': row[4],  # JSONB
+			'vulnerability': row[5],  # JSONB
+			'integrated_risk': row[6],  # JSONB
+			'aal_scaled': row[7],  # JSONB
+			'summary': row[8],  # JSONB
+			'calculated_at': row[9]
+		}
+
+		print(f"  [OK] DB 조회 완료")
+		print(f"  - 계산 시각: {results.get('calculated_at')}")
+
+		# Step 4: State 변수로 매핑 (기존 형식 호환성 유지)
 		print("  - 결과 매핑 중...")
 
 		hazard_scores = {}
@@ -280,10 +310,10 @@ def risk_assessment_node(state: SuperAgentState, config: Any) -> Dict:
 		aal_analysis = {
 			'aal_scaled_results': aal_values,
 			'status': 'completed',
-			'request_id': request_id
+			'db_site_id': results.get('site_id')
 		}
 
-		# Step 7: State 업데이트 반환
+		# Step 5: State 업데이트 반환
 		return {
 			'hazard_scores': hazard_scores,
 			'exposure_scores': exposure_scores,
@@ -297,7 +327,7 @@ def risk_assessment_node(state: SuperAgentState, config: Any) -> Dict:
 			'risk_assessment_summary': summary,
 			'current_step': 'impact_analysis',
 			'logs': [
-				f'통합 리스크 평가 완료 (request_id={request_id})',
+				f'DB에서 리스크 결과 조회 완료 (site_id={results.get("site_id")})',
 				f'9개 물리적 리스크 분석 완료',
 				f'평균 Hazard: {summary.get("average_hazard", 0):.2f}',
 				f'평균 Exposure: {summary.get("average_exposure", 0):.2f}',
@@ -315,7 +345,7 @@ def risk_assessment_node(state: SuperAgentState, config: Any) -> Dict:
 		return {
 			'physical_score_status': 'failed',
 			'aal_status': 'failed',
-			'errors': [f'통합 리스크 평가 오류 (ModelOps API): {str(e)}']
+			'errors': [f'DB 결과 조회 오류: {str(e)}']
 		}
 
 

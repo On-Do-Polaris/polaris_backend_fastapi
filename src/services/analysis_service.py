@@ -3,6 +3,7 @@ from typing import Optional
 from datetime import datetime
 from fastapi import HTTPException
 import logging
+import json
 
 from src.core.config import settings
 from src.core.errors import ErrorCode, ErrorSeverity, create_error_detail
@@ -32,6 +33,9 @@ from src.schemas.common import HazardType, SSPScenario
 from ai_agent import SKAXPhysicalRiskAnalyzer
 from ai_agent.config.settings import load_config
 
+# Database 연동
+from ai_agent.utils.database import DatabaseManager
+
 
 class AnalysisService:
     """분석 서비스 - ai_agent를 호출하여 분석 수행"""
@@ -42,6 +46,14 @@ class AnalysisService:
         self._analysis_results = {}  # site_id별 분석 결과 캐시
         self._cached_states = {}  # job_id별 State 캐시 (enhance용)
         self.logger = logging.getLogger("api.services.analysis")
+
+        # batch_jobs 테이블 연동 (jobId 기반 조회용)
+        try:
+            self.db = DatabaseManager()
+            self.logger.info("DatabaseManager initialized for batch_jobs tracking")
+        except Exception as e:
+            self.logger.warning(f"DatabaseManager initialization failed: {e}. Job tracking disabled.")
+            self.db = None
 
     def _get_analyzer(self) -> SKAXPhysicalRiskAnalyzer:
         """ai_agent 분석기 인스턴스 반환 (lazy initialization)"""
@@ -102,21 +114,102 @@ class AnalysisService:
         )
         return result
 
+    def _save_job_to_db(self, job_id: UUID, site_id: UUID, request: StartAnalysisRequest, status: str, progress: int = 0, results: dict = None):
+        """batch_jobs 테이블에 job 저장"""
+        if not self.db:
+            return
+
+        try:
+            input_params = {
+                'site_id': str(site_id),
+                'site_name': request.site.name,
+                'hazard_types': request.hazard_types,
+                'priority': request.priority.value if request.priority else 'normal',
+                'options': {
+                    'include_financial_impact': request.options.include_financial_impact if request.options else True,
+                    'include_vulnerability': request.options.include_vulnerability if request.options else True,
+                    'include_past_events': request.options.include_past_events if request.options else True,
+                    'ssp_scenarios': [s.value for s in request.options.ssp_scenarios] if request.options else []
+                }
+            }
+
+            query = """
+                INSERT INTO batch_jobs (
+                    batch_id, job_type, status, progress,
+                    input_params, results, created_at, started_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+                ON CONFLICT (batch_id) DO UPDATE SET
+                    status = EXCLUDED.status,
+                    progress = EXCLUDED.progress,
+                    results = EXCLUDED.results,
+                    started_at = COALESCE(batch_jobs.started_at, NOW())
+            """
+            self.db.execute_update(query, (
+                str(job_id),
+                'physical_risk_analysis',
+                status,
+                progress,
+                json.dumps(input_params),
+                json.dumps(results) if results else None
+            ))
+            self.logger.info(f"Job {job_id} saved to batch_jobs table")
+        except Exception as e:
+            self.logger.error(f"Failed to save job to DB: {e}")
+
+    def _update_job_in_db(self, job_id: UUID, status: str, progress: int, results: dict = None, error: dict = None):
+        """batch_jobs 테이블의 job 상태 업데이트"""
+        if not self.db:
+            return
+
+        try:
+            if status in ['completed', 'failed']:
+                query = """
+                    UPDATE batch_jobs
+                    SET status = %s, progress = %s, results = %s,
+                        error_message = %s, completed_at = NOW()
+                    WHERE batch_id = %s
+                """
+                self.db.execute_update(query, (
+                    status,
+                    progress,
+                    json.dumps(results) if results else None,
+                    json.dumps(error) if error else None,
+                    str(job_id)
+                ))
+            else:
+                query = """
+                    UPDATE batch_jobs
+                    SET status = %s, progress = %s
+                    WHERE batch_id = %s
+                """
+                self.db.execute_update(query, (status, progress, str(job_id)))
+            self.logger.info(f"Job {job_id} updated in batch_jobs table")
+        except Exception as e:
+            self.logger.error(f"Failed to update job in DB: {e}")
+
     async def start_analysis(self, site_id: UUID, request: StartAnalysisRequest) -> AnalysisJobStatus:
         """Spring Boot API 호환 - 분석 작업 시작 (문서 스펙 기준)"""
         job_id = uuid4()
+        started_at = datetime.now()
+
+        # DB에 job 생성 (queued 상태)
+        self._save_job_to_db(job_id, site_id, request, status='queued', progress=0)
 
         if settings.USE_MOCK_DATA:
+            self._update_job_in_db(job_id, status='running', progress=50)
             return AnalysisJobStatus(
                 jobId=str(job_id),
                 siteId=site_id,
                 status="running",
-                progress=0,
+                progress=50,
                 currentNode="physical_risk_score",
-                startedAt=datetime.now(),
+                startedAt=started_at,
             )
 
         try:
+            # 분석 시작
+            self._update_job_in_db(job_id, status='running', progress=10)
+
             # Spring Boot 문서 스펙: site 객체 + hazardTypes, priority, options
             site_info = {
                 'id': str(request.site.id),
@@ -135,6 +228,10 @@ class AnalysisService:
             self._cached_states[job_id] = result.copy()
 
             status = "completed" if result.get('workflow_status') == 'completed' else "failed"
+            error = {"code": "ANALYSIS_FAILED", "message": str(result.get('errors', []))} if result.get('errors') else None
+
+            # DB에 완료 상태 저장
+            self._update_job_in_db(job_id, status=status, progress=100, results=result, error=error)
 
             return AnalysisJobStatus(
                 jobId=str(job_id),
@@ -142,19 +239,22 @@ class AnalysisService:
                 status=status,
                 progress=100 if status == "completed" else 0,
                 currentNode="completed" if status == "completed" else "failed",
-                startedAt=datetime.now(),
+                startedAt=started_at,
                 completedAt=datetime.now() if status == "completed" else None,
-                error={"code": "ANALYSIS_FAILED", "message": str(result.get('errors', []))} if result.get('errors') else None,
+                error=error,
             )
         except Exception as e:
+            error = {"code": "ANALYSIS_FAILED", "message": str(e)}
+            self._update_job_in_db(job_id, status='failed', progress=0, error=error)
+
             return AnalysisJobStatus(
                 jobId=str(job_id),
                 siteId=site_id,
                 status="failed",
                 progress=0,
                 currentNode="failed",
-                startedAt=datetime.now(),
-                error={"code": "ANALYSIS_FAILED", "message": str(e)},
+                startedAt=started_at,
+                error=error,
             )
 
     async def enhance_analysis(
@@ -297,19 +397,78 @@ class AnalysisService:
                 error=error_detail.dict(),
             )
 
-    async def get_job_status(self, site_id: UUID, job_id: UUID) -> Optional[AnalysisJobStatus]:
-        """Spring Boot API 호환 - 작업 상태 조회"""
+    async def get_job_status(self, job_id: UUID, site_id: Optional[UUID] = None) -> Optional[AnalysisJobStatus]:
+        """
+        Spring Boot API 호환 - 작업 상태 조회
+
+        Args:
+            job_id: 작업 ID (필수)
+            site_id: 사업장 ID (선택, 하위 호환성용)
+
+        Returns:
+            AnalysisJobStatus 또는 None (job이 없을 경우)
+        """
         if settings.USE_MOCK_DATA:
             return AnalysisJobStatus(
                 jobId=str(job_id),
-                siteId=site_id,
+                siteId=str(site_id) if site_id else "00000000-0000-0000-0000-000000000000",
                 status="completed",
                 progress=100,
                 currentNode="completed",
                 startedAt=datetime.now(),
                 completedAt=datetime.now(),
             )
-        return None
+
+        # batch_jobs 테이블에서 jobId로 조회
+        if not self.db:
+            self.logger.warning("Database not available, cannot query job status")
+            return None
+
+        try:
+            query = """
+                SELECT
+                    batch_id, job_type, status, progress,
+                    input_params, results, error_message,
+                    created_at, started_at, completed_at
+                FROM batch_jobs
+                WHERE batch_id = %s
+            """
+            result = self.db.execute_query(query, (str(job_id),))
+
+            if not result or len(result) == 0:
+                self.logger.warning(f"Job {job_id} not found in batch_jobs")
+                return None
+
+            job = result[0]
+            input_params = job.get('input_params', {})
+
+            # site_id 추출 (input_params에서)
+            job_site_id = input_params.get('site_id') if isinstance(input_params, dict) else None
+
+            # error_message 파싱
+            error_msg = job.get('error_message')
+            error_dict = None
+            if error_msg:
+                try:
+                    error_dict = json.loads(error_msg) if isinstance(error_msg, str) else error_msg
+                except:
+                    error_dict = {"code": "UNKNOWN_ERROR", "message": str(error_msg)}
+
+            return AnalysisJobStatus(
+                jobId=str(job['batch_id']),
+                siteId=job_site_id or (str(site_id) if site_id else None),
+                status=job['status'],
+                progress=job.get('progress', 0),
+                currentNode=job['status'],  # status를 currentNode로 사용
+                currentHazard=None,
+                startedAt=job.get('started_at'),
+                completedAt=job.get('completed_at'),
+                estimatedCompletionTime=None,
+                error=error_dict
+            )
+        except Exception as e:
+            self.logger.error(f"Failed to query job status from DB: {e}")
+            return None
 
     async def get_physical_risk_scores(
         self, site_id: UUID, hazard_type: Optional[str]

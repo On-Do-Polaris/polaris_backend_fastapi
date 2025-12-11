@@ -103,45 +103,32 @@ class AnalysisService:
         return result
 
     async def start_analysis(self, site_id: UUID, request: StartAnalysisRequest) -> AnalysisJobStatus:
-        """Spring Boot API 호환 - 분석 작업 시작"""
+        """Spring Boot API 호환 - 분석 작업 시작 (문서 스펙 기준)"""
         job_id = uuid4()
 
         if settings.USE_MOCK_DATA:
             return AnalysisJobStatus(
                 jobId=str(job_id),
                 siteId=site_id,
-                status="completed",
-                progress=100,
-                currentNode="completed",
+                status="running",
+                progress=0,
+                currentNode="physical_risk_score",
                 startedAt=datetime.now(),
-                completedAt=datetime.now(),
             )
 
         try:
-            # SiteInfo에서 ERD 기준 필드만 사용
+            # Spring Boot 문서 스펙: site 객체 + hazardTypes, priority, options
             site_info = {
                 'id': str(request.site.id),
                 'name': request.site.name,
                 'lat': request.site.latitude,
                 'lng': request.site.longitude,
-                'road_address': request.site.road_address,
-                'jibun_address': request.site.jibun_address,
-                'type': request.site.type
+                'address': request.site.address,
+                'type': request.site.industry
             }
 
-            # additional_data 변환 (Pydantic 모델 → dict)
-            additional_data_dict = None
-            if request.additional_data:
-                additional_data_dict = {
-                    'raw_text': request.additional_data.raw_text,
-                    'metadata': request.additional_data.metadata or {},
-                    'building_info': request.additional_data.building_info,
-                    'asset_info': request.additional_data.asset_info,
-                    'power_usage': request.additional_data.power_usage,
-                    'insurance': request.additional_data.insurance
-                }
-
-            result = await self._run_agent_analysis(site_info, additional_data=additional_data_dict)
+            # Spring Boot는 additional_data를 보내지 않음
+            result = await self._run_agent_analysis(site_info, additional_data=None)
             self._analysis_results[site_id] = result
 
             # State 캐싱 (enhance용) - Node 1~4 결과 포함

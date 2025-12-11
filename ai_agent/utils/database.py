@@ -177,29 +177,32 @@ class DatabaseManager:
         results = self.execute_query(query, (longitude, latitude))
         return results[0] if results else None
 
-    # ==================== Monthly Grid Climate Data (Long Format) ====================
+    # ==================== Monthly Grid Climate Data (Wide Format) ====================
 
     def fetch_monthly_grid_data(
         self,
         grid_id: int,
         start_date: str,
         end_date: str,
-        scenario_id: int,
+        scenario: Optional[str] = None,
         variables: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
-        Fetch monthly climate data for a grid point (Long format)
+        Fetch monthly climate data for a grid point (Wide format - ERD v03)
 
         Args:
             grid_id: Grid ID from location_grid
             start_date: Start date (YYYY-MM-DD)
             end_date: End date (YYYY-MM-DD)
-            scenario_id: SSP scenario (1=SSP1-2.6, 2=SSP2-4.5, 3=SSP3-7.0, 4=SSP5-8.5)
+            scenario: SSP scenario to select ('ssp1', 'ssp2', 'ssp3', 'ssp5')
+                     If None, returns all 4 scenarios
             variables: List of variable codes (ta, rn, ws, rhm, si, spei12)
                       Default: ['ta', 'rn', 'ws']
 
         Returns:
             Dictionary with data for each variable
+            Each row contains: observation_date, ssp1, ssp2, ssp3, ssp5
+            (or single scenario column if scenario is specified)
         """
         if variables is None:
             variables = ['ta', 'rn', 'ws']
@@ -216,26 +219,37 @@ class DatabaseManager:
             'spei12': 'spei12_data'
         }
 
+        # Validate scenario
+        valid_scenarios = ['ssp1', 'ssp2', 'ssp3', 'ssp5']
+        if scenario and scenario not in valid_scenarios:
+            self.logger.warning(f"Invalid scenario: {scenario}. Using all scenarios.")
+            scenario = None
+
         for var in variables:
             if var not in table_map:
                 self.logger.warning(f"Unknown variable: {var}")
                 continue
 
             table_name = table_map[var]
+
+            # Select columns based on scenario parameter
+            if scenario:
+                columns = f"observation_date, {scenario}"
+            else:
+                columns = "observation_date, ssp1, ssp2, ssp3, ssp5"
+
             query = f"""
                 SELECT
-                    observation_date,
-                    value
+                    {columns}
                 FROM {table_name}
                 WHERE grid_id = %s
-                    AND scenario_id = %s
                     AND observation_date BETWEEN %s AND %s
                 ORDER BY observation_date
             """
 
             result[var] = self.execute_query(
                 query,
-                (grid_id, scenario_id, start_date, end_date)
+                (grid_id, start_date, end_date)
             )
 
         return result
@@ -296,30 +310,33 @@ class DatabaseManager:
 
         return result
 
-    # ==================== Yearly Grid Climate Data ====================
+    # ==================== Yearly Grid Climate Data (Wide Format) ====================
 
     def fetch_yearly_grid_data(
         self,
         grid_id: int,
         start_year: int,
         end_year: int,
-        scenario_id: int,
+        scenario: Optional[str] = None,
         variables: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
-        Fetch yearly climate indices for a grid point
+        Fetch yearly climate indices for a grid point (Wide format - ERD v03)
 
         Args:
             grid_id: Grid ID from location_grid
-            start_year: Start year
-            end_year: End year
-            scenario_id: SSP scenario (1=SSP1-2.6, 2=SSP2-4.5, 3=SSP3-7.0, 4=SSP5-8.5)
+            start_year: Start year (2021-2100)
+            end_year: End year (2021-2100)
+            scenario: SSP scenario to select ('ssp1', 'ssp2', 'ssp3', 'ssp5')
+                     If None, returns all 4 scenarios
             variables: List of variable codes
                       (csdi, wsdi, rx1day, rx5day, cdd, rain80, sdii, ta_yearly)
                       Default: ['csdi', 'wsdi', 'rx1day', 'rx5day']
 
         Returns:
             Dictionary with data for each variable
+            Each row contains: year, ssp1, ssp2, ssp3, ssp5
+            (or single scenario column if scenario is specified)
         """
         if variables is None:
             variables = ['csdi', 'wsdi', 'rx1day', 'rx5day']
@@ -337,26 +354,37 @@ class DatabaseManager:
             'ta_yearly': 'ta_yearly_data'
         }
 
+        # Validate scenario
+        valid_scenarios = ['ssp1', 'ssp2', 'ssp3', 'ssp5']
+        if scenario and scenario not in valid_scenarios:
+            self.logger.warning(f"Invalid scenario: {scenario}. Using all scenarios.")
+            scenario = None
+
         for var in variables:
             if var not in table_map:
                 self.logger.warning(f"Unknown variable: {var}")
                 continue
 
             table_name = table_map[var]
+
+            # Select columns based on scenario parameter
+            if scenario:
+                columns = f"year, {scenario}"
+            else:
+                columns = "year, ssp1, ssp2, ssp3, ssp5"
+
             query = f"""
                 SELECT
-                    year,
-                    value
+                    {columns}
                 FROM {table_name}
                 WHERE grid_id = %s
-                    AND scenario_id = %s
                     AND year BETWEEN %s AND %s
                 ORDER BY year
             """
 
             result[var] = self.execute_query(
                 query,
-                (grid_id, scenario_id, start_year, end_year)
+                (grid_id, start_year, end_year)
             )
 
         return result
@@ -369,20 +397,23 @@ class DatabaseManager:
         longitude: float,
         start_year: int,
         end_year: int,
-        scenario_id: int
+        scenario: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
-        Fetch sea level rise data for coastal location
+        Fetch sea level rise data for coastal location (Wide format - ERD v03)
 
         Args:
             latitude: Latitude (WGS84)
             longitude: Longitude (WGS84)
-            start_year: Start year
-            end_year: End year
-            scenario_id: SSP scenario (1=SSP1-2.6, 2=SSP2-4.5, 3=SSP3-7.0, 4=SSP5-8.5)
+            start_year: Start year (2015-2100)
+            end_year: End year (2015-2100)
+            scenario: SSP scenario to select ('ssp1', 'ssp2', 'ssp3', 'ssp5')
+                     If None, returns all 4 scenarios
 
         Returns:
             List of sea level data
+            Each row contains: year, ssp1, ssp2, ssp3, ssp5 (cm)
+            (or single scenario column if scenario is specified)
         """
         # First, find nearest sea level grid point
         grid_query = """
@@ -406,21 +437,31 @@ class DatabaseManager:
 
         grid_id = grid_result[0]['grid_id']
 
+        # Validate scenario
+        valid_scenarios = ['ssp1', 'ssp2', 'ssp3', 'ssp5']
+        if scenario and scenario not in valid_scenarios:
+            self.logger.warning(f"Invalid scenario: {scenario}. Using all scenarios.")
+            scenario = None
+
+        # Select columns based on scenario parameter
+        if scenario:
+            columns = f"year, {scenario} as sea_level_rise_cm"
+        else:
+            columns = "year, ssp1, ssp2, ssp3, ssp5"
+
         # Fetch sea level data
-        data_query = """
+        data_query = f"""
             SELECT
-                year,
-                value as sea_level_rise_cm
+                {columns}
             FROM sea_level_data
             WHERE grid_id = %s
-                AND scenario_id = %s
                 AND year BETWEEN %s AND %s
             ORDER BY year
         """
 
         return self.execute_query(
             data_query,
-            (grid_id, scenario_id, start_year, end_year)
+            (grid_id, start_year, end_year)
         )
 
     # ==================== Spatial Analysis Cache ====================
@@ -610,22 +651,24 @@ class DatabaseManager:
         longitude: float,
         start_year: int,
         end_year: int,
-        scenario_id: int = 2,  # Default: SSP2-4.5
+        scenario: Optional[str] = None,  # Changed from scenario_id to scenario (ERD v03)
         admin_code: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Comprehensive climate data collection for a location
+        Comprehensive climate data collection for a location (ERD v03 Wide Format)
 
         Args:
             latitude: Latitude
             longitude: Longitude
             start_year: Start year
             end_year: End year
-            scenario_id: SSP scenario (default: 2 = SSP2-4.5)
+            scenario: SSP scenario ('ssp1', 'ssp2', 'ssp3', 'ssp5')
+                     If None, returns all 4 scenarios (default behavior)
             admin_code: Optional admin code (if known)
 
         Returns:
             Dictionary containing all climate data
+            All data uses Wide format (ssp1, ssp2, ssp3, ssp5 columns)
         """
         result = {
             'location': {
@@ -636,7 +679,7 @@ class DatabaseManager:
                 'start_year': start_year,
                 'end_year': end_year
             },
-            'scenario_id': scenario_id
+            'scenario': scenario or 'all'  # Changed from scenario_id
         }
 
         # 1. Find nearest grid
@@ -645,16 +688,16 @@ class DatabaseManager:
             result['grid'] = grid
             grid_id = grid['grid_id']
 
-            # 2. Fetch monthly grid data
+            # 2. Fetch monthly grid data (Wide format)
             start_date = f"{start_year}-01-01"
             end_date = f"{end_year}-12-31"
             result['monthly_data'] = self.fetch_monthly_grid_data(
-                grid_id, start_date, end_date, scenario_id
+                grid_id, start_date, end_date, scenario
             )
 
-            # 3. Fetch yearly grid data
+            # 3. Fetch yearly grid data (Wide format)
             result['yearly_data'] = self.fetch_yearly_grid_data(
-                grid_id, start_year, end_year, scenario_id
+                grid_id, start_year, end_year, scenario
             )
 
         # 4. Find admin region
@@ -667,16 +710,336 @@ class DatabaseManager:
             result['admin'] = admin
             admin_id = admin['admin_id']
 
-            # 5. Fetch daily admin data
+            # 5. Fetch daily admin data (Already Wide format)
             start_date = f"{start_year}-01-01"
             end_date = f"{end_year}-12-31"
             result['daily_data'] = self.fetch_daily_admin_data(
                 admin_id, start_date, end_date
             )
 
-        # 6. Sea level data
+        # 6. Sea level data (Wide format)
         result['sea_level_data'] = self.fetch_sea_level_data(
-            latitude, longitude, start_year, end_year, scenario_id
+            latitude, longitude, start_year, end_year, scenario
         )
 
         return result
+
+    # ==================== ModelOps Results Queries ====================
+
+    def fetch_hazard_results(
+        self,
+        latitude: float,
+        longitude: float,
+        risk_type: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch Hazard Score results from ModelOps calculations
+
+        Args:
+            latitude: Latitude
+            longitude: Longitude
+            risk_type: Optional risk type filter (e.g., 'TYPHOON', 'INLAND_FLOOD')
+                      If None, returns all 9 risk types
+
+        Returns:
+            List of hazard results with scores and levels
+        """
+        query = """
+            SELECT
+                latitude,
+                longitude,
+                risk_type,
+                hazard_score,
+                hazard_score_100,
+                hazard_level,
+                calculated_at
+            FROM hazard_results
+            WHERE latitude = %s AND longitude = %s
+        """
+        params = [latitude, longitude]
+
+        if risk_type:
+            query += " AND risk_type = %s"
+            params.append(risk_type)
+
+        query += " ORDER BY risk_type"
+
+        return self.execute_query(query, tuple(params))
+
+    def fetch_exposure_results(
+        self,
+        latitude: float,
+        longitude: float,
+        risk_type: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch Exposure Score results from ModelOps calculations
+
+        Args:
+            latitude: Latitude
+            longitude: Longitude
+            risk_type: Optional risk type filter
+
+        Returns:
+            List of exposure results with scores
+        """
+        query = """
+            SELECT
+                latitude,
+                longitude,
+                risk_type,
+                exposure_score,
+                calculated_at
+            FROM exposure_results
+            WHERE latitude = %s AND longitude = %s
+        """
+        params = [latitude, longitude]
+
+        if risk_type:
+            query += " AND risk_type = %s"
+            params.append(risk_type)
+
+        query += " ORDER BY risk_type"
+
+        return self.execute_query(query, tuple(params))
+
+    def fetch_vulnerability_results(
+        self,
+        latitude: float,
+        longitude: float,
+        risk_type: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch Vulnerability Score results from ModelOps calculations
+
+        Args:
+            latitude: Latitude
+            longitude: Longitude
+            risk_type: Optional risk type filter
+
+        Returns:
+            List of vulnerability results with scores
+        """
+        query = """
+            SELECT
+                latitude,
+                longitude,
+                risk_type,
+                vulnerability_score,
+                calculated_at
+            FROM vulnerability_results
+            WHERE latitude = %s AND longitude = %s
+        """
+        params = [latitude, longitude]
+
+        if risk_type:
+            query += " AND risk_type = %s"
+            params.append(risk_type)
+
+        query += " ORDER BY risk_type"
+
+        return self.execute_query(query, tuple(params))
+
+    def fetch_probability_results(
+        self,
+        latitude: float,
+        longitude: float,
+        risk_type: Optional[str] = None,
+        scenario: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch Probability P(H) results from ModelOps calculations
+
+        Args:
+            latitude: Latitude
+            longitude: Longitude
+            risk_type: Optional risk type filter
+            scenario: Optional scenario filter ('ssp1', 'ssp2', 'ssp3', 'ssp5')
+
+        Returns:
+            List of probability results with bin probabilities and AAL
+        """
+        query = """
+            SELECT
+                latitude,
+                longitude,
+                risk_type,
+                scenario,
+                bin_probabilities,
+                aal,
+                calculated_at
+            FROM probability_results
+            WHERE latitude = %s AND longitude = %s
+        """
+        params = [latitude, longitude]
+
+        if risk_type:
+            query += " AND risk_type = %s"
+            params.append(risk_type)
+
+        if scenario:
+            query += " AND scenario = %s"
+            params.append(scenario)
+
+        query += " ORDER BY risk_type, scenario"
+
+        return self.execute_query(query, tuple(params))
+
+    def fetch_aal_scaled_results(
+        self,
+        latitude: float,
+        longitude: float,
+        risk_type: Optional[str] = None,
+        scenario: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch final AAL results (scaled by vulnerability) from ModelOps
+
+        Args:
+            latitude: Latitude
+            longitude: Longitude
+            risk_type: Optional risk type filter
+            scenario: Optional scenario filter ('ssp1', 'ssp2', 'ssp3', 'ssp5')
+
+        Returns:
+            List of AAL results with base and final AAL values
+        """
+        query = """
+            SELECT
+                latitude,
+                longitude,
+                risk_type,
+                scenario,
+                base_aal,
+                vulnerability_score,
+                final_aal,
+                calculated_at
+            FROM aal_scaled_results
+            WHERE latitude = %s AND longitude = %s
+        """
+        params = [latitude, longitude]
+
+        if risk_type:
+            query += " AND risk_type = %s"
+            params.append(risk_type)
+
+        if scenario:
+            query += " AND scenario = %s"
+            params.append(scenario)
+
+        query += " ORDER BY risk_type, scenario"
+
+        return self.execute_query(query, tuple(params))
+
+    def fetch_all_modelops_results(
+        self,
+        latitude: float,
+        longitude: float,
+        risk_type: Optional[str] = None,
+        scenario: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Fetch all ModelOps calculation results for a location
+
+        Args:
+            latitude: Latitude
+            longitude: Longitude
+            risk_type: Optional risk type filter
+            scenario: Optional scenario filter ('ssp1', 'ssp2', 'ssp3', 'ssp5')
+
+        Returns:
+            Dictionary containing all ModelOps results:
+            - hazard_results: H scores
+            - exposure_results: E scores
+            - vulnerability_results: V scores
+            - probability_results: P(H) and base AAL
+            - aal_scaled_results: Final AAL (scaled by V)
+        """
+        return {
+            'hazard_results': self.fetch_hazard_results(latitude, longitude, risk_type),
+            'exposure_results': self.fetch_exposure_results(latitude, longitude, risk_type),
+            'vulnerability_results': self.fetch_vulnerability_results(latitude, longitude, risk_type),
+            'probability_results': self.fetch_probability_results(latitude, longitude, risk_type, scenario),
+            'aal_scaled_results': self.fetch_aal_scaled_results(latitude, longitude, risk_type, scenario)
+        }
+
+    # ==================== Batch Jobs Tracking ====================
+
+    def fetch_batch_job(self, batch_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch batch job status by batch_id
+
+        Args:
+            batch_id: Batch job UUID
+
+        Returns:
+            Batch job information or None if not found
+        """
+        query = """
+            SELECT
+                batch_id,
+                job_type,
+                status,
+                progress,
+                total_items,
+                completed_items,
+                failed_items,
+                input_params,
+                results,
+                error_message,
+                error_stack_trace,
+                estimated_duration_minutes,
+                actual_duration_seconds,
+                created_at,
+                started_at,
+                completed_at,
+                expires_at,
+                created_by
+            FROM batch_jobs
+            WHERE batch_id = %s
+        """
+        results = self.execute_query(query, (batch_id,))
+        return results[0] if results else None
+
+    def fetch_batch_jobs_by_status(
+        self,
+        status: str,
+        job_type: Optional[str] = None,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch batch jobs by status
+
+        Args:
+            status: Job status ('queued', 'running', 'completed', 'failed', 'cancelled')
+            job_type: Optional job type filter
+            limit: Maximum number of results
+
+        Returns:
+            List of batch jobs
+        """
+        query = """
+            SELECT
+                batch_id,
+                job_type,
+                status,
+                progress,
+                total_items,
+                completed_items,
+                failed_items,
+                created_at,
+                started_at,
+                completed_at
+            FROM batch_jobs
+            WHERE status = %s
+        """
+        params = [status]
+
+        if job_type:
+            query += " AND job_type = %s"
+            params.append(job_type)
+
+        query += " ORDER BY created_at DESC LIMIT %s"
+        params.append(limit)
+
+        return self.execute_query(query, tuple(params))

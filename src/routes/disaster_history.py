@@ -58,13 +58,13 @@ async def get_disaster_history(
     return result
 
 
-@router.get("/{disaster_id}", response_model=DisasterHistoryRecord)
+@router.get("/detail", response_model=DisasterHistoryRecord)
 async def get_disaster_by_id(
-    disaster_id: UUID,
+    disaster_id: UUID = Query(..., alias="disasterId"),
     api_key: str = Depends(verify_api_key),
 ):
     """
-    특정 재해이력 상세 조회
+    특정 재해이력 상세 조회 - query parameters 사용
 
     - **disaster_id**: 재해이력 ID
 

@@ -122,6 +122,8 @@ python-docx==1.2.0
 python-dotenv==1.1.1
 python-multipart==0.0.20
 pytz==2025.2
+qdrant-client==1.7.0
+sentence-transformers==2.3.1
 pywin32-ctypes==0.2.3
 PyYAML==6.0.2
 rank-bm25==0.2.2

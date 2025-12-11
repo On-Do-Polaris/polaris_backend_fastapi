@@ -5,9 +5,9 @@ RAG Helper
 - Qdrant / Tavily / 기타 vector DB 지원
 """
 
-from typing import List, Dict, Any
-import logging
 import os
+import logging
+from typing import List, Dict, Any
 
 logger = logging.getLogger("RAGHelper")
 if not logger.handlers:
@@ -34,14 +34,41 @@ class RAGEngine:
         """
         백엔드 클라이언트 초기화
         """
-        # TODO: 실제 API key/config 로딩
-        if source == "qdrant":
-            client = None  # 실제 qdrant client 초기화
-        elif source == "tavily":
-            client = None  # 실제 tavily client 초기화
-        else:
-            client = None
-        return client
+        # Mock 모드 체크
+        if os.getenv('RAG_MOCK_MODE', 'false').lower() == 'true':
+            logger.info("[RAGEngine] Running in Mock mode (RAG_MOCK_MODE=true)")
+            return None
+
+        try:
+            if source in ["qdrant", "benchmark"]:
+                # QdrantVectorStore 초기화
+                from .qdrant_vector_store import QdrantVectorStore
+
+                qdrant_url = os.getenv('QDRANT_URL', 'http://localhost:6333')
+                qdrant_api_key = os.getenv('QDRANT_API_KEY')
+                collection_name = os.getenv('QDRANT_COLLECTION', 'esg_tcfd_reports')
+
+                logger.info(f"[RAGEngine] Initializing Qdrant client: {qdrant_url}")
+                client = QdrantVectorStore(
+                    url=qdrant_url,
+                    api_key=qdrant_api_key,
+                    collection_name=collection_name
+                )
+                logger.info("[RAGEngine] Qdrant client initialized successfully")
+                return client
+
+            elif source == "tavily":
+                # Tavily는 향후 구현
+                logger.warning("[RAGEngine] Tavily not implemented yet")
+                return None
+            else:
+                logger.warning(f"[RAGEngine] Unknown source: {source}")
+                return None
+
+        except Exception as e:
+            logger.error(f"[RAGEngine] Failed to initialize client: {e}")
+            logger.warning("[RAGEngine] Falling back to Mock mode")
+            return None
 
     def query(self, query_text: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """
@@ -49,18 +76,47 @@ class RAGEngine:
         Returns:
             [{'text': ..., 'source': ..., 'id': ...}, ...]
         """
+        # Mock 모드 또는 클라이언트 없을 때
+        if self.client is None:
+            logger.info(f"[RAGEngine] Mock mode - returning {top_k} dummy results")
+            return self._get_mock_results(top_k)
+
         try:
             logger.info(f"[RAGEngine] Querying '{self.source}' for: {query_text}")
-            # TODO: 실제 검색 API 호출
-            results = [{
-                "id": f"doc_{i+1}",
-                "text": f"Sample reference text {i+1}",
-                "source": f"dummy_source_{i+1}"
-            } for i in range(top_k)]
+
+            # Qdrant 검색 실행
+            results = self.client.search(
+                query_text=query_text,
+                top_k=top_k
+            )
+
+            logger.info(f"[RAGEngine] Found {len(results)} results")
             return results
+
         except Exception as e:
             logger.error(f"[RAGEngine] Query failed: {e}")
-            return []
+            logger.warning("[RAGEngine] Falling back to mock results")
+            return self._get_mock_results(top_k)
+
+    def _get_mock_results(self, top_k: int = 5) -> List[Dict[str, Any]]:
+        """
+        Mock 더미 결과 반환 (Qdrant 없을 때 Fallback)
+
+        Returns:
+            Mock 문서 리스트
+        """
+        return [{
+            "id": f"doc_{i+1}",
+            "text": f"Sample reference text {i+1} - ESG/TCFD benchmark example",
+            "source": f"dummy_source_{i+1}",
+            "score": 0.85 - (i * 0.05),
+            "metadata": {
+                "company_name": f"Company {i+1}",
+                "report_year": 2024 - i,
+                "report_type": "ESG",
+                "section_type": "governance"
+            }
+        } for i in range(top_k)]
 
     def get_citations(self, doc_list: List[Dict[str, Any]]) -> List[str]:
         """

@@ -47,6 +47,9 @@ class Config:
 		self.VERSION = "1.0.0"
 		self.DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 
+		# ===== Workflow Mock 모드 설정 (API의 USE_MOCK_DATA와 별도) =====
+		self.WORKFLOW_MOCK_MODE = os.getenv("WORKFLOW_MOCK_MODE", "false").lower() == "true"
+
 		# ===== 데이터 수집 설정 =====
 		self.DATA_COLLECTION = {
 			'timeout': 30,  # seconds

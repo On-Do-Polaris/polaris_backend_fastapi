@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from uuid import UUID
 from typing import Optional
+from datetime import datetime
 import logging
 
 from src.schemas.analysis import (
@@ -80,15 +81,24 @@ async def enhance_analysis(
 
 @router.get("/status", response_model=AnalysisJobStatus)
 async def get_analysis_status(
-    site_id: UUID = Query(..., alias="siteId"),
     job_id: UUID = Query(..., alias="jobId"),
+    site_id: Optional[UUID] = Query(None, alias="siteId"),
     api_key: str = Depends(verify_api_key),
     service = Depends(get_analysis_service),
 ):
-    """분석 작업 상태 조회 - query parameters 사용"""
-    result = await service.get_job_status(site_id, job_id)
+    """
+    분석 작업 상태 조회 (Spring Boot 호환)
+
+    Args:
+        jobId: 작업 ID (필수)
+        siteId: 사업장 ID (선택, 하위 호환성용)
+
+    Returns:
+        AnalysisJobStatus
+    """
+    result = await service.get_job_status(job_id, site_id)
     if not result:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
     return result
 
 
@@ -154,6 +164,52 @@ async def get_total_analysis(
 ):
     """특정 Hazard 기준 통합 분석 결과 - query parameters 사용"""
     result = await service.get_total_analysis(site_id, hazard_type)
+    if not result:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    return result
+
+
+@router.get("/summary", response_model=AnalysisJobStatus)
+async def get_analysis_summary(
+    site_id: UUID = Query(..., alias="siteId"),
+    api_key: str = Depends(verify_api_key),
+    service = Depends(get_analysis_service),
+):
+    """
+    분석 개요 조회 (Spring Boot 호환)
+
+    현재는 가장 최근 job status를 반환합니다.
+    향후 summary 전용 로직으로 개선 필요.
+    """
+    # 임시: site_id로 가장 최근 분석 결과 반환
+    # TODO: 실제로는 DB에서 site_id의 최신 completed job을 조회해야 함
+    logger.warning(f"GET /summary called for siteId={site_id}. Returning mock status.")
+
+    # Mock 응답 (실제로는 DB 조회 필요)
+    return AnalysisJobStatus(
+        jobId="00000000-0000-0000-0000-000000000000",
+        siteId=str(site_id),
+        status="completed",
+        progress=100,
+        currentNode="completed",
+        startedAt=datetime.now(),
+        completedAt=datetime.now(),
+    )
+
+
+@router.get("/ssp", response_model=PhysicalRiskScoreResponse)
+async def get_ssp_projection(
+    site_id: UUID = Query(..., alias="siteId"),
+    hazard_type: Optional[str] = Query(None, alias="hazardType"),
+    api_key: str = Depends(verify_api_key),
+    service = Depends(get_analysis_service),
+):
+    """
+    SSP 시나리오별 리스크 전망 (Spring Boot 호환)
+
+    physical-risk-scores와 동일한 데이터를 반환합니다.
+    """
+    result = await service.get_physical_risk_scores(site_id, hazard_type)
     if not result:
         raise HTTPException(status_code=404, detail="Analysis not found")
     return result

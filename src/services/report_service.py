@@ -1,5 +1,6 @@
-from uuid import uuid4
+from uuid import uuid4, UUID
 from datetime import datetime, timedelta
+from typing import Optional
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial

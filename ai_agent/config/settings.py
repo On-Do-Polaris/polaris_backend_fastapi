@@ -170,12 +170,16 @@ class Config:
 			'max_tokens': 2000
 		}
 
-		# ===== RAG 설정 (유사 보고서 검색용) =====
+		# ===== RAG 설정 (Qdrant 기반 유사 보고서 검색용) =====
 		self.RAG_CONFIG = {
-			'vector_db': 'chromadb',  # 'chromadb', 'faiss'
+			'vector_db': 'qdrant',  # 'qdrant', 'chromadb', 'faiss'
 			'embedding_model': 'sentence-transformers/all-MiniLM-L6-v2',
-			'top_k': 5,  # 검색할 유사 문서 수
-			'similarity_threshold': 0.7
+			'qdrant_url': os.getenv('QDRANT_URL', 'http://localhost:6333'),
+			'qdrant_api_key': os.getenv('QDRANT_API_KEY'),  # Cloud 사용 시
+			'qdrant_collection': os.getenv('QDRANT_COLLECTION', 'esg_tcfd_reports'),
+			'top_k': 20,  # 검색할 유사 문서 수
+			'similarity_threshold': 0.7,
+			'mock_mode': os.getenv('RAG_MOCK_MODE', 'false').lower() == 'true'
 		}
 
 		# ===== 검증 설정 =====

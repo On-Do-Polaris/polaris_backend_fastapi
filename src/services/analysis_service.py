@@ -721,3 +721,93 @@ class AnalysisService:
             )
 
         return None
+
+    def _check_and_send_completion_callback(self, user_id: UUID):
+        """
+        리포트 생성과 후보지 추천이 모두 완료되었는지 확인 후 Spring Boot 콜백
+
+        Args:
+            user_id: 사용자 ID
+        """
+        if not user_id or not self.db:
+            return
+
+        try:
+            # batch_jobs에서 user_id의 작업 상태 확인
+            query = """
+                SELECT
+                    input_params::jsonb->>'user_id' as user_id,
+                    MAX(CASE WHEN job_type = 'physical_risk_analysis' AND status = 'completed' THEN 1 ELSE 0 END) as report_done,
+                    MAX(CASE WHEN job_type = 'relocation_recommendation' AND status = 'completed' THEN 1 ELSE 0 END) as recommendation_done
+                FROM batch_jobs
+                WHERE input_params::jsonb->>'user_id' = %s
+                GROUP BY input_params::jsonb->>'user_id'
+            """
+            result = self.db.execute_query(query, (str(user_id),))
+
+            if result and len(result) > 0:
+                row = result[0]
+                report_done = row.get('report_done') == 1
+                recommendation_done = row.get('recommendation_done') == 1
+
+                # 둘 다 완료되었는지 확인
+                if report_done and recommendation_done:
+                    # 콜백 전송 여부 확인 (중복 방지)
+                    callback_check_query = """
+                        SELECT COUNT(*) as callback_sent
+                        FROM batch_jobs
+                        WHERE input_params::jsonb->>'user_id' = %s
+                        AND job_type = 'spring_boot_callback'
+                        AND status = 'completed'
+                    """
+                    callback_result = self.db.execute_query(callback_check_query, (str(user_id),))
+
+                    if callback_result and callback_result[0].get('callback_sent', 0) == 0:
+                        # Spring Boot 콜백 호출
+                        from ai_agent.services.springboot_client import get_springboot_client
+
+                        springboot_client = get_springboot_client()
+                        springboot_client.notify_analysis_completion(user_id)
+
+                        # 콜백 전송 기록 저장
+                        self._save_callback_record(user_id)
+                        self.logger.info(f"[CALLBACK] Spring Boot 알림 전송 완료: user_id={user_id}")
+                    else:
+                        self.logger.info(f"[CALLBACK] 이미 전송됨: user_id={user_id}")
+                else:
+                    self.logger.debug(f"[CALLBACK] 아직 미완료 - report: {report_done}, recommendation: {recommendation_done}")
+        except Exception as e:
+            self.logger.error(f"Spring Boot 콜백 확인/전송 실패: {str(e)}")
+            # 에러 발생해도 분석 결과는 유효
+
+    def _save_callback_record(self, user_id: UUID):
+        """콜백 전송 기록 저장"""
+        if not self.db:
+            return
+
+        try:
+            query = """
+                INSERT INTO batch_jobs (
+                    batch_id, job_type, status, progress,
+                    input_params, created_at, completed_at
+                ) VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
+            """
+            self.db.execute_update(query, (
+                str(uuid4()),
+                'spring_boot_callback',
+                'completed',
+                100,
+                json.dumps({'user_id': str(user_id)})
+            ))
+        except Exception as e:
+            self.logger.error(f"콜백 기록 저장 실패: {str(e)}")
+
+    async def on_report_generation_completed(self, user_id: UUID):
+        """리포트 생성 완료 시 호출"""
+        self.logger.info(f"[CALLBACK] 리포트 생성 완료: user_id={user_id}")
+        self._check_and_send_completion_callback(user_id)
+
+    async def on_relocation_recommendation_completed(self, user_id: UUID):
+        """후보지 추천 완료 시 호출"""
+        self.logger.info(f"[CALLBACK] 후보지 추천 완료: user_id={user_id}")
+        self._check_and_send_completion_callback(user_id)

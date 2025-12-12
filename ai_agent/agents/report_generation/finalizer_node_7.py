@@ -330,7 +330,7 @@ class FinalizerNode:
             # -------------------------
             # 최종 Output
             # -------------------------
-            return FinalizerOutput(
+            output = FinalizerOutput(
                 md_path=md_path,
                 json_path=json_path,
                 pdf_path=pdf_path,
@@ -344,6 +344,45 @@ class FinalizerNode:
                     "db_log_id": db_id
                 }
             )
+
+            # -------------------------
+            # Spring Boot 완료 콜백 트리거
+            # -------------------------
+            try:
+                user_id = input_data.metadata.get('user_id')
+                if user_id:
+                    logger.info(f"[CALLBACK] 리포트 생성 완료 - 콜백 체크 트리거: user_id={user_id}")
+
+                    # Analysis Service 임포트 및 콜백 체크
+                    import sys
+                    import os
+                    # src 경로 추가 (상대 경로 임포트 해결)
+                    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
+                    if project_root not in sys.path:
+                        sys.path.insert(0, project_root)
+
+                    from src.services.analysis_service import AnalysisService
+                    from uuid import UUID
+
+                    service = AnalysisService()
+                    # 동기 함수로 호출 (FinalizerNode는 동기 컨텍스트)
+                    import asyncio
+                    try:
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+
+                    loop.run_until_complete(service.on_report_generation_completed(UUID(user_id)))
+                else:
+                    logger.warning("[CALLBACK] user_id가 metadata에 없어 Spring Boot 알림 건너뜀")
+            except Exception as e:
+                # 에러 발생해도 리포트 생성 자체는 성공으로 처리
+                logger.error(f"[CALLBACK] Spring Boot 알림 트리거 실패: {str(e)}")
+                import traceback
+                traceback.print_exc()
+
+            return output
 
         except Exception as e:
             logger.exception("FinalizerNode 실패.")

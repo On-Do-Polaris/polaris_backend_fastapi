@@ -5,11 +5,17 @@
 변경사항 (2025-12-03):
 - AALCalculatorService: ModelOps로 이관 (삭제)
 - ModelOpsClient 추가: ModelOps API 호출 클라이언트
+
+변경사항 (2025-12-12):
+- SpringBootClient 추가: Spring Boot 완료 콜백 클라이언트
 '''
 
 from .modelops_client import ModelOpsClient, get_modelops_client
+from .springboot_client import SpringBootClient, get_springboot_client
 
 __all__ = [
 	'ModelOpsClient',
-	'get_modelops_client'
+	'get_modelops_client',
+	'SpringBootClient',
+	'get_springboot_client'
 ]

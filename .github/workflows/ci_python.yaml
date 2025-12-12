@@ -71,11 +71,8 @@ jobs:
           sudo rm -rf /usr/local/share/boost
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
 
-          echo "Docker 정리 중..."
-          docker system prune -af --volumes || true
-
-          echo "APT 캐시 정리 중..."
-          sudo apt-get clean || true
+          echo "Docker 이미지 정리 중..."
+          docker image prune -af || true
 
           echo "디스크 사용량 (정리 후):"
           df -h

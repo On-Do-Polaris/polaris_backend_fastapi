@@ -122,6 +122,7 @@ class AnalysisService:
         try:
             input_params = {
                 'site_id': str(site_id),
+                'user_id': str(request.user_id) if request.user_id else None,  # userId 추가 (Spring Boot 클라이언트 호환)
                 'site_name': request.site.name,
                 'hazard_types': request.hazard_types,
                 'priority': request.priority.value if request.priority else 'normal',
@@ -468,6 +469,95 @@ class AnalysisService:
             )
         except Exception as e:
             self.logger.error(f"Failed to query job status from DB: {e}")
+            return None
+
+    async def get_job_status_by_id(self, job_id: UUID) -> Optional[AnalysisJobStatus]:
+        """
+        jobId로 분석 작업 상태 조회 (Spring Boot 클라이언트 호환)
+
+        Args:
+            job_id: 작업 ID
+
+        Returns:
+            AnalysisJobStatus 또는 None (job이 없을 경우)
+        """
+        return await self.get_job_status(job_id)
+
+    async def get_latest_job_status_by_user(self, user_id: UUID) -> Optional[AnalysisJobStatus]:
+        """
+        userId로 가장 최근 분석 작업 상태 조회 (Spring Boot 클라이언트 호환)
+
+        Args:
+            user_id: 사용자 ID
+
+        Returns:
+            AnalysisJobStatus 또는 None (해당 사용자의 job이 없을 경우)
+        """
+        if settings.USE_MOCK_DATA:
+            return AnalysisJobStatus(
+                jobId="00000000-0000-0000-0000-000000000000",
+                siteId="00000000-0000-0000-0000-000000000000",
+                status="completed",
+                progress=100,
+                currentNode="completed",
+                startedAt=datetime.now(),
+                completedAt=datetime.now(),
+            )
+
+        # batch_jobs 테이블에서 userId로 가장 최근 job 조회
+        if not self.db:
+            self.logger.warning("Database not available, cannot query job status")
+            return None
+
+        try:
+            # TODO: batch_jobs 테이블에 user_id 컬럼 추가 필요
+            # 현재는 input_params JSON 내부에서 user_id를 찾아야 함
+            # 임시 구현: input_params::jsonb ? 'user_id' 조건 사용
+            query = """
+                SELECT
+                    batch_id, job_type, status, progress,
+                    input_params, results, error_message,
+                    created_at, started_at, completed_at
+                FROM batch_jobs
+                WHERE input_params::jsonb->>'user_id' = %s
+                ORDER BY created_at DESC
+                LIMIT 1
+            """
+            result = self.db.execute_query(query, (str(user_id),))
+
+            if not result or len(result) == 0:
+                self.logger.warning(f"No jobs found for user {user_id}")
+                return None
+
+            job = result[0]
+            input_params = job.get('input_params', {})
+
+            # site_id 추출 (input_params에서)
+            job_site_id = input_params.get('site_id') if isinstance(input_params, dict) else None
+
+            # error_message 파싱
+            error_msg = job.get('error_message')
+            error_dict = None
+            if error_msg:
+                try:
+                    error_dict = json.loads(error_msg) if isinstance(error_msg, str) else error_msg
+                except:
+                    error_dict = {"code": "UNKNOWN_ERROR", "message": str(error_msg)}
+
+            return AnalysisJobStatus(
+                jobId=str(job['batch_id']),
+                siteId=job_site_id,
+                status=job['status'],
+                progress=job.get('progress', 0),
+                currentNode=job['status'],  # status를 currentNode로 사용
+                currentHazard=None,
+                startedAt=job.get('started_at'),
+                completedAt=job.get('completed_at'),
+                estimatedCompletionTime=None,
+                error=error_dict
+            )
+        except Exception as e:
+            self.logger.error(f"Failed to query latest job status for user {user_id}: {e}")
             return None
 
     async def get_physical_risk_scores(

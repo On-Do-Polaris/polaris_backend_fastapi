@@ -37,6 +37,7 @@ class AdditionalDataInput(BaseModel):
 
 class StartAnalysisRequest(BaseModel):
     """Spring Boot API 호환 - 분석 시작 요청 (문서 스펙 기준)"""
+    user_id: Optional[UUID] = Field(None, alias="userId", description="사용자 ID (Spring Boot 클라이언트 호환)")
     site: SiteInfo = Field(..., description="사업장 정보")
     hazard_types: list[str] = Field(..., alias="hazardTypes", description="분석할 위험 유형 목록")
     priority: Optional[Priority] = Field(Priority.NORMAL, description="작업 우선순위")

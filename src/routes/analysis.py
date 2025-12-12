@@ -81,8 +81,8 @@ async def enhance_analysis(
 
 @router.get("/status", response_model=AnalysisJobStatus)
 async def get_analysis_status(
-    job_id: UUID = Query(..., alias="jobId"),
-    site_id: Optional[UUID] = Query(None, alias="siteId"),
+    user_id: UUID = Query(..., alias="userId"),
+    job_id: Optional[UUID] = Query(None, alias="jobid"),
     api_key: str = Depends(verify_api_key),
     service = Depends(get_analysis_service),
 ):
@@ -90,15 +90,25 @@ async def get_analysis_status(
     분석 작업 상태 조회 (Spring Boot 호환)
 
     Args:
-        jobId: 작업 ID (필수)
-        siteId: 사업장 ID (선택, 하위 호환성용)
+        userId: 사용자 ID (필수, Spring Boot 클라이언트 호환)
+        jobid: 작업 ID (선택)
 
     Returns:
-        AnalysisJobStatus
+        AnalysisJobStatus: 작업 상태 정보
+        - status: "queued" | "running" | "processing" | "completed" | "failed"
+        - progress: 0-100
     """
-    result = await service.get_job_status(job_id, site_id)
+    # userId로 가장 최근 분석 작업 조회 (jobid가 없는 경우)
+    if job_id:
+        result = await service.get_job_status_by_id(job_id)
+    else:
+        result = await service.get_latest_job_status_by_user(user_id)
+
     if not result:
-        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"No analysis job found for userId: {user_id}"
+        )
     return result
 
 

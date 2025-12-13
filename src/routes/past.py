@@ -1,14 +1,11 @@
 from fastapi import APIRouter, Depends, Query
-from uuid import UUID
 from typing import Optional
 from datetime import datetime
 
 from src.schemas.disaster_history import (
     DisasterHistoryListResponse,
     DisasterHistoryFilter,
-    DisasterSeverity,
 )
-from src.schemas.common import HazardType
 from src.services.disaster_history_service import DisasterHistoryService
 from src.core.auth import verify_api_key
 
@@ -17,24 +14,24 @@ router = APIRouter(prefix="/api/past", tags=["Past Events (Spring Boot Compatibi
 
 @router.get("", response_model=DisasterHistoryListResponse)
 async def get_past_events(
-    site_id: Optional[UUID] = Query(None, alias="siteId"),
     year: Optional[int] = Query(None, description="연도로 필터링"),
-    disaster_type: Optional[HazardType] = Query(None, alias="disasterType"),
-    severity: Optional[DisasterSeverity] = Query(None, description="심각도로 필터링"),
+    disaster_type: Optional[str] = Query(None, alias="disasterType", description="재난 유형 (강풍/풍랑/호우/대설/건조/지진해일/한파/태풍/황사/폭염)"),
+    severity: Optional[str] = Query(None, description="강도 (주의보/경보)"),
+    region: Optional[str] = Query(None, description="지역명으로 필터링"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     api_key: str = Depends(verify_api_key),
 ):
     """
-    과거 재난 이력 조회 (Spring Boot 호환)
+    과거 재난 이력 조회 (긴급재난문자 데이터)
 
-    /api/disaster-history 엔드포인트의 별칭입니다.
+    api_emergency_messages 테이블에서 긴급재난문자 이력을 조회합니다.
 
     Args:
-        siteId: 사업장 ID (선택)
         year: 연도 필터 (선택)
-        disasterType: 재해 유형 (선택)
-        severity: 심각도 (선택)
+        disasterType: 재난 유형 (선택) - 9종: 강풍, 풍랑, 호우, 대설, 건조, 지진해일, 한파, 태풍, 황사, 폭염
+        severity: 강도 (선택) - 주의보, 경보
+        region: 지역명 (선택)
         limit: 조회 개수 (기본: 100)
         offset: 조회 시작 위치 (기본: 0)
 
@@ -51,9 +48,9 @@ async def get_past_events(
         end_date = datetime(year, 12, 31, 23, 59, 59)
 
     filters = DisasterHistoryFilter(
-        site_id=site_id,
         disaster_type=disaster_type,
         severity=severity,
+        region=region,
         start_date=start_date,
         end_date=end_date,
         limit=limit,

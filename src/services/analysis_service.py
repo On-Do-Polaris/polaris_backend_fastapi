@@ -662,7 +662,7 @@ class AnalysisService:
         # 실제 DB에서 조회
         from ai_agent.utils.database import DatabaseManager
 
-        logger.info(f"[VULNERABILITY] 취약성 데이터 조회 시작: site_id={site_id}")
+        self.logger.info(f"[VULNERABILITY] 취약성 데이터 조회 시작: site_id={site_id}")
 
         try:
             db = DatabaseManager()
@@ -678,10 +678,10 @@ class AnalysisService:
             """
 
             rows = db.execute_query(query, (str(site_id),))
-            logger.info(f"[VULNERABILITY] 쿼리 실행 완료: {len(rows)}개 행 조회됨")
+            self.logger.info(f"[VULNERABILITY] 쿼리 실행 완료: {len(rows)}개 행 조회됨")
 
             if not rows:
-                logger.warning(f"[VULNERABILITY] 데이터 없음: site_id={site_id}")
+                self.logger.warning(f"[VULNERABILITY] 데이터 없음: site_id={site_id}")
                 return None
 
             # Risk type 매핑 (영문 -> 한글)
@@ -717,7 +717,7 @@ class AnalysisService:
                 vulnerabilities=vulnerabilities,
             )
         except Exception as e:
-            logger.error(f"[VULNERABILITY] 취약성 데이터 조회 실패: {str(e)}", exc_info=True)
+            self.logger.error(f"[VULNERABILITY] 취약성 데이터 조회 실패: {str(e)}", exc_info=True)
             return None
 
     async def get_total_analysis(

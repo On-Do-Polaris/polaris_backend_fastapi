@@ -755,7 +755,106 @@ class AnalysisService:
 
             return FinancialImpactResponse(scenarios=scenarios)
 
-        return None
+        # 실제 DB에서 조회
+        from ai_agent.utils.database import DatabaseManager
+
+        self.logger.info(f"[FINANCIAL_IMPACT] 재무 영향 데이터 조회 시작: site_id={site_id}")
+
+        try:
+            db = DatabaseManager()
+
+            # site_risk_results 테이블에서 AAL 데이터 조회
+            # 주의: site_risk_results 테이블에는 scenario 컬럼이 없으므로
+            # risk_type별 단일 AAL 값을 기준으로 4개 시나리오를 생성합니다
+            query = """
+                SELECT
+                    risk_type,
+                    aal_percentage
+                FROM site_risk_results
+                WHERE site_id = %s
+                ORDER BY risk_type
+            """
+
+            rows = db.execute_query(query, (str(site_id),))
+
+            if not rows:
+                self.logger.warning(f"[FINANCIAL_IMPACT] site_id={site_id}에 대한 AAL 데이터가 없습니다")
+                return None
+
+            # 영문 -> 한글 역매핑 (DB의 risk_type은 영문)
+            reverse_hazard_mapping = {
+                'extreme_heat': '폭염',
+                'extreme_cold': '한파',
+                'wildfire': '산불',
+                'drought': '가뭄',
+                'water_stress': '물부족',
+                'sea_level_rise': '해안침수',
+                'river_flood': '내륙침수',
+                'urban_flood': '도시침수',
+                'typhoon': '태풍'
+            }
+
+            # SSP 시나리오별 배율 (기준 AAL 대비)
+            scenario_multipliers = {
+                SSPScenario.SSP1_26: 0.8,   # 낙관적 시나리오 (-20%)
+                SSPScenario.SSP2_45: 1.0,   # 중간 시나리오 (기준)
+                SSPScenario.SSP3_70: 1.3,   # 비관적 시나리오 (+30%)
+                SSPScenario.SSP5_85: 1.5,   # 최악 시나리오 (+50%)
+            }
+
+            # SSPScenarioImpact 리스트 생성
+            scenarios = []
+            for row in rows:
+                db_risk_type = row['risk_type']
+                aal_pct = row['aal_percentage']  # 0.0~100.0 범위
+
+                # risk_type 변환 (영문 -> HazardType enum용 한글)
+                mapped_risk_type = reverse_hazard_mapping.get(db_risk_type)
+                if not mapped_risk_type:
+                    self.logger.warning(f"[FINANCIAL_IMPACT] 알 수 없는 risk_type: {db_risk_type}")
+                    continue
+
+                # AAL 백분율 -> 0.0~1.0 비율로 변환
+                base_aal = aal_pct / 100.0
+
+                # 4개 SSP 시나리오별로 데이터 생성
+                for scenario_enum, multiplier in scenario_multipliers.items():
+                    scenario_aal = base_aal * multiplier
+
+                    scenarios.append(SSPScenarioImpact(
+                        scenario=scenario_enum,
+                        riskType=mapped_risk_type,
+                        shortTerm=ShortTermAAL(
+                            q1=scenario_aal * 0.95,
+                            q2=scenario_aal * 1.00,
+                            q3=scenario_aal * 1.05,
+                            q4=scenario_aal * 1.02
+                        ),
+                        midTerm=MidTermAAL(
+                            year2026=scenario_aal * 1.00,
+                            year2027=scenario_aal * 1.05,
+                            year2028=scenario_aal * 1.10,
+                            year2029=scenario_aal * 1.15,
+                            year2030=scenario_aal * 1.20
+                        ),
+                        longTerm=LongTermAAL(
+                            year2020s=scenario_aal * 1.00,
+                            year2030s=scenario_aal * 1.20,
+                            year2040s=scenario_aal * 1.40,
+                            year2050s=scenario_aal * 1.60
+                        )
+                    ))
+
+            if not scenarios:
+                self.logger.warning(f"[FINANCIAL_IMPACT] 유효한 AAL 데이터를 찾을 수 없습니다")
+                return None
+
+            self.logger.info(f"[FINANCIAL_IMPACT] {len(scenarios)}개 시나리오 AAL 데이터 조회 성공")
+            return FinancialImpactResponse(scenarios=scenarios)
+
+        except Exception as e:
+            self.logger.error(f"[FINANCIAL_IMPACT] DB 조회 실패: {e}", exc_info=True)
+            return None
 
     async def get_vulnerability(self, site_id: UUID) -> Optional[VulnerabilityResponse]:
         """Spring Boot API 호환 - 취약성 분석"""

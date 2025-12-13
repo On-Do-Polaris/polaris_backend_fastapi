@@ -43,6 +43,38 @@ async def start_analysis(
     return await service.start_analysis_async(request.site.id, request, background_tasks)
 
 
+@router.get("/status", response_model=AnalysisJobStatus)
+async def get_analysis_status(
+    user_id: Optional[UUID] = Query(None, alias="userId"),
+    job_id: Optional[UUID] = Query(None, alias="jobId"),
+    api_key: str = Depends(verify_api_key),
+    service = Depends(get_analysis_service),
+):
+    """
+    분석 작업 상태 조회 (Spring Boot 호환)
+
+    Args:
+        userId: 사용자 ID (최근 작업 조회)
+        jobId: 작업 ID (특정 작업 조회)
+
+    Returns:
+        AnalysisJobStatus: 작업 상태 정보
+    """
+    # jobId가 있으면 jobId로 조회
+    if job_id:
+        result = await service.get_job_status_by_id(job_id)
+    # userId가 있으면 userId로 최근 작업 조회
+    elif user_id:
+        result = await service.get_latest_job_status_by_user(user_id)
+    else:
+        raise HTTPException(status_code=400, detail="Either userId or jobId must be provided")
+
+    if not result:
+        raise HTTPException(status_code=404, detail="Analysis job not found")
+
+    return result
+
+
 # @router.post("/enhance", response_model=AnalysisJobStatus, status_code=200)
 # async def enhance_analysis(
 #     body: EnhanceAnalysisRequest,

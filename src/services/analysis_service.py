@@ -620,18 +620,17 @@ class AnalysisService:
         try:
             db = DatabaseManager()
 
-            # hazard_type 한글 -> 영문 매핑
+            # hazard_type 한글 -> 영문 매핑 (Spring Boot 통일안)
             hazard_mapping = {
-                '극심한 고온': 'high_temperature',
-                '폭염': 'high_temperature',
-                '태풍': 'typhoon',
-                '내륙홍수': 'inland_flood',
-                '해안홍수': 'coastal_flood',
-                '가뭄': 'drought',
-                '한파': 'cold_wave',
+                '극심한 고온': 'extreme_heat',
+                '극심한 한파': 'extreme_cold',
                 '산불': 'wildfire',
-                '물부족': 'water_scarcity',
-                '도시홍수': 'urban_flood'
+                '가뭄': 'drought',
+                '물부족': 'water_stress',
+                '해수면 상승': 'sea_level_rise',
+                '하천 홍수': 'river_flood',
+                '도시 홍수': 'urban_flood',
+                '태풍': 'typhoon'
             }
 
             risk_type_en = hazard_mapping.get(hazard_type, hazard_type) if hazard_type else None
@@ -673,11 +672,28 @@ class AnalysisService:
             # TODO: site_risk_results에 SSP 시나리오별 데이터 추가 필요
             risk_score = int(rows[0]['risk_score']) if rows[0].get('risk_score') else 72
 
+            # 영문 -> 한글 역매핑 (Spring Boot 통일안)
+            reverse_hazard_mapping = {
+                'extreme_heat': '폭염',  # HazardType enum의 HIGH_TEMPERATURE
+                'extreme_cold': '한파',  # HazardType enum의 COLD_WAVE
+                'wildfire': '산불',
+                'drought': '가뭄',
+                'water_stress': '물부족',  # HazardType enum의 WATER_SCARCITY
+                'sea_level_rise': '해안침수',  # HazardType enum의 COASTAL_FLOOD (임시)
+                'river_flood': '내륙침수',  # HazardType enum의 INLAND_FLOOD
+                'urban_flood': '도시침수',  # HazardType enum의 URBAN_FLOOD
+                'typhoon': '태풍'
+            }
+
+            # DB에서 조회한 risk_type(영문)을 한글로 변환
+            db_risk_type = rows[0].get('risk_type', 'high_temperature')
+            risk_type_korean = reverse_hazard_mapping.get(db_risk_type, '폭염')
+
             scenarios = []
             for scenario in [SSPScenario.SSP1_26, SSPScenario.SSP2_45, SSPScenario.SSP3_70, SSPScenario.SSP5_85]:
                 scenarios.append(SSPScenarioScore(
                     scenario=scenario,
-                    riskType=hazard_type or "극심한 고온",
+                    riskType=risk_type_korean,
                     shortTerm=ShortTermScore(q1=risk_score-5, q2=risk_score, q3=risk_score+5, q4=risk_score),
                     midTerm=MidTermScore(year2026=risk_score, year2027=risk_score+2, year2028=risk_score+4, year2029=risk_score+6, year2030=risk_score+8),
                     longTerm=LongTermScore(year2020s=risk_score, year2030s=risk_score+6, year2040s=risk_score+12, year2050s=risk_score+17),
@@ -781,17 +797,17 @@ class AnalysisService:
                 self.logger.warning(f"[VULNERABILITY] 데이터 없음: site_id={site_id}")
                 return None
 
-            # Risk type 매핑 (영문 -> 한글)
+            # Risk type 매핑 (영문 -> 한글, Spring Boot 통일안)
             risk_type_mapping = {
-                'high_temperature': '폭염',
-                'typhoon': '태풍',
-                'inland_flood': '내륙홍수',
-                'coastal_flood': '해안홍수',
-                'drought': '가뭄',
-                'cold_wave': '한파',
+                'extreme_heat': '폭염',
+                'extreme_cold': '한파',
                 'wildfire': '산불',
-                'water_scarcity': '물부족',
-                'urban_flood': '도시홍수'
+                'drought': '가뭄',
+                'water_stress': '물부족',
+                'sea_level_rise': '해안침수',
+                'river_flood': '내륙침수',
+                'urban_flood': '도시침수',
+                'typhoon': '태풍'
             }
 
             vulnerabilities = []

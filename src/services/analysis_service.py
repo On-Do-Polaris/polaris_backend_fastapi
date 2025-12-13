@@ -62,13 +62,13 @@ class AnalysisService:
             self._analyzer = SKAXPhysicalRiskAnalyzer(config)
         return self._analyzer
 
-    async def _run_agent_analysis(
+    def _run_agent_analysis_sync(
         self,
         site_info: dict,
         asset_value: float = 50000000000,
         additional_data: dict = None
     ) -> dict:
-        """ai_agent 분석 실행 (ERD 기준)"""
+        """ai_agent 분석 실행 (동기 함수 - 별도 스레드에서 실행)"""
         analyzer = self._get_analyzer()
 
         # SiteInfo에서 기본 위치 정보만 사용 (ERD 기준)
@@ -111,6 +111,26 @@ class AnalysisService:
             asset_info,
             analysis_params,
             additional_data=additional_data
+        )
+        return result
+
+    async def _run_agent_analysis(
+        self,
+        site_info: dict,
+        asset_value: float = 50000000000,
+        additional_data: dict = None
+    ) -> dict:
+        """ai_agent 분석 실행 (비동기 래퍼 - run_in_executor 사용)"""
+        import asyncio
+        loop = asyncio.get_event_loop()
+
+        # 동기 함수를 별도 스레드에서 실행 (이벤트 루프 블로킹 방지)
+        result = await loop.run_in_executor(
+            None,  # None = default ThreadPoolExecutor
+            self._run_agent_analysis_sync,
+            site_info,
+            asset_value,
+            additional_data
         )
         return result
 

@@ -660,71 +660,65 @@ class AnalysisService:
             )
 
         # 실제 DB에서 조회
-        from ai_agent.utils.database import get_db_connection
+        from ai_agent.utils.database import DatabaseManager
 
         logger.info(f"[VULNERABILITY] 취약성 데이터 조회 시작: site_id={site_id}")
 
-        query = """
-            SELECT
-                risk_type,
-                vulnerability_score
-            FROM vulnerability_results
-            WHERE site_id = %s
-            ORDER BY risk_type
-        """
-
-        conn = None
         try:
-            conn = get_db_connection()
-            logger.info(f"[VULNERABILITY] DB 연결 성공")
+            db = DatabaseManager()
 
-            with conn.cursor() as cursor:
-                cursor.execute(query, (str(site_id),))
-                rows = cursor.fetchall()
-                logger.info(f"[VULNERABILITY] 쿼리 실행 완료: {len(rows)}개 행 조회됨")
+            # site_id로 직접 조회 (ERD에 site_id 컬럼 있음)
+            query = """
+                SELECT
+                    risk_type,
+                    vulnerability_score
+                FROM vulnerability_results
+                WHERE site_id = %s
+                ORDER BY risk_type
+            """
 
-                if not rows:
-                    logger.warning(f"[VULNERABILITY] 데이터 없음: site_id={site_id}")
-                    return None
+            rows = db.execute_query(query, (str(site_id),))
+            logger.info(f"[VULNERABILITY] 쿼리 실행 완료: {len(rows)}개 행 조회됨")
 
-                # Risk type 매핑 (영문 -> 한글)
-                risk_type_mapping = {
-                    'high_temperature': '폭염',
-                    'typhoon': '태풍',
-                    'inland_flood': '내륙홍수',
-                    'coastal_flood': '해안홍수',
-                    'drought': '가뭄',
-                    'cold_wave': '한파',
-                    'wildfire': '산불',
-                    'water_scarcity': '물부족',
-                    'urban_flood': '도시홍수'
-                }
+            if not rows:
+                logger.warning(f"[VULNERABILITY] 데이터 없음: site_id={site_id}")
+                return None
 
-                vulnerabilities = []
-                for row in rows:
-                    risk_type = row[0]
-                    vulnerability_score = int(row[1]) if row[1] is not None else 0
+            # Risk type 매핑 (영문 -> 한글)
+            risk_type_mapping = {
+                'high_temperature': '폭염',
+                'typhoon': '태풍',
+                'inland_flood': '내륙홍수',
+                'coastal_flood': '해안홍수',
+                'drought': '가뭄',
+                'cold_wave': '한파',
+                'wildfire': '산불',
+                'water_scarcity': '물부족',
+                'urban_flood': '도시홍수'
+            }
 
-                    # 한글 이름 변환
-                    korean_name = risk_type_mapping.get(risk_type, risk_type)
+            vulnerabilities = []
+            for row in rows:
+                risk_type = row['risk_type']
+                vulnerability_score = int(row['vulnerability_score']) if row['vulnerability_score'] is not None else 0
 
-                    vulnerabilities.append(
-                        RiskVulnerability(
-                            riskType=korean_name,
-                            vulnerabilityScore=vulnerability_score
-                        )
+                # 한글 이름 변환
+                korean_name = risk_type_mapping.get(risk_type, risk_type)
+
+                vulnerabilities.append(
+                    RiskVulnerability(
+                        riskType=korean_name,
+                        vulnerabilityScore=vulnerability_score
                     )
-
-                return VulnerabilityResponse(
-                    siteId=site_id,
-                    vulnerabilities=vulnerabilities,
                 )
+
+            return VulnerabilityResponse(
+                siteId=site_id,
+                vulnerabilities=vulnerabilities,
+            )
         except Exception as e:
-            logger.error(f"취약성 데이터 조회 실패: {str(e)}")
+            logger.error(f"[VULNERABILITY] 취약성 데이터 조회 실패: {str(e)}", exc_info=True)
             return None
-        finally:
-            if conn:
-                conn.close()
 
     async def get_total_analysis(
         self, site_id: UUID, hazard_type: str

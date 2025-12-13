@@ -163,7 +163,8 @@ class AnalysisService:
             return
 
         try:
-            if status in ['completed', 'failed']:
+            # done일 때는 completed_at 설정 (상태는 ing와 done만 있음)
+            if status == 'done':
                 query = """
                     UPDATE batch_jobs
                     SET status = %s, progress = %s, results = %s,
@@ -178,39 +179,56 @@ class AnalysisService:
                     str(job_id)
                 ))
             else:
+                # ing 상태
                 query = """
                     UPDATE batch_jobs
                     SET status = %s, progress = %s
                     WHERE batch_id = %s
                 """
                 self.db.execute_update(query, (status, progress, str(job_id)))
-            self.logger.info(f"Job {job_id} updated in batch_jobs table")
+            self.logger.info(f"Job {job_id} updated in batch_jobs table: status={status}")
         except Exception as e:
             self.logger.error(f"Failed to update job in DB: {e}")
 
-    async def start_analysis(self, site_id: UUID, request: StartAnalysisRequest) -> AnalysisJobStatus:
-        """Spring Boot API 호환 - 분석 작업 시작 (문서 스펙 기준)"""
+    async def start_analysis_async(self, site_id: UUID, request: StartAnalysisRequest, background_tasks) -> AnalysisJobStatus:
+        """
+        Spring Boot API 호환 - 분석 작업 시작 (비동기)
+
+        즉시 202 Accepted를 반환하고 백그라운드에서 분석 실행
+        """
         job_id = uuid4()
         started_at = datetime.now()
 
-        # DB에 job 생성 (queued 상태)
-        self._save_job_to_db(job_id, site_id, request, status='queued', progress=0)
+        # DB에 job 생성 (ing 상태) - user_id 포함
+        self._save_job_to_db(job_id, site_id, request, status='ing', progress=0)
 
         if settings.USE_MOCK_DATA:
-            self._update_job_in_db(job_id, status='running', progress=50)
             return AnalysisJobStatus(
                 jobId=str(job_id),
                 siteId=site_id,
-                status="running",
-                progress=50,
-                currentNode="physical_risk_score",
+                status="ing",
+                progress=0,
+                currentNode="started",
                 startedAt=started_at,
             )
 
-        try:
-            # 분석 시작
-            self._update_job_in_db(job_id, status='running', progress=10)
+        # 백그라운드에서 실제 분석 실행
+        background_tasks.add_task(self._run_analysis_background, job_id, site_id, request)
 
+        return AnalysisJobStatus(
+            jobId=str(job_id),
+            siteId=site_id,
+            status="ing",
+            progress=0,
+            currentNode="started",
+            startedAt=started_at,
+        )
+
+    async def _run_analysis_background(self, job_id: UUID, site_id: UUID, request: StartAnalysisRequest):
+        """백그라운드에서 실행되는 실제 분석 로직"""
+        self.logger.info(f"[BACKGROUND] 분석 시작: job_id={job_id}, site_id={site_id}")
+
+        try:
             # Spring Boot 문서 스펙: site 객체 + hazardTypes, priority, options
             site_info = {
                 'id': str(request.site.id),
@@ -228,35 +246,19 @@ class AnalysisService:
             # State 캐싱 (enhance용) - Node 1~4 결과 포함
             self._cached_states[job_id] = result.copy()
 
-            status = "completed" if result.get('workflow_status') == 'completed' else "failed"
+            # 성공/실패 관계없이 done으로 처리 (상태는 ing와 done만 있음)
             error = {"code": "ANALYSIS_FAILED", "message": str(result.get('errors', []))} if result.get('errors') else None
 
-            # DB에 완료 상태 저장
-            self._update_job_in_db(job_id, status=status, progress=100, results=result, error=error)
+            # DB에 완료 상태 저장 (status='done')
+            self._update_job_in_db(job_id, status='done', progress=100, results=result, error=error)
 
-            return AnalysisJobStatus(
-                jobId=str(job_id),
-                siteId=site_id,
-                status=status,
-                progress=100 if status == "completed" else 0,
-                currentNode="completed" if status == "completed" else "failed",
-                startedAt=started_at,
-                completedAt=datetime.now() if status == "completed" else None,
-                error=error,
-            )
+            self.logger.info(f"[BACKGROUND] 분석 완료: job_id={job_id}")
+
         except Exception as e:
+            self.logger.error(f"[BACKGROUND] 분석 실패: job_id={job_id}, error={str(e)}", exc_info=True)
             error = {"code": "ANALYSIS_FAILED", "message": str(e)}
-            self._update_job_in_db(job_id, status='failed', progress=0, error=error)
-
-            return AnalysisJobStatus(
-                jobId=str(job_id),
-                siteId=site_id,
-                status="failed",
-                progress=0,
-                currentNode="failed",
-                startedAt=started_at,
-                error=error,
-            )
+            # 실패해도 done으로 처리
+            self._update_job_in_db(job_id, status='done', progress=100, error=error)
 
     async def enhance_analysis(
         self,

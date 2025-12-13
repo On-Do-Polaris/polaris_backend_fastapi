@@ -6,7 +6,7 @@ import logging
 
 from src.schemas.analysis import (
     StartAnalysisRequest,
-    EnhanceAnalysisRequest,
+    # EnhanceAnalysisRequest,
     AnalysisJobStatus,
     PhysicalRiskScoreResponse,
     PastEventsResponse,
@@ -28,7 +28,7 @@ def get_analysis_service():
     return analysis_service_instance
 
 
-@router.post("/start", response_model=AnalysisJobStatus, status_code=200)
+@router.post("/start", response_model=AnalysisJobStatus, status_code=200) # 사용
 async def start_analysis(
     request: StartAnalysisRequest,
     api_key: str = Depends(verify_api_key),
@@ -38,48 +38,48 @@ async def start_analysis(
     return await service.start_analysis(request.site.id, request)
 
 
-@router.post("/enhance", response_model=AnalysisJobStatus, status_code=200)
-async def enhance_analysis(
-    body: EnhanceAnalysisRequest,
-    http_request: Request,
-    api_key: str = Depends(verify_api_key),
-):
-    """
-    추가 데이터를 반영하여 분석 향상
+# @router.post("/enhance", response_model=AnalysisJobStatus, status_code=200)
+# async def enhance_analysis(
+#     body: EnhanceAnalysisRequest,
+#     http_request: Request,
+#     api_key: str = Depends(verify_api_key),
+# ):
+#     """
+#     추가 데이터를 반영하여 분석 향상
 
-    기존 분석 결과(job_id)에 추가 데이터를 반영하여 Node 5 이후 재실행.
-    Node 1~4 (ModelOps 데이터)는 캐시 재사용하여 효율적으로 실행.
-    """
-    # request_id 추출
-    request_id = getattr(http_request.state, 'request_id', None)
+#     기존 분석 결과(job_id)에 추가 데이터를 반영하여 Node 5 이후 재실행.
+#     Node 1~4 (ModelOps 데이터)는 캐시 재사용하여 효율적으로 실행.
+#     """
+#     # request_id 추출
+#     request_id = getattr(http_request.state, 'request_id', None)
 
-    # Get singleton service instance
-    from main import analysis_service_instance
-    if analysis_service_instance is None:
-        raise HTTPException(status_code=503, detail="AnalysisService not initialized")
-    service = analysis_service_instance
+#     # Get singleton service instance
+#     from main import analysis_service_instance
+#     if analysis_service_instance is None:
+#         raise HTTPException(status_code=503, detail="AnalysisService not initialized")
+#     service = analysis_service_instance
 
-    # additional_data 변환 (Pydantic 모델 → dict)
-    additional_data_dict = {
-        'raw_text': body.additional_data.raw_text,
-        'metadata': body.additional_data.metadata or {},
-        'building_info': body.additional_data.building_info,
-        'asset_info': body.additional_data.asset_info,
-        'power_usage': body.additional_data.power_usage,
-        'insurance': body.additional_data.insurance
-    }
+#     # additional_data 변환 (Pydantic 모델 → dict)
+#     additional_data_dict = {
+#         'raw_text': body.additional_data.raw_text,
+#         'metadata': body.additional_data.metadata or {},
+#         'building_info': body.additional_data.building_info,
+#         'asset_info': body.additional_data.asset_info,
+#         'power_usage': body.additional_data.power_usage,
+#         'insurance': body.additional_data.insurance
+#     }
 
-    # site_id는 body에서 추출 필요 - EnhanceAnalysisRequest에 추가 필요
-    # 임시로 job_id에서 조회하거나, body에 site_id 추가
-    return await service.enhance_analysis(
-        site_id=body.site_id,  # EnhanceAnalysisRequest에 추가 필요
-        job_id=body.job_id,
-        additional_data_dict=additional_data_dict,
-        request_id=request_id
-    )
+#     # site_id는 body에서 추출 필요 - EnhanceAnalysisRequest에 추가 필요
+#     # 임시로 job_id에서 조회하거나, body에 site_id 추가
+#     return await service.enhance_analysis(
+#         site_id=body.site_id,  # EnhanceAnalysisRequest에 추가 필요
+#         job_id=body.job_id,
+#         additional_data_dict=additional_data_dict,
+#         request_id=request_id
+#     )
 
 
-@router.get("/status", response_model=AnalysisJobStatus)
+@router.get("/status", response_model=AnalysisJobStatus) # 사용
 async def get_analysis_status(
     user_id: UUID = Query(..., alias="userId"),
     job_id: Optional[UUID] = Query(None, alias="jobid"),
@@ -112,7 +112,7 @@ async def get_analysis_status(
     return result
 
 
-@router.get("/physical-risk-scores", response_model=PhysicalRiskScoreResponse)
+@router.get("/physical-risk-scores", response_model=PhysicalRiskScoreResponse) # 사용
 async def get_physical_risk_scores(
     site_id: UUID = Query(..., alias="siteId"),
     hazard_type: Optional[str] = Query(None, alias="hazardType"),
@@ -126,7 +126,7 @@ async def get_physical_risk_scores(
     return result
 
 
-@router.get("/past-events", response_model=PastEventsResponse)
+@router.get("/past-events", response_model=PastEventsResponse) # 사용
 async def get_past_events(
     site_id: UUID = Query(..., alias="siteId"),
     api_key: str = Depends(verify_api_key),
@@ -139,7 +139,7 @@ async def get_past_events(
     return result
 
 
-@router.get("/financial-impacts", response_model=FinancialImpactResponse)
+@router.get("/financial-impacts", response_model=FinancialImpactResponse) # 사용
 async def get_financial_impacts(
     site_id: UUID = Query(..., alias="siteId"),
     api_key: str = Depends(verify_api_key),
@@ -152,7 +152,7 @@ async def get_financial_impacts(
     return result
 
 
-@router.get("/vulnerability", response_model=VulnerabilityResponse)
+@router.get("/vulnerability", response_model=VulnerabilityResponse) # 사용
 async def get_vulnerability(
     site_id: UUID = Query(..., alias="siteId"),
     api_key: str = Depends(verify_api_key),
@@ -165,7 +165,7 @@ async def get_vulnerability(
     return result
 
 
-@router.get("/total", response_model=AnalysisTotalResponse)
+@router.get("/total", response_model=AnalysisTotalResponse) # 사용
 async def get_total_analysis(
     site_id: UUID = Query(..., alias="siteId"),
     hazard_type: str = Query(..., alias="hazardType"),
@@ -179,7 +179,7 @@ async def get_total_analysis(
     return result
 
 
-@router.get("/summary", response_model=AnalysisJobStatus)
+@router.get("/summary", response_model=AnalysisJobStatus) # 사용
 async def get_analysis_summary(
     site_id: UUID = Query(..., alias="siteId"),
     api_key: str = Depends(verify_api_key),
@@ -207,7 +207,7 @@ async def get_analysis_summary(
     )
 
 
-@router.get("/ssp", response_model=PhysicalRiskScoreResponse)
+@router.get("/ssp", response_model=PhysicalRiskScoreResponse) # 사용
 async def get_ssp_projection(
     site_id: UUID = Query(..., alias="siteId"),
     hazard_type: Optional[str] = Query(None, alias="hazardType"),

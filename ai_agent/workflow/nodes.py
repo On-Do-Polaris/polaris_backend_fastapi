@@ -99,8 +99,8 @@ def data_collection_node(state: SuperAgentState, config: Any) -> Dict:
 		building_info = additional_data.get('building_info', {}) if additional_data else {}
 		asset_info = additional_data.get('asset_info', {}) if additional_data else {}
 
-		# Step 3: ModelOps API 호출 (POST 요청)
-		print("  - ModelOps API 호출 중...")
+		# Step 3: ModelOps API 호출 - 사업장 리스크 계산 (동기)
+		print("  - ModelOps 사업장 리스크 계산 중...")
 		response = modelops_client.calculate_site_risk(
 			latitude=latitude,
 			longitude=longitude,
@@ -109,10 +109,13 @@ def data_collection_node(state: SuperAgentState, config: Any) -> Dict:
 			asset_info=asset_info
 		)
 
-		# Step 4: 200 응답 확인 (calculate_site_risk가 성공하면 이미 200 응답을 받은 것)
-		print(f"  [OK] ModelOps API 요청 성공 (HTTP 200)")
+		print(f"  [OK] 사업장 리스크 계산 완료 (HTTP 200)")
 		print(f"  - site_id: {response.get('site_id')}")
 		print(f"  - 계산 시각: {response.get('calculated_at')}")
+
+		# Step 4: ModelOps API 호출 - 후보지 추천 (비동기, 콜백 방식)
+		# ModelOps가 추천 완료 후 FastAPI /api/internal/modelops/recommendation-complete 호출
+		# 현재는 후보지 추천 기능 미구현으로 스킵 (향후 ModelOps 측 구현 필요)
 
 		# Step 5: State 업데이트 (Node 3에서 DB 조회에 필요한 정보만 저장)
 		return {
@@ -124,7 +127,7 @@ def data_collection_node(state: SuperAgentState, config: Any) -> Dict:
 			'data_collection_status': 'completed',
 			'current_step': 'risk_assessment',
 			'logs': [
-				'ModelOps API 요청 성공 (HTTP 200)',
+				'ModelOps 사업장 리스크 계산 완료 (HTTP 200)',
 				f'Site ID: {site_id}',
 				f'위치: ({latitude}, {longitude})'
 			]

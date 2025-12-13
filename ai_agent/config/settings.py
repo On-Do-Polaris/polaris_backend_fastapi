@@ -182,6 +182,9 @@ class Config:
 			'mock_mode': os.getenv('RAG_MOCK_MODE', 'false').lower() == 'true'
 		}
 
+		# ===== Spring Boot 연동 설정 =====
+		self.SPRING_BOOT_BASE_URL = os.getenv('SPRING_BOOT_BASE_URL', 'http://localhost:8080')
+
 		# ===== 검증 설정 =====
 		self.VALIDATION_CONFIG = {
 			'max_retry_count': 3,  # 최대 재시도 횟수

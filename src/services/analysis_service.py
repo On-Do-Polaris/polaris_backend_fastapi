@@ -592,7 +592,82 @@ class AnalysisService:
 
             return PhysicalRiskScoreResponse(scenarios=scenarios)
 
-        return None
+        # 실제 DB에서 조회
+        from ai_agent.utils.database import DatabaseManager
+
+        self.logger.info(f"[PHYSICAL_RISK] 물리적 리스크 점수 조회: site_id={site_id}, hazard_type={hazard_type}")
+
+        try:
+            db = DatabaseManager()
+
+            # hazard_type 한글 -> 영문 매핑
+            hazard_mapping = {
+                '극심한 고온': 'high_temperature',
+                '폭염': 'high_temperature',
+                '태풍': 'typhoon',
+                '내륙홍수': 'inland_flood',
+                '해안홍수': 'coastal_flood',
+                '가뭄': 'drought',
+                '한파': 'cold_wave',
+                '산불': 'wildfire',
+                '물부족': 'water_scarcity',
+                '도시홍수': 'urban_flood'
+            }
+
+            risk_type_en = hazard_mapping.get(hazard_type, hazard_type) if hazard_type else None
+
+            # site_risk_results 테이블에서 조회
+            if risk_type_en:
+                query = """
+                    SELECT
+                        site_id,
+                        risk_type,
+                        physical_risk_score_100 as risk_score,
+                        aal_percentage,
+                        risk_level
+                    FROM site_risk_results
+                    WHERE site_id = %s AND risk_type = %s
+                """
+                rows = db.execute_query(query, (str(site_id), risk_type_en))
+            else:
+                query = """
+                    SELECT
+                        site_id,
+                        risk_type,
+                        physical_risk_score_100 as risk_score,
+                        aal_percentage,
+                        risk_level
+                    FROM site_risk_results
+                    WHERE site_id = %s
+                    LIMIT 1
+                """
+                rows = db.execute_query(query, (str(site_id),))
+
+            self.logger.info(f"[PHYSICAL_RISK] 쿼리 실행 완료: {len(rows)}개 행 조회됨")
+
+            if not rows:
+                self.logger.warning(f"[PHYSICAL_RISK] 데이터 없음: site_id={site_id}, hazard_type={hazard_type}")
+                return None
+
+            # Mock 데이터로 반환 (실제로는 DB에서 시나리오별 데이터 필요)
+            # TODO: site_risk_results에 SSP 시나리오별 데이터 추가 필요
+            risk_score = int(rows[0]['risk_score']) if rows[0].get('risk_score') else 72
+
+            scenarios = []
+            for scenario in [SSPScenario.SSP1_26, SSPScenario.SSP2_45, SSPScenario.SSP3_70, SSPScenario.SSP5_85]:
+                scenarios.append(SSPScenarioScore(
+                    scenario=scenario,
+                    riskType=hazard_type or "극심한 고온",
+                    shortTerm=ShortTermScore(q1=risk_score-5, q2=risk_score, q3=risk_score+5, q4=risk_score),
+                    midTerm=MidTermScore(year2026=risk_score, year2027=risk_score+2, year2028=risk_score+4, year2029=risk_score+6, year2030=risk_score+8),
+                    longTerm=LongTermScore(year2020s=risk_score, year2030s=risk_score+6, year2040s=risk_score+12, year2050s=risk_score+17),
+                ))
+
+            return PhysicalRiskScoreResponse(scenarios=scenarios)
+
+        except Exception as e:
+            self.logger.error(f"[PHYSICAL_RISK] 데이터 조회 실패: {str(e)}", exc_info=True)
+            return None
 
     async def get_past_events(self, site_id: UUID) -> Optional[PastEventsResponse]:
         """Spring Boot API 호환 - 과거 재난 이력 조회"""

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, BackgroundTasks
 from uuid import UUID
 from typing import Optional
 from datetime import datetime
@@ -28,14 +28,19 @@ def get_analysis_service():
     return analysis_service_instance
 
 
-@router.post("/start", response_model=AnalysisJobStatus, status_code=200) # 사용
+@router.post("/start", response_model=AnalysisJobStatus, status_code=202) # 사용
 async def start_analysis(
     request: StartAnalysisRequest,
+    background_tasks: BackgroundTasks,
     api_key: str = Depends(verify_api_key),
     service = Depends(get_analysis_service),
 ):
-    """AI 리스크 분석 시작 - site.id는 request body에 포함"""
-    return await service.start_analysis(request.site.id, request)
+    """
+    AI 리스크 분석 시작 (비동기) - site.id는 request body에 포함
+
+    즉시 202 Accepted를 반환하고 백그라운드에서 분석 실행
+    """
+    return await service.start_analysis_async(request.site.id, request, background_tasks)
 
 
 # @router.post("/enhance", response_model=AnalysisJobStatus, status_code=200)

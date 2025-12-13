@@ -3,10 +3,10 @@
 // ================================================================
 // Database: datawarehouse (Port: 5432)
 // Services: FastAPI + ModelOPS
-// Total Tables: 47
+// Total Tables: 45
 //
-// Last Modified: 2025-12-10
-// Version: v06 (site_id 추가 + Site Risk 테이블 3개 추가)
+// Last Modified: 2025-12-13
+// Version: v07 (ModelOps 스키마 변경 + site_risk_results/summary 삭제)
 // ================================================================
 
 Project datawarehouse {
@@ -576,122 +576,129 @@ Table batch_jobs {
 // 9. ModelOPS Tables (5개) - H x E x V = Risk
 // ============================================
 
-Table probability_results {
-  latitude decimal(9,6) [not null, note: '격자 위도']
-  longitude decimal(9,6) [not null, note: '격자 경도']
-  risk_type varchar(50) [not null, note: '위험 유형 (9가지)']
-  aal real [note: '연간 평균 손실률 (0.0~1.0)']
-  bin_probabilities jsonb [note: 'bin별 발생확률 배열']
-  bin_data jsonb [note: '히스토그램 상세 (하위 호환)']
-  calculation_details jsonb [note: '계산 상세정보']
-  calculated_at timestamp [note: '계산 시점']
-
-  Note: '''
-    P(H) 확률 결과 (~4.06M rows)
-    bin_probabilities: [0.65, 0.25, 0.08, 0.015, 0.005]
-  '''
-
-  indexes {
-    (latitude, longitude, risk_type) [pk]
-    risk_type
-    (latitude, longitude)
-    aal
-    calculated_at
-  }
-}
-
 Table hazard_results {
   latitude decimal(9,6) [not null, note: '격자 위도']
   longitude decimal(9,6) [not null, note: '격자 경도']
   risk_type varchar(50) [not null, note: '위험 유형 (9가지)']
-  hazard_score real [not null, note: '원본 위험도 점수']
-  hazard_score_100 real [not null, note: '0-100 정규화 점수']
-  hazard_level varchar(20) [not null, note: '위험 등급: 낮음/보통/높음/매우높음']
-  calculated_at timestamp [note: '계산 시점']
+  target_year integer [not null, note: '목표 연도 (2021~2100)']
 
-  Note: 'Hazard Score 결과 (H) (~4.06M rows)'
+  ssp126_score_100 real [note: 'SSP1-2.6 위험도 (0~100)']
+  ssp245_score_100 real [note: 'SSP2-4.5 위험도 (0~100)']
+  ssp370_score_100 real [note: 'SSP3-7.0 위험도 (0~100)']
+  ssp585_score_100 real [note: 'SSP5-8.5 위험도 (0~100)']
+
+  Note: '''
+    격자별 Hazard 점수 (4개 시나리오, 연도별)
+    예상 행 수: 451,351 grids × 9 types × 80 years = 약 3,251만 rows
+  '''
 
   indexes {
-    (latitude, longitude, risk_type) [pk]
+    (latitude, longitude, risk_type, target_year) [pk]
     risk_type
+    target_year
     (latitude, longitude)
-    hazard_level
-    hazard_score_100
-    calculated_at
+  }
+}
+
+Table probability_results {
+  latitude decimal(9,6) [not null, note: '격자 위도']
+  longitude decimal(9,6) [not null, note: '격자 경도']
+  risk_type varchar(50) [not null, note: '위험 유형 (9가지)']
+  target_year integer [not null, note: '목표 연도 (2021~2100)']
+
+  ssp126_aal real [note: 'SSP1-2.6 연간 평균 손실률 (0.0~1.0)']
+  ssp245_aal real [note: 'SSP2-4.5 연간 평균 손실률 (0.0~1.0)']
+  ssp370_aal real [note: 'SSP3-7.0 연간 평균 손실률 (0.0~1.0)']
+  ssp585_aal real [note: 'SSP5-8.5 연간 평균 손실률 (0.0~1.0)']
+
+  ssp126_bin_probs jsonb [note: 'SSP1-2.6 bin별 확률 [0.65, 0.25, 0.08, 0.015, 0.005]']
+  ssp245_bin_probs jsonb [note: 'SSP2-4.5 bin별 확률']
+  ssp370_bin_probs jsonb [note: 'SSP3-7.0 bin별 확률']
+  ssp585_bin_probs jsonb [note: 'SSP5-8.5 bin별 확률']
+
+  Note: '''
+    격자별 확률 및 AAL (4개 시나리오, 연도별)
+    예상 행 수: 451,351 grids × 9 types × 80 years = 약 3,251만 rows
+  '''
+
+  indexes {
+    (latitude, longitude, risk_type, target_year) [pk]
+    risk_type
+    target_year
+    (latitude, longitude)
   }
 }
 
 Table exposure_results {
+  site_id uuid [not null, note: 'Application DB sites.id 참조']
   latitude decimal(9,6) [not null, note: '격자 위도']
   longitude decimal(9,6) [not null, note: '격자 경도']
   risk_type varchar(50) [not null, note: '위험 유형 (9가지)']
-  site_id uuid [note: 'Application DB sites.id 참조 (사업장 ID)']
-  exposure_score real [note: '노출도 점수 (0.0~1.0)']
-  proximity_factor real [note: '근접도 계수']
-  normalized_asset_value real [note: '정규화 자산가치']
-  calculated_at timestamp [note: '계산 시점']
+  target_year integer [not null, note: '목표 연도 (2021~2100)']
+  exposure_score real [not null, note: '노출도 점수 (0.0~100.0)']
 
-  Note: 'Exposure Score 결과 (E) (~4.06M rows)'
+  Note: '''
+    Site별 Exposure 점수 (시나리오 독립적, 연도별)
+    예상 행 수: 실제 site 분석 시 생성
+  '''
 
   indexes {
-    (latitude, longitude, risk_type) [pk]
-    risk_type
-    (latitude, longitude)
+    (site_id, risk_type, target_year) [pk]
     site_id
+    risk_type
+    target_year
+    (latitude, longitude)
     exposure_score
-    calculated_at
   }
 }
 
 Table vulnerability_results {
+  site_id uuid [not null, note: 'Application DB sites.id 참조']
   latitude decimal(9,6) [not null, note: '격자 위도']
   longitude decimal(9,6) [not null, note: '격자 경도']
   risk_type varchar(50) [not null, note: '위험 유형 (9가지)']
-  site_id uuid [note: 'Application DB sites.id 참조 (사업장 ID)']
-  vulnerability_score real [note: '취약성 점수 (0~100)']
-  vulnerability_level varchar(20) [note: '등급: very_low/low/medium/high/very_high']
-  factors jsonb [note: '취약성 요인 상세']
-  calculated_at timestamp [note: '계산 시점']
+  target_year integer [not null, note: '목표 연도 (2021~2100)']
+  vulnerability_score real [not null, note: '취약성 점수 (0~100)']
 
-  Note: 'Vulnerability Score 결과 (V) (~4.06M rows)'
+  Note: '''
+    Site별 Vulnerability 점수 (시나리오 독립적, 연도별)
+    예상 행 수: 실제 site 분석 시 생성
+  '''
 
   indexes {
-    (latitude, longitude, risk_type) [pk]
-    risk_type
-    (latitude, longitude)
+    (site_id, risk_type, target_year) [pk]
     site_id
-    vulnerability_level
+    risk_type
+    target_year
+    (latitude, longitude)
     vulnerability_score
-    calculated_at
   }
 }
 
 Table aal_scaled_results {
+  site_id uuid [not null, note: 'Application DB sites.id 참조']
   latitude decimal(9,6) [not null, note: '격자 위도']
   longitude decimal(9,6) [not null, note: '격자 경도']
   risk_type varchar(50) [not null, note: '위험 유형 (9가지)']
-  site_id uuid [note: 'Application DB sites.id 참조 (사업장 ID)']
-  base_aal real [note: '기본 AAL (probability_results.aal)']
-  vulnerability_scale real [note: 'F_vuln (0.9~1.1)']
-  final_aal real [note: '최종 AAL = base_aal × F_vuln × (1-insurance_rate)']
-  insurance_rate real [default: 0.0, note: '보험 보전율 (0~1)']
-  expected_loss bigint [note: '예상 손실액 (원)']
-  calculated_at timestamp [note: '계산 시점']
+  target_year integer [not null, note: '목표 연도 (2021~2100)']
+
+  ssp126_final_aal real [note: 'SSP1-2.6 최종 AAL']
+  ssp245_final_aal real [note: 'SSP2-4.5 최종 AAL']
+  ssp370_final_aal real [note: 'SSP3-7.0 최종 AAL']
+  ssp585_final_aal real [note: 'SSP5-8.5 최종 AAL']
 
   Note: '''
-    AAL 최종 결과 (~4.06M rows)
-    F_vuln = 0.9 + (V_score / 100) × 0.2
-    final_aal = base_aal × F_vuln × (1 - insurance_rate)
+    Site별 Vulnerability 반영 최종 AAL (4개 시나리오, 연도별)
+    예상 행 수: 실제 site 분석 시 생성
+    공식: final_aal = base_aal × F_vuln × (1 - insurance_rate)
   '''
 
   indexes {
-    (latitude, longitude, risk_type) [pk]
-    risk_type
+    (site_id, risk_type, target_year) [pk]
     site_id
+    risk_type
+    target_year
     (latitude, longitude)
-    final_aal
-    expected_loss
-    calculated_at
   }
 }
 
@@ -1017,80 +1024,10 @@ Table api_vworld_geocode {
 }
 
 // ============================================
-// 12. Site Risk Tables (3개) - v06 추가
+// 12. Site Risk Tables (1개) - 후보지 정보
 // ============================================
-
-Table site_risk_results {
-  site_id uuid [not null, note: 'Application DB sites.id 참조']
-  risk_type varchar(50) [not null, note: '9가지 리스크 타입']
-
-  // Physical Risk Score (H × E × V)
-  hazard_score real [not null, note: 'H: 0.0~1.0']
-  exposure_score real [not null, note: 'E: 0.0~1.0']
-  vulnerability_score real [not null, note: 'V: 0.0~1.0']
-  physical_risk_score real [not null, note: 'H×E×V: 0.0~1.0']
-  physical_risk_score_100 real [not null, note: '0~100 스케일']
-
-  // AAL 분석 결과
-  vulnerability_scale real [note: 'F_vuln: 0.7~1.3']
-  insurance_rate real [default: 0.0, note: '보험 보전율: 0.0~1.0']
-  aal_percentage real [note: 'AAL: 0.0~100.0 (%)']
-
-  // 통합 점수
-  combined_score real [note: '(physical×50%) + (aal×10×50%)']
-
-  // 등급
-  risk_level varchar(20) [not null, note: 'Very High/High/Medium/Low/Very Low']
-  aal_level varchar(20) [note: 'Critical/High/Moderate/Low/Minimal']
-
-  // 상세 정보
-  calculation_details jsonb [note: '계산 상세 (선택적)']
-
-  // 메타데이터
-  calculated_at timestamp [note: '계산 시점']
-  analysis_job_id uuid [note: '분석 작업 ID']
-
-  Note: 'Site별 최종 리스크 결과 (H×E×V + AAL) - 사이트당 최대 9개 행'
-
-  indexes {
-    (site_id, risk_type) [pk]
-    site_id
-    risk_type
-    physical_risk_score_100
-    aal_percentage
-    combined_score
-    risk_level
-    calculated_at
-  }
-}
-
-Table site_risk_summary {
-  site_id uuid [pk, note: 'Application DB sites.id 참조']
-
-  // 전체 통합 점수
-  total_physical_risk_score real [note: '9개 평균']
-  total_aal_percentage real [note: '9개 합계 (%)']
-  total_combined_score real [note: '9개 평균']
-
-  // 최고 위험
-  highest_risk_type varchar(50) [note: '가장 높은 리스크 타입']
-  highest_risk_score real [note: '해당 점수']
-
-  // 전체 등급
-  overall_risk_grade varchar(20) [note: 'A/B/C/D/F']
-
-  // 메타데이터
-  calculated_at timestamp [note: '계산 시점']
-  analysis_job_id uuid [note: '분석 작업 ID']
-
-  Note: 'Site별 리스크 요약 (9개 리스크 타입 통합) - 사이트당 1개 행'
-
-  indexes {
-    overall_risk_grade
-    total_combined_score
-    calculated_at
-  }
-}
+// [참고] site_risk_results, site_risk_summary 삭제됨
+// H, E, V, AAL 결과는 9번 ModelOPS 테이블들에서 관리
 
 Table candidate_sites {
   id uuid [pk, note: '후보지 ID']
@@ -1135,5 +1072,3 @@ Table candidate_sites {
   }
 }
 
-// Site Risk Relationships
-Ref: site_risk_results.site_id > site_risk_summary.site_id

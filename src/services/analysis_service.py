@@ -210,6 +210,98 @@ class AnalysisService:
         except Exception as e:
             self.logger.error(f"Failed to update job in DB: {e}")
 
+    def _mark_report_completed(self, job_id: UUID, results: dict = None, error: dict = None):
+        """Report 생성 완료 표시 (input_params에 report_completed 플래그 추가)"""
+        if not self.db:
+            return
+
+        try:
+            # input_params JSON에 report_completed: true 추가
+            query = """
+                UPDATE batch_jobs
+                SET input_params = jsonb_set(
+                        COALESCE(input_params, '{}'::jsonb),
+                        '{report_completed}',
+                        'true'::jsonb
+                    ),
+                    results = %s,
+                    error_message = %s,
+                    progress = 50
+                WHERE batch_id = %s
+            """
+            self.db.execute_update(query, (
+                json.dumps(results) if results else None,
+                json.dumps(error) if error else None,
+                str(job_id)
+            ))
+            self.logger.info(f"Job {job_id} report marked as completed")
+
+            # ModelOps 추천도 완료되었는지 확인하여 done 처리
+            self._check_and_mark_done(job_id)
+        except Exception as e:
+            self.logger.error(f"Failed to mark report completed: {e}")
+
+    def _mark_recommendation_completed(self, job_id: UUID):
+        """ModelOps 추천 완료 표시 (input_params에 recommendation_completed 플래그 추가)"""
+        if not self.db:
+            return
+
+        try:
+            # input_params JSON에 recommendation_completed: true 추가
+            query = """
+                UPDATE batch_jobs
+                SET input_params = jsonb_set(
+                        COALESCE(input_params, '{}'::jsonb),
+                        '{recommendation_completed}',
+                        'true'::jsonb
+                    ),
+                    progress = CASE
+                        WHEN (input_params->>'report_completed')::boolean = true THEN 100
+                        ELSE 50
+                    END
+                WHERE batch_id = %s
+            """
+            self.db.execute_update(query, (str(job_id),))
+            self.logger.info(f"Job {job_id} recommendation marked as completed")
+
+            # Report도 완료되었는지 확인하여 done 처리
+            self._check_and_mark_done(job_id)
+        except Exception as e:
+            self.logger.error(f"Failed to mark recommendation completed: {e}")
+
+    def _check_and_mark_done(self, job_id: UUID):
+        """Report와 Recommendation 둘 다 완료되었는지 확인하고 done으로 변경"""
+        if not self.db:
+            return
+
+        try:
+            # 두 플래그 모두 확인
+            query = """
+                SELECT
+                    (input_params->>'report_completed')::boolean as report_done,
+                    (input_params->>'recommendation_completed')::boolean as recommendation_done
+                FROM batch_jobs
+                WHERE batch_id = %s
+            """
+            result = self.db.execute_query(query, (str(job_id),))
+
+            if result and len(result) > 0:
+                row = result[0]
+                report_done = row.get('report_done', False)
+                recommendation_done = row.get('recommendation_done', False)
+
+                # 둘 다 완료되면 status를 done으로 변경
+                if report_done and recommendation_done:
+                    update_query = """
+                        UPDATE batch_jobs
+                        SET status = 'done', progress = 100, completed_at = NOW()
+                        WHERE batch_id = %s AND status != 'done'
+                    """
+                    self.db.execute_update(update_query, (str(job_id),))
+                    self.logger.info(f"Job {job_id} marked as DONE (both report and recommendation completed)")
+        except Exception as e:
+            self.logger.error(f"Failed to check and mark done: {e}")
+
     async def start_analysis_async(self, site_id: UUID, request: StartAnalysisRequest, background_tasks) -> AnalysisJobStatus:
         """
         Spring Boot API 호환 - 분석 작업 시작 (비동기)
@@ -266,19 +358,19 @@ class AnalysisService:
             # State 캐싱 (enhance용) - Node 1~4 결과 포함
             self._cached_states[job_id] = result.copy()
 
-            # 성공/실패 관계없이 done으로 처리 (상태는 ing와 done만 있음)
+            # Report 생성 완료 처리 (아직 done이 아님, ModelOps 추천 대기 중)
             error = {"code": "ANALYSIS_FAILED", "message": str(result.get('errors', []))} if result.get('errors') else None
 
-            # DB에 완료 상태 저장 (status='done')
-            self._update_job_in_db(job_id, status='done', progress=100, results=result, error=error)
+            # DB에 report_completed 플래그 저장 (status는 아직 'ing')
+            self._mark_report_completed(job_id, results=result, error=error)
 
-            self.logger.info(f"[BACKGROUND] 분석 완료: job_id={job_id}")
+            self.logger.info(f"[BACKGROUND] 리포트 생성 완료 (ModelOps 추천 대기 중): job_id={job_id}")
 
         except Exception as e:
             self.logger.error(f"[BACKGROUND] 분석 실패: job_id={job_id}, error={str(e)}", exc_info=True)
             error = {"code": "ANALYSIS_FAILED", "message": str(e)}
-            # 실패해도 done으로 처리
-            self._update_job_in_db(job_id, status='done', progress=100, error=error)
+            # 실패 시에도 report_completed 표시 (error와 함께)
+            self._mark_report_completed(job_id, results=None, error=error)
 
     async def enhance_analysis(
         self,
@@ -477,12 +569,36 @@ class AnalysisService:
                 except:
                     error_dict = {"code": "UNKNOWN_ERROR", "message": str(error_msg)}
 
+            # report_completed와 recommendation_completed 플래그 확인
+            report_completed = input_params.get('report_completed', False) if isinstance(input_params, dict) else False
+            recommendation_completed = input_params.get('recommendation_completed', False) if isinstance(input_params, dict) else False
+
+            # 실제 상태와 진행률 계산
+            actual_status = job['status']
+            actual_progress = job.get('progress', 0)
+
+            # DB status가 'ing'인 경우, 플래그를 확인하여 세분화된 상태 제공
+            if actual_status == 'ing':
+                if report_completed and recommendation_completed:
+                    # 둘 다 완료되었는데 status가 아직 ing면 곧 done으로 업데이트될 예정
+                    actual_status = 'done'
+                    actual_progress = 100
+                elif report_completed:
+                    # Report만 완료, ModelOps 추천 대기 중
+                    actual_progress = 50
+                elif recommendation_completed:
+                    # Recommendation만 완료 (일반적으로 발생하지 않음)
+                    actual_progress = 50
+                else:
+                    # 둘 다 진행 중
+                    actual_progress = job.get('progress', 0)
+
             return AnalysisJobStatus(
                 jobId=str(job['batch_id']),
                 siteId=job_site_id or (str(site_id) if site_id else None),
-                status=job['status'],
-                progress=job.get('progress', 0),
-                currentNode=job['status'],  # status를 currentNode로 사용
+                status=actual_status,
+                progress=actual_progress,
+                currentNode=actual_status,  # status를 currentNode로 사용
                 currentHazard=None,
                 startedAt=job.get('started_at'),
                 completedAt=job.get('completed_at'),
@@ -566,12 +682,36 @@ class AnalysisService:
                 except:
                     error_dict = {"code": "UNKNOWN_ERROR", "message": str(error_msg)}
 
+            # report_completed와 recommendation_completed 플래그 확인
+            report_completed = input_params.get('report_completed', False) if isinstance(input_params, dict) else False
+            recommendation_completed = input_params.get('recommendation_completed', False) if isinstance(input_params, dict) else False
+
+            # 실제 상태와 진행률 계산
+            actual_status = job['status']
+            actual_progress = job.get('progress', 0)
+
+            # DB status가 'ing'인 경우, 플래그를 확인하여 세분화된 상태 제공
+            if actual_status == 'ing':
+                if report_completed and recommendation_completed:
+                    # 둘 다 완료되었는데 status가 아직 ing면 곧 done으로 업데이트될 예정
+                    actual_status = 'done'
+                    actual_progress = 100
+                elif report_completed:
+                    # Report만 완료, ModelOps 추천 대기 중
+                    actual_progress = 50
+                elif recommendation_completed:
+                    # Recommendation만 완료 (일반적으로 발생하지 않음)
+                    actual_progress = 50
+                else:
+                    # 둘 다 진행 중
+                    actual_progress = job.get('progress', 0)
+
             return AnalysisJobStatus(
                 jobId=str(job['batch_id']),
                 siteId=job_site_id,
-                status=job['status'],
-                progress=job.get('progress', 0),
-                currentNode=job['status'],  # status를 currentNode로 사용
+                status=actual_status,
+                progress=actual_progress,
+                currentNode=actual_status,  # status를 currentNode로 사용
                 currentHazard=None,
                 startedAt=job.get('started_at'),
                 completedAt=job.get('completed_at'),
@@ -1088,3 +1228,37 @@ class AnalysisService:
         """후보지 추천 완료 시 호출"""
         self.logger.info(f"[CALLBACK] 후보지 추천 완료: user_id={user_id}")
         self._check_and_send_completion_callback(user_id)
+
+    async def mark_modelops_recommendation_completed(self, user_id: UUID):
+        """
+        ModelOps 서버에서 후보지 추천 완료 시 호출하는 메서드
+
+        Args:
+            user_id: 사용자 ID
+        """
+        self.logger.info(f"[MODELOPS] 후보지 추천 완료 알림 수신: user_id={user_id}")
+
+        # user_id로 가장 최근 job 찾기
+        if not self.db:
+            self.logger.warning("Database not available")
+            return
+
+        try:
+            query = """
+                SELECT batch_id
+                FROM batch_jobs
+                WHERE input_params::jsonb->>'user_id' = %s
+                  AND job_type = 'physical_risk_analysis'
+                ORDER BY created_at DESC
+                LIMIT 1
+            """
+            result = self.db.execute_query(query, (str(user_id),))
+
+            if result and len(result) > 0:
+                job_id = result[0]['batch_id']
+                self.logger.info(f"[MODELOPS] user_id={user_id}의 최근 job_id={job_id} 찾음")
+                self._mark_recommendation_completed(UUID(job_id))
+            else:
+                self.logger.warning(f"[MODELOPS] user_id={user_id}에 해당하는 job을 찾을 수 없음")
+        except Exception as e:
+            self.logger.error(f"[MODELOPS] 추천 완료 처리 실패: {e}")

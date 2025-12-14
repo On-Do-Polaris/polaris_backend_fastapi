@@ -2,9 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from uuid import UUID
 from typing import Optional
 
-from src.schemas.reports import (
-    CreateReportRequest,
-)
+
 from src.core.auth import verify_api_key
 
 router = APIRouter(prefix="/api/reports", tags=["Reports"])

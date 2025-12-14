@@ -260,3 +260,22 @@ async def get_ssp_projection(
     if not result:
         raise HTTPException(status_code=404, detail="Analysis not found")
     return result
+
+
+@router.post("/modelops/recommendation-completed", status_code=200) # ModelOps 전용
+async def mark_recommendation_completed(
+    user_id: UUID = Query(..., alias="userId"),
+    api_key: str = Depends(verify_api_key),
+    service = Depends(get_analysis_service),
+):
+    """
+    ModelOps 서버에서 후보지 추천 완료 시 호출하는 엔드포인트
+
+    Args:
+        userId: 사용자 ID
+
+    Returns:
+        200 OK
+    """
+    await service.mark_modelops_recommendation_completed(user_id)
+    return {"status": "success", "message": f"Recommendation completed for user {user_id}"}

@@ -260,3 +260,57 @@ class AnalysisTotalResponse(BaseModel):
 
     class Config:
         populate_by_name = True
+
+
+# Analysis Summary - 분석 요약 API
+class PhysicalRiskScores(BaseModel):
+    """9대 물리적 리스크 점수 (0-100)"""
+    extreme_heat: int = Field(..., ge=0, le=100)
+    extreme_cold: int = Field(..., ge=0, le=100)
+    river_flood: int = Field(..., ge=0, le=100)
+    urban_flood: int = Field(..., ge=0, le=100)
+    drought: int = Field(..., ge=0, le=100)
+    water_stress: int = Field(..., ge=0, le=100)
+    sea_level_rise: int = Field(..., ge=0, le=100)
+    typhoon: int = Field(..., ge=0, le=100)
+    wildfire: int = Field(..., ge=0, le=100)
+
+    class Config:
+        populate_by_name = True
+
+
+class AALScores(BaseModel):
+    """9대 리스크별 AAL 점수"""
+    extreme_heat: float = Field(...)
+    extreme_cold: float = Field(...)
+    river_flood: float = Field(...)
+    urban_flood: float = Field(...)
+    drought: float = Field(...)
+    water_stress: float = Field(...)
+    sea_level_rise: float = Field(...)
+    typhoon: float = Field(...)
+    wildfire: float = Field(...)
+
+    class Config:
+        populate_by_name = True
+
+
+class AnalysisSummaryData(BaseModel):
+    """분석 요약 데이터"""
+    main_climate_risk: str = Field(..., alias="mainClimateRisk", description="주요 기후 위험 (한글)")
+    main_climate_risk_score: int = Field(..., alias="mainClimateRiskScore", ge=0, le=100, description="주요 위험 점수")
+    main_climate_risk_aal: float = Field(..., alias="mainClimateRiskAAL", description="주요 위험 AAL")
+    physical_risk_scores: PhysicalRiskScores = Field(..., alias="physical-risk-scores")
+    aal_scores: AALScores = Field(..., alias="aal-scores")
+
+    class Config:
+        populate_by_name = True
+
+
+class AnalysisSummaryResponse(BaseModel):
+    """분석 요약 응답"""
+    result: str = "success"
+    data: AnalysisSummaryData
+
+    class Config:
+        populate_by_name = True

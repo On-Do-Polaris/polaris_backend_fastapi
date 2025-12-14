@@ -7,8 +7,9 @@ from src.schemas.simulation import (
     RelocationSimulationResponse,
     ClimateSimulationRequest,
     ClimateSimulationResponse,
-    RiskData,
-    LocationData,
+    CandidateResult,
+    PhysicalRiskScores,
+    AALScores,
     SiteData,
     YearlyData,
 )
@@ -66,84 +67,125 @@ class SimulationService:
     ) -> RelocationSimulationResponse:
         """Spring Boot API 호환 - 이전 시뮬레이션 비교"""
         if settings.USE_MOCK_DATA:
-            current_risks = [
-                RiskData(riskType="폭염", riskScore=75, aal=0.023),
-                RiskData(riskType="태풍", riskScore=65, aal=0.018),
-                RiskData(riskType="홍수", riskScore=55, aal=0.012),
-                RiskData(riskType="가뭄", riskScore=40, aal=0.008),
-            ]
-
-            new_risks = [
-                RiskData(riskType="폭염", riskScore=60, aal=0.018),
-                RiskData(riskType="태풍", riskScore=45, aal=0.012),
-                RiskData(riskType="홍수", riskScore=35, aal=0.008),
-                RiskData(riskType="가뭄", riskScore=50, aal=0.010),
-            ]
+            candidate_result = CandidateResult(
+                candidateId=uuid4(),
+                latitude=request.candidate.latitude,
+                longitude=request.candidate.longitude,
+                jibunAddress=request.candidate.jibun_address,
+                roadAddress=request.candidate.road_address,
+                riskscore=70,
+                aalscore=20.0,
+                **{
+                    "physical-risk-scores": PhysicalRiskScores(
+                        extreme_heat=10,
+                        extreme_cold=20,
+                        river_flood=30,
+                        urban_flood=40,
+                        drought=50,
+                        water_stress=60,
+                        sea_level_rise=50,
+                        typhoon=70,
+                        wildfire=60
+                    ),
+                    "aal-scores": AALScores(
+                        extreme_heat=9.0,
+                        extreme_cold=10.0,
+                        river_flood=11.0,
+                        urban_flood=12.0,
+                        drought=13.0,
+                        water_stress=14.0,
+                        sea_level_rise=15.0,
+                        typhoon=17.0,
+                        wildfire=16.0
+                    )
+                },
+                pros="홍수 위험 62% 감소한다",
+                cons="초기 구축 비용 증가한다"
+            )
 
             return RelocationSimulationResponse(
-                currentLocation=LocationData(risks=current_risks),
-                newLocation=LocationData(risks=new_risks),
+                siteId=request.site_id,
+                candidate=candidate_result
             )
 
         # 실제 ai_agent를 사용한 비교 분석
         try:
-            # 현재 위치 분석 (실제로는 DB에서 조회)
-            base_result = await self._analyze_location(35.1796, 129.0756, "현재 사업장")
-
             # 후보지 분석
-            candidate_result = await self._analyze_location(
-                request.latitude,
-                request.longitude,
+            result = await self._analyze_location(
+                request.candidate.latitude,
+                request.candidate.longitude,
                 "후보지"
             )
 
             # 결과 변환
-            base_scores = base_result.get('physical_risk_scores', {})
-            candidate_scores = candidate_result.get('physical_risk_scores', {})
+            scores = result.get('physical_risk_scores', {})
+            aal_results = result.get('aal_analysis', {})
 
-            current_risks = []
-            new_risks = []
+            # PhysicalRiskScores 객체 생성
+            physical_scores = PhysicalRiskScores(
+                extreme_heat=int(scores.get('extreme_heat', {}).get('physical_risk_score_100', 0)),
+                extreme_cold=int(scores.get('extreme_cold', {}).get('physical_risk_score_100', 0)),
+                river_flood=int(scores.get('river_flood', {}).get('physical_risk_score_100', 0)),
+                urban_flood=int(scores.get('urban_flood', {}).get('physical_risk_score_100', 0)),
+                drought=int(scores.get('drought', {}).get('physical_risk_score_100', 0)),
+                water_stress=int(scores.get('water_stress', {}).get('physical_risk_score_100', 0)),
+                sea_level_rise=int(scores.get('sea_level_rise', {}).get('physical_risk_score_100', 0)),
+                typhoon=int(scores.get('typhoon', {}).get('physical_risk_score_100', 0)),
+                wildfire=int(scores.get('wildfire', {}).get('physical_risk_score_100', 0))
+            )
 
-            hazard_names = {
-                'typhoon': '태풍',
-                'river_flood': '홍수',
-                'drought': '가뭄',
-                'extreme_heat': '폭염',
-                'extreme_cold': '한파',
-                'wildfire': '산불',
-            }
+            # AALScores 객체 생성
+            aal_scores = AALScores(
+                extreme_heat=aal_results.get('extreme_heat', {}).get('final_aal_percentage', 0.0),
+                extreme_cold=aal_results.get('extreme_cold', {}).get('final_aal_percentage', 0.0),
+                river_flood=aal_results.get('river_flood', {}).get('final_aal_percentage', 0.0),
+                urban_flood=aal_results.get('urban_flood', {}).get('final_aal_percentage', 0.0),
+                drought=aal_results.get('drought', {}).get('final_aal_percentage', 0.0),
+                water_stress=aal_results.get('water_stress', {}).get('final_aal_percentage', 0.0),
+                sea_level_rise=aal_results.get('sea_level_rise', {}).get('final_aal_percentage', 0.0),
+                typhoon=aal_results.get('typhoon', {}).get('final_aal_percentage', 0.0),
+                wildfire=aal_results.get('wildfire', {}).get('final_aal_percentage', 0.0)
+            )
 
-            # AAL 분석 결과 가져오기
-            base_aal_results = result.get('aal_analysis', {})
-            candidate_aal_results = candidate_result.get('aal_analysis', {})
+            # 종합 점수 계산
+            all_risk_scores = [
+                physical_scores.extreme_heat, physical_scores.extreme_cold,
+                physical_scores.river_flood, physical_scores.urban_flood,
+                physical_scores.drought, physical_scores.water_stress,
+                physical_scores.sea_level_rise, physical_scores.typhoon,
+                physical_scores.wildfire
+            ]
+            avg_risk_score = int(sum(all_risk_scores) / len(all_risk_scores))
 
-            for risk_type, risk_data in base_scores.items():
-                # AAL v11: final_aal_percentage를 0-1 스케일로 변환
-                aal_data = base_aal_results.get(risk_type, {})
-                aal_percentage = aal_data.get('final_aal_percentage', 0.0)
-                aal_rate = aal_percentage / 100.0  # % → 0-1 스케일
+            all_aal_scores = [
+                aal_scores.extreme_heat, aal_scores.extreme_cold,
+                aal_scores.river_flood, aal_scores.urban_flood,
+                aal_scores.drought, aal_scores.water_stress,
+                aal_scores.sea_level_rise, aal_scores.typhoon,
+                aal_scores.wildfire
+            ]
+            avg_aal_score = sum(all_aal_scores) / len(all_aal_scores)
 
-                current_risks.append(RiskData(
-                    riskType=hazard_names.get(risk_type, risk_type),
-                    riskScore=int(risk_data.get('physical_risk_score_100', 0)),
-                    aal=aal_rate,
-                ))
-
-            for risk_type, risk_data in candidate_scores.items():
-                # AAL v11: final_aal_percentage를 0-1 스케일로 변환
-                aal_data = candidate_aal_results.get(risk_type, {})
-                aal_percentage = aal_data.get('final_aal_percentage', 0.0)
-                aal_rate = aal_percentage / 100.0  # % → 0-1 스케일
-
-                new_risks.append(RiskData(
-                    riskType=hazard_names.get(risk_type, risk_type),
-                    riskScore=int(risk_data.get('physical_risk_score_100', 0)),
-                    aal=aal_rate,
-                ))
+            # CandidateResult 생성
+            candidate = CandidateResult(
+                candidateId=uuid4(),
+                latitude=request.candidate.latitude,
+                longitude=request.candidate.longitude,
+                jibunAddress=request.candidate.jibun_address,
+                roadAddress=request.candidate.road_address,
+                riskscore=avg_risk_score,
+                aalscore=avg_aal_score,
+                **{
+                    "physical-risk-scores": physical_scores,
+                    "aal-scores": aal_scores
+                },
+                pros="AI 분석 결과 기반 장점",
+                cons="AI 분석 결과 기반 단점"
+            )
 
             return RelocationSimulationResponse(
-                currentLocation=LocationData(risks=current_risks),
-                newLocation=LocationData(risks=new_risks),
+                siteId=request.site_id,
+                candidate=candidate
             )
 
         except Exception:

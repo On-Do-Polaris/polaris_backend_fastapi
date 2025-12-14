@@ -26,6 +26,10 @@ from src.schemas.analysis import (
     ShortTermAAL,
     MidTermAAL,
     LongTermAAL,
+    AnalysisSummaryResponse,
+    AnalysisSummaryData,
+    PhysicalRiskScores,
+    AALScores,
 )
 from src.schemas.common import HazardType, SSPScenario
 
@@ -35,6 +39,37 @@ from ai_agent.config.settings import load_config
 
 # Database 연동
 from ai_agent.utils.database import DatabaseManager
+
+
+# 9개 리스크 타입 상수 (영문 - DB 저장 형식)
+RISK_TYPES = [
+    'extreme_heat',
+    'extreme_cold',
+    'river_flood',
+    'urban_flood',
+    'drought',
+    'water_stress',
+    'sea_level_rise',
+    'typhoon',
+    'wildfire'
+]
+
+# 영문 → 한글 매핑
+RISK_TYPE_KR_MAPPING = {
+    'extreme_heat': '폭염',
+    'extreme_cold': '한파',
+    'wildfire': '산불',
+    'drought': '가뭄',
+    'water_stress': '물부족',
+    'sea_level_rise': '해안침수',
+    'river_flood': '내륙침수',
+    'urban_flood': '도시침수',
+    'typhoon': '태풍'
+}
+
+# 분석 기준 연도 및 시나리오
+TARGET_YEAR = 2040
+SSP_SCENARIO = 'ssp245'  # SSP2-4.5
 
 
 class AnalysisService:
@@ -157,8 +192,8 @@ class AnalysisService:
             query = """
                 INSERT INTO batch_jobs (
                     batch_id, job_type, status, progress,
-                    input_params, results, created_at, started_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+                    input_params, results, created_at, started_at, created_by
+                ) VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW(), %s)
                 ON CONFLICT (batch_id) DO UPDATE SET
                     status = EXCLUDED.status,
                     progress = EXCLUDED.progress,
@@ -171,7 +206,8 @@ class AnalysisService:
                 status,
                 progress,
                 json.dumps(input_params),
-                json.dumps(results) if results else None
+                json.dumps(results) if results else None,
+                str(request.user_id) if request.user_id else None
             ))
             self.logger.info(f"Job {job_id} saved to batch_jobs table")
         except Exception as e:
@@ -1206,15 +1242,16 @@ class AnalysisService:
             query = """
                 INSERT INTO batch_jobs (
                     batch_id, job_type, status, progress,
-                    input_params, created_at, completed_at
-                ) VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
+                    input_params, created_at, completed_at, created_by
+                ) VALUES (%s, %s, %s, %s, %s, NOW(), NOW(), %s)
             """
             self.db.execute_update(query, (
                 str(uuid4()),
                 'spring_boot_callback',
                 'completed',
                 100,
-                json.dumps({'user_id': str(user_id)})
+                json.dumps({'user_id': str(user_id)}),
+                str(user_id)
             ))
         except Exception as e:
             self.logger.error(f"콜백 기록 저장 실패: {str(e)}")
@@ -1262,3 +1299,181 @@ class AnalysisService:
                 self.logger.warning(f"[MODELOPS] user_id={user_id}에 해당하는 job을 찾을 수 없음")
         except Exception as e:
             self.logger.error(f"[MODELOPS] 추천 완료 처리 실패: {e}")
+
+    async def get_analysis_summary(
+        self,
+        site_id: UUID,
+        latitude: float,
+        longitude: float
+    ) -> AnalysisSummaryResponse:
+        """
+        분석 요약 조회 - 2040년 SSP2-4.5 시나리오 기준
+
+        Args:
+            site_id: 사업장 ID
+            latitude: 사업장 위도
+            longitude: 사업장 경도
+
+        Returns:
+            AnalysisSummaryResponse: 9대 리스크 점수 및 AAL 요약
+
+        Raises:
+            HTTPException: 404 if data not found, 500 for DB errors
+        """
+        self.logger.info(f"[SUMMARY] 분석 요약 조회: site_id={site_id}, lat={latitude}, lon={longitude}")
+
+        try:
+            db = DatabaseManager()
+
+            # Step 1: 4개 테이블에서 데이터 조회
+            # 1-1. Hazard 점수 조회 (H)
+            hazard_query = """
+                SELECT risk_type, ssp245_score_100
+                FROM hazard_results
+                WHERE latitude = %s
+                  AND longitude = %s
+                  AND target_year = %s
+                  AND risk_type IN ('extreme_heat', 'extreme_cold', 'river_flood',
+                                    'urban_flood', 'drought', 'water_stress',
+                                    'sea_level_rise', 'typhoon', 'wildfire')
+            """
+            hazard_rows = db.execute_query(hazard_query, (latitude, longitude, TARGET_YEAR))
+            hazard_data = {row['risk_type']: row for row in hazard_rows}
+
+            self.logger.info(f"[SUMMARY] Hazard 데이터 조회 완료: {len(hazard_data)}개")
+
+            # 1-2. Exposure 점수 조회 (E)
+            exposure_query = """
+                SELECT risk_type, exposure_score
+                FROM exposure_results
+                WHERE site_id = %s
+                  AND target_year = %s
+                  AND risk_type IN ('extreme_heat', 'extreme_cold', 'river_flood',
+                                    'urban_flood', 'drought', 'water_stress',
+                                    'sea_level_rise', 'typhoon', 'wildfire')
+            """
+            exposure_rows = db.execute_query(exposure_query, (str(site_id), TARGET_YEAR))
+            exposure_data = {row['risk_type']: row for row in exposure_rows}
+
+            self.logger.info(f"[SUMMARY] Exposure 데이터 조회 완료: {len(exposure_data)}개")
+
+            # 1-3. Vulnerability 점수 조회 (V)
+            vulnerability_query = """
+                SELECT risk_type, vulnerability_score
+                FROM vulnerability_results
+                WHERE site_id = %s
+                  AND target_year = %s
+                  AND risk_type IN ('extreme_heat', 'extreme_cold', 'river_flood',
+                                    'urban_flood', 'drought', 'water_stress',
+                                    'sea_level_rise', 'typhoon', 'wildfire')
+            """
+            vulnerability_rows = db.execute_query(vulnerability_query, (str(site_id), TARGET_YEAR))
+            vulnerability_data = {row['risk_type']: row for row in vulnerability_rows}
+
+            self.logger.info(f"[SUMMARY] Vulnerability 데이터 조회 완료: {len(vulnerability_data)}개")
+
+            # 1-4. AAL 값 조회
+            aal_query = """
+                SELECT risk_type, ssp245_final_aal
+                FROM aal_scaled_results
+                WHERE site_id = %s
+                  AND target_year = %s
+                  AND risk_type IN ('extreme_heat', 'extreme_cold', 'river_flood',
+                                    'urban_flood', 'drought', 'water_stress',
+                                    'sea_level_rise', 'typhoon', 'wildfire')
+            """
+            aal_rows = db.execute_query(aal_query, (str(site_id), TARGET_YEAR))
+            aal_data = {row['risk_type']: row for row in aal_rows}
+
+            self.logger.info(f"[SUMMARY] AAL 데이터 조회 완료: {len(aal_data)}개")
+
+            # Step 2: 데이터 검증 - 9개 모든 리스크에 대해 데이터가 있는지 확인
+            missing_risks = []
+            for risk_type in RISK_TYPES:
+                if (risk_type not in hazard_data or
+                    risk_type not in exposure_data or
+                    risk_type not in vulnerability_data or
+                    risk_type not in aal_data):
+                    missing_risks.append(risk_type)
+
+            if missing_risks:
+                error_msg = f"Missing data for year {TARGET_YEAR}, SSP2 scenario. Risk types: {', '.join(missing_risks)}"
+                self.logger.error(f"[SUMMARY] {error_msg}")
+                raise HTTPException(
+                    status_code=404,
+                    detail=error_msg
+                )
+
+            # Step 3: Physical Risk Score 계산 및 AAL 값 수집
+            physical_risk_scores_dict = {}
+            aal_scores_dict = {}
+
+            for risk_type in RISK_TYPES:
+                H = hazard_data[risk_type]['ssp245_score_100']
+                E = exposure_data[risk_type]['exposure_score']
+                V = vulnerability_data[risk_type]['vulnerability_score']
+
+                # Physical Risk Score = (H × E × V) / 10000
+                physical_risk_score = int(round((H * E * V) / 10000))
+                physical_risk_scores_dict[risk_type] = physical_risk_score
+
+                # AAL은 그대로 사용
+                aal_score = aal_data[risk_type]['ssp245_final_aal']
+                aal_scores_dict[risk_type] = float(aal_score)
+
+            self.logger.info(f"[SUMMARY] Physical Risk Scores: {physical_risk_scores_dict}")
+            self.logger.info(f"[SUMMARY] AAL Scores: {aal_scores_dict}")
+
+            # Step 4: 주요 기후 위험 선정 (가장 높은 Physical Risk Score)
+            main_risk_type = max(physical_risk_scores_dict, key=physical_risk_scores_dict.get)
+            main_risk_korean = RISK_TYPE_KR_MAPPING[main_risk_type]
+            main_risk_score = physical_risk_scores_dict[main_risk_type]
+            main_risk_aal = aal_scores_dict[main_risk_type]
+
+            self.logger.info(f"[SUMMARY] 주요 기후 위험: {main_risk_korean} (점수: {main_risk_score}, AAL: {main_risk_aal})")
+
+            # Step 5: 응답 생성
+            response = AnalysisSummaryResponse(
+                result="success",
+                data=AnalysisSummaryData(
+                    mainClimateRisk=main_risk_korean,
+                    mainClimateRiskScore=main_risk_score,
+                    mainClimateRiskAAL=main_risk_aal,
+                    **{
+                        "physical-risk-scores": PhysicalRiskScores(
+                            extreme_heat=physical_risk_scores_dict['extreme_heat'],
+                            extreme_cold=physical_risk_scores_dict['extreme_cold'],
+                            river_flood=physical_risk_scores_dict['river_flood'],
+                            urban_flood=physical_risk_scores_dict['urban_flood'],
+                            drought=physical_risk_scores_dict['drought'],
+                            water_stress=physical_risk_scores_dict['water_stress'],
+                            sea_level_rise=physical_risk_scores_dict['sea_level_rise'],
+                            typhoon=physical_risk_scores_dict['typhoon'],
+                            wildfire=physical_risk_scores_dict['wildfire']
+                        ),
+                        "aal-scores": AALScores(
+                            extreme_heat=aal_scores_dict['extreme_heat'],
+                            extreme_cold=aal_scores_dict['extreme_cold'],
+                            river_flood=aal_scores_dict['river_flood'],
+                            urban_flood=aal_scores_dict['urban_flood'],
+                            drought=aal_scores_dict['drought'],
+                            water_stress=aal_scores_dict['water_stress'],
+                            sea_level_rise=aal_scores_dict['sea_level_rise'],
+                            typhoon=aal_scores_dict['typhoon'],
+                            wildfire=aal_scores_dict['wildfire']
+                        )
+                    }
+                )
+            )
+
+            self.logger.info(f"[SUMMARY] 응답 생성 완료")
+            return response
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            self.logger.error(f"[SUMMARY] 분석 요약 조회 실패: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Database connection error: {str(e)}"
+            )

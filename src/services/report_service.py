@@ -26,6 +26,7 @@ class ReportService:
         self._analyzer = None
         self._report_results = {}  # report_id별 결과 캐시
         self._user_reports = {}  # user_id → [report_ids] 매핑 (In-Memory)
+        self._additional_data = {}  # user_id → Spring Boot 추가 데이터 (In-Memory)
         self._executor = ThreadPoolExecutor(max_workers=4)  # 비동기 실행용 Thread Pool
 
     def _get_analyzer(self) -> SKAXPhysicalRiskAnalyzer:
@@ -265,20 +266,45 @@ class ReportService:
         """
         리포트 추가 데이터 등록 (Spring Boot 호환)
 
+        Spring Boot에서 전송한 추가 데이터를 메모리에 저장하여
+        AI Agent가 리포트 생성 시 사용할 수 있도록 합니다.
+
         Args:
             user_id: 사용자 ID
-            data: 추가 데이터
+            data: Spring Boot에서 전송한 추가 데이터
 
         Returns:
-            등록 결과
+            등록 결과 (success, message, userId, dataKeys, registeredAt)
         """
-        # 간단히 성공 응답 반환 (실제로는 DB에 저장하거나 처리 필요)
+        # 사용자별 추가 데이터 저장
+        self._additional_data[user_id] = {
+            'data': data,
+            'registered_at': datetime.now(),
+            'user_id': user_id
+        }
+
         return {
             "success": True,
-            "message": "리포트 데이터가 등록되었습니다.",
+            "message": "리포트 추가 데이터가 등록되었습니다.",
             "userId": str(user_id),
-            "dataKeys": list(data.keys())
+            "dataKeys": list(data.keys()),
+            "registeredAt": datetime.now().isoformat()
         }
+
+    def get_additional_data(self, user_id) -> Optional[dict]:
+        """
+        사용자의 추가 데이터 조회 (AI Agent용)
+
+        Args:
+            user_id: 사용자 ID
+
+        Returns:
+            저장된 추가 데이터 또는 None
+        """
+        cached = self._additional_data.get(user_id)
+        if cached:
+            return cached.get('data')
+        return None
 
     async def delete_report(self) -> dict:
         """Spring Boot API 호환 - 리포트 삭제"""

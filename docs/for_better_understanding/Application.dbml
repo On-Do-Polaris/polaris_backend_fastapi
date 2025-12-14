@@ -3,10 +3,10 @@
 // ================================================================
 // Database: application (Port: 5432)
 // Service: SpringBoot
-// Total Tables: 9
+// Total Tables: 10
 //
-// Last Modified: 2025-12-08
-// Version: v04
+// Last Modified: 2025-12-12
+// Version: v08 (users.job_done 추가)
 // ================================================================
 
 Project application {
@@ -21,7 +21,7 @@ Project application {
 }
 
 // ============================================
-// 1. User Tables (3개) - basic.dbml 기준
+// 1. User Tables (5개) - basic.dbml 기준 + verification_codes
 // ============================================
 
 Table users {
@@ -30,6 +30,7 @@ Table users {
   name varchar(100) [not null, note: '사용자 이름']
   password varchar(255) [not null, note: '비밀번호 (암호화)']
   language varchar(10) [note: '언어 (ko/en)']
+  job_done boolean [not null, default: false, note: '분석 작업 완료 여부']
 
   Note: '사용자 정보 (basic.dbml 기준)'
 }
@@ -74,6 +75,48 @@ Table refresh_tokens {
   }
 }
 
+Table google_oauth_tokens {
+  id uuid [pk, note: 'OAuth 토큰 ID']
+  user_id uuid [not null, ref: > users.id, note: '사용자 ID (CASCADE 삭제)']
+  refresh_token varchar(500) [not null, note: 'Google 리프레시 토큰 (영구 보관)']
+  access_token varchar(500) [note: 'Google 액세스 토큰 (캐시용, 1시간마다 갱신)']
+  expires_at timestamp [note: 'Access Token 만료 시간']
+  created_at timestamp [not null, default: `now()`, note: '생성 시간']
+  updated_at timestamp [note: '업데이트 시간']
+
+  Note: '''
+    Google OAuth 토큰 관리 (Calendar, Drive 연동)
+    - refresh_token: 영구 보관되는 리프레시 토큰
+    - access_token: 캐시용 (1시간마다 갱신)
+  '''
+
+  indexes {
+    user_id
+  }
+}
+
+Table verification_codes {
+  id uuid [pk, note: '인증 코드 ID']
+  email varchar(255) [not null, note: '인증 대상 이메일']
+  code varchar(6) [not null, note: '6자리 인증번호']
+  purpose varchar(20) [not null, note: '인증 목적 (REGISTER/PASSWORD_RESET)']
+  verified boolean [not null, default: false, note: '인증 완료 여부']
+  expires_at timestamp [not null, note: '만료 시간 (생성 후 5분)']
+  created_at timestamp [not null, default: `now()`, note: '생성 시간']
+
+  Note: '''
+    이메일 인증 코드 관리
+    - 회원가입 인증: purpose = REGISTER
+    - 비밀번호 재설정 인증: purpose = PASSWORD_RESET
+    - 5분 후 자동 만료
+    - 인증 완료 시 verified = true
+  '''
+
+  indexes {
+    (email, purpose, verified)
+  }
+}
+
 // ============================================
 // 2. Site Tables (1개) - basic.dbml 기준
 // ============================================
@@ -97,7 +140,7 @@ Table sites {
 }
 
 // ============================================
-// 3. Analysis Tables (2개) - SpringBoot Entity
+// 3. Analysis Tables (1개) - SpringBoot Entity
 // ============================================
 
 Table analysis_jobs {
@@ -115,27 +158,12 @@ Table analysis_jobs {
   error_message text [note: '에러 메시지']
   updated_at timestamp [note: '업데이트 시간']
 
-  Note: 'AI 분석 작업 상태 추적 (SpringBoot Entity)'
+  Note: 'FastAPI AI Agent 분석 작업 상태 추적'
 
   indexes {
     site_id
     status
     job_id
-  }
-}
-
-Table analysis_results {
-  id uuid [pk, note: '결과 ID']
-  site_id uuid [not null, ref: > sites.id, note: '사업장 ID']
-  hazard_type varchar(50) [note: '위험 유형 (9가지)']
-  analysis_data jsonb [note: '분석 결과 JSON']
-  analyzed_at timestamp [not null, default: `now()`, note: '분석 일시']
-
-  Note: 'AI 분석 결과 저장 (JSON)'
-
-  indexes {
-    site_id
-    hazard_type
   }
 }
 
@@ -145,22 +173,14 @@ Table analysis_results {
 
 Table reports {
   id uuid [pk, note: '리포트 ID']
-  site_id uuid [not null, ref: > sites.id, note: '사업장 ID']
-  site_name varchar(200) [note: '사업장명 스냅샷']
-  type varchar(20) [not null, note: 'SUMMARY/FULL/GOVERNANCE']
-  status varchar(20) [not null, default: 'PENDING', note: 'PENDING/GENERATING/COMPLETED/FAILED']
-  s3_key varchar(500) [note: 'S3 저장 키']
-  file_size bigint [note: '파일 크기 (bytes)']
-  created_at timestamp [not null, default: `now()`, note: '생성 시간']
-  completed_at timestamp [note: '완료 시간']
-  expires_at timestamp [note: '만료 일시 (7일 후)']
+  user_id uuid [not null, note: '사용자 ID']
+  report_content jsonb [note: '리포트 내용 메타데이터 (JSONB)']
 
-  Note: '리포트 메타데이터 (S3 저장)'
-
-  indexes {
-    site_id
-    status
-  }
+  Note: '''
+    리포트 메타데이터
+    - 사용자별 리포트 저장
+    - report_content: AI 분석 결과 JSON 저장
+  '''
 }
 
 // ============================================
@@ -223,6 +243,5 @@ Table hazard_types {
 // users (1) --> (N) sites
 // users (1) --> (N) password_reset_tokens
 // users (1) --> (N) refresh_tokens
+// users (1) --> (N) google_oauth_tokens
 // sites (1) --> (N) analysis_jobs
-// sites (1) --> (N) analysis_results
-// sites (1) --> (N) reports

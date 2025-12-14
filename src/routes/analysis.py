@@ -13,7 +13,9 @@ from src.schemas.analysis import (
     FinancialImpactResponse,
     VulnerabilityResponse,
     AnalysisTotalResponse,
+    AnalysisSummaryResponse,
 )
+from src.services.analysis_service import AnalysisService
 from src.core.auth import verify_api_key
 
 router = APIRouter(prefix="/api/analysis", tags=["Analysis"])
@@ -163,17 +165,17 @@ async def get_physical_risk_scores(
     return result
 
 
-@router.get("/past-events", response_model=PastEventsResponse) # 사용
-async def get_past_events(
-    site_id: UUID = Query(..., alias="siteId"),
-    api_key: str = Depends(verify_api_key),
-    service = Depends(get_analysis_service),
-):
-    """과거 재난 이력 조회 - query parameters 사용"""
-    result = await service.get_past_events(site_id)
-    if not result:
-        raise HTTPException(status_code=404, detail="Analysis not found")
-    return result
+# @router.get("/past-events", response_model=PastEventsResponse) # 사용
+# async def get_past_events(
+#     site_id: UUID = Query(..., alias="siteId"),
+#     api_key: str = Depends(verify_api_key),
+#     service = Depends(get_analysis_service),
+# ):
+#     """과거 재난 이력 조회 - query parameters 사용"""
+#     result = await service.get_past_events(site_id)
+#     if not result:
+#         raise HTTPException(status_code=404, detail="Analysis not found")
+#     return result
 
 
 @router.get("/financial-impacts", response_model=FinancialImpactResponse) # 사용
@@ -202,64 +204,64 @@ async def get_vulnerability(
     return result
 
 
-@router.get("/total", response_model=AnalysisTotalResponse) # 사용
-async def get_total_analysis(
-    site_id: UUID = Query(..., alias="siteId"),
-    hazard_type: str = Query(..., alias="hazardType"),
-    api_key: str = Depends(verify_api_key),
-    service = Depends(get_analysis_service),
-):
-    """특정 Hazard 기준 통합 분석 결과 - query parameters 사용"""
-    result = await service.get_total_analysis(site_id, hazard_type)
-    if not result:
-        raise HTTPException(status_code=404, detail="Analysis not found")
-    return result
+# @router.get("/total", response_model=AnalysisTotalResponse) # 사용
+# async def get_total_analysis(
+#     site_id: UUID = Query(..., alias="siteId"),
+#     hazard_type: str = Query(..., alias="hazardType"),
+#     api_key: str = Depends(verify_api_key),
+#     service = Depends(get_analysis_service),
+# ):
+#     """특정 Hazard 기준 통합 분석 결과 - query parameters 사용"""
+#     result = await service.get_total_analysis(site_id, hazard_type)
+#     if not result:
+#         raise HTTPException(status_code=404, detail="Analysis not found")
+#     return result
 
 
-@router.get("/summary", response_model=AnalysisJobStatus) # 사용
+@router.get("/summary", response_model=AnalysisSummaryResponse) # 사용
 async def get_analysis_summary(
     site_id: UUID = Query(..., alias="siteId"),
+    latitude: float = Query(..., description="사업장 위도"),
+    longitude: float = Query(..., description="사업장 경도"),
     api_key: str = Depends(verify_api_key),
-    service = Depends(get_analysis_service),
+    service: AnalysisService = Depends(get_analysis_service),
 ):
     """
-    분석 개요 조회 (Spring Boot 호환)
+    분석 요약 조회 - 2040년 SSP2-4.5 시나리오 기준
 
-    현재는 가장 최근 job status를 반환합니다.
-    향후 summary 전용 로직으로 개선 필요.
+    9대 물리적 리스크 점수 및 AAL 요약을 반환합니다.
+
+    - **siteId**: 사업장 ID
+    - **latitude**: 사업장 위도
+    - **longitude**: 사업장 경도
     """
-    # 임시: site_id로 가장 최근 분석 결과 반환
-    # TODO: 실제로는 DB에서 site_id의 최신 completed job을 조회해야 함
-    logger.warning(f"GET /summary called for siteId={site_id}. Returning mock status.")
-
-    # Mock 응답 (실제로는 DB 조회 필요)
-    return AnalysisJobStatus(
-        jobId="00000000-0000-0000-0000-000000000000",
-        siteId=str(site_id),
-        status="completed",
-        progress=100,
-        currentNode="completed",
-        startedAt=datetime.now(),
-        completedAt=datetime.now(),
-    )
+    try:
+        logger.info(f"GET /summary called for siteId={site_id}, lat={latitude}, lon={longitude}")
+        result = await service.get_analysis_summary(site_id, latitude, longitude)
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"분석 요약 조회 실패: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.get("/ssp", response_model=PhysicalRiskScoreResponse) # 사용
-async def get_ssp_projection(
-    site_id: UUID = Query(..., alias="siteId"),
-    hazard_type: Optional[str] = Query(None, alias="hazardType"),
-    api_key: str = Depends(verify_api_key),
-    service = Depends(get_analysis_service),
-):
-    """
-    SSP 시나리오별 리스크 전망 (Spring Boot 호환)
+# @router.get("/ssp", response_model=PhysicalRiskScoreResponse) # 사용
+# async def get_ssp_projection(
+#     site_id: UUID = Query(..., alias="siteId"),
+#     hazard_type: Optional[str] = Query(None, alias="hazardType"),
+#     api_key: str = Depends(verify_api_key),
+#     service = Depends(get_analysis_service),
+# ):
+#     """
+#     SSP 시나리오별 리스크 전망 (Spring Boot 호환)
 
-    physical-risk-scores와 동일한 데이터를 반환합니다.
-    """
-    result = await service.get_physical_risk_scores(site_id, hazard_type)
-    if not result:
-        raise HTTPException(status_code=404, detail="Analysis not found")
-    return result
+#     physical-risk-scores와 동일한 데이터를 반환합니다.
+#     """
+#     result = await service.get_physical_risk_scores(site_id, hazard_type)
+#     if not result:
+#         raise HTTPException(status_code=404, detail="Analysis not found")
+#     return result
 
 
 @router.post("/modelops/recommendation-completed", status_code=200) # ModelOps 전용

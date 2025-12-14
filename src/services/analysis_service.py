@@ -857,7 +857,7 @@ class AnalysisService:
             return None
 
     async def get_vulnerability(self, site_id: UUID) -> Optional[VulnerabilityResponse]:
-        """Spring Boot API 호환 - 취약성 분석"""
+        """Spring Boot API 호환 - 취약성 분석 (메모리 캐시 전용)"""
         if settings.USE_MOCK_DATA:
             vulnerabilities = [
                 RiskVulnerability(riskType="폭염", vulnerabilityScore=75),
@@ -871,66 +871,72 @@ class AnalysisService:
                 vulnerabilities=vulnerabilities,
             )
 
-        # 실제 DB에서 조회
-        from ai_agent.utils.database import DatabaseManager
+        # 메모리 캐시에서 Agent 분석 결과 조회
+        cached_result = self._analysis_results.get(site_id)
+        if not cached_result:
+            self.logger.warning(f"[VULNERABILITY] 메모리 캐시에 분석 결과 없음: site_id={site_id}")
+            return None
 
-        self.logger.info(f"[VULNERABILITY] 취약성 데이터 조회 시작: site_id={site_id}")
+        if 'building_characteristics' not in cached_result:
+            self.logger.warning(f"[VULNERABILITY] building_characteristics 없음: site_id={site_id}")
+            return None
 
-        try:
-            db = DatabaseManager()
+        self.logger.info(f"[VULNERABILITY] 메모리 캐시에서 building_characteristics 조회: site_id={site_id}")
 
-            # site_id로 직접 조회 (ERD에 site_id 컬럼 있음)
-            query = """
-                SELECT
-                    risk_type,
-                    vulnerability_score
-                FROM vulnerability_results
-                WHERE site_id = %s
-                ORDER BY risk_type
-            """
+        building_chars = cached_result['building_characteristics']
 
-            rows = db.execute_query(query, (str(site_id),))
-            self.logger.info(f"[VULNERABILITY] 쿼리 실행 완료: {len(rows)}개 행 조회됨")
+        # Risk type 매핑 (영문 -> 한글)
+        risk_type_mapping = {
+            'extreme_heat': '폭염',
+            'extreme_cold': '한파',
+            'wildfire': '산불',
+            'drought': '가뭄',
+            'water_stress': '물부족',
+            'sea_level_rise': '해안침수',
+            'river_flood': '내륙침수',
+            'urban_flood': '도시침수',
+            'typhoon': '태풍'
+        }
 
-            if not rows:
-                self.logger.warning(f"[VULNERABILITY] 데이터 없음: site_id={site_id}")
-                return None
+        vulnerabilities = []
 
-            # Risk type 매핑 (영문 -> 한글, Spring Boot 통일안)
-            risk_type_mapping = {
-                'extreme_heat': '폭염',
-                'extreme_cold': '한파',
-                'wildfire': '산불',
-                'drought': '가뭄',
-                'water_stress': '물부족',
-                'sea_level_rise': '해안침수',
-                'river_flood': '내륙침수',
-                'urban_flood': '도시침수',
-                'typhoon': '태풍'
-            }
+        # vulnerability_scores 형식인 경우 (dict)
+        if 'vulnerability_scores' in building_chars:
+            vuln_scores = building_chars['vulnerability_scores']
+            for risk_type_en, score in vuln_scores.items():
+                korean_name = risk_type_mapping.get(risk_type_en, risk_type_en)
+                vulnerabilities.append(
+                    RiskVulnerability(
+                        riskType=korean_name,
+                        vulnerabilityScore=int(score) if score is not None else 0
+                    )
+                )
 
-            vulnerabilities = []
-            for row in rows:
-                risk_type = row['risk_type']
-                vulnerability_score = int(row['vulnerability_score']) if row['vulnerability_score'] is not None else 0
+        # vulnerabilities 리스트 형식인 경우
+        elif 'vulnerabilities' in building_chars:
+            for vuln_item in building_chars['vulnerabilities']:
+                risk_type = vuln_item.get('riskType') or vuln_item.get('risk_type')
+                score = vuln_item.get('score') or vuln_item.get('vulnerabilityScore', 0)
 
-                # 한글 이름 변환
+                # 영문이면 한글로 변환
                 korean_name = risk_type_mapping.get(risk_type, risk_type)
 
                 vulnerabilities.append(
                     RiskVulnerability(
                         riskType=korean_name,
-                        vulnerabilityScore=vulnerability_score
+                        vulnerabilityScore=int(score) if score is not None else 0
                     )
                 )
 
-            return VulnerabilityResponse(
-                siteId=site_id,
-                vulnerabilities=vulnerabilities,
-            )
-        except Exception as e:
-            self.logger.error(f"[VULNERABILITY] 취약성 데이터 조회 실패: {str(e)}", exc_info=True)
+        if not vulnerabilities:
+            self.logger.warning(f"[VULNERABILITY] building_characteristics에 vulnerability 데이터 없음: site_id={site_id}")
             return None
+
+        self.logger.info(f"[VULNERABILITY] 메모리 캐시에서 {len(vulnerabilities)}개 취약성 점수 반환")
+        return VulnerabilityResponse(
+            siteId=site_id,
+            vulnerabilities=vulnerabilities,
+        )
 
     async def get_total_analysis(
         self, site_id: UUID, hazard_type: str

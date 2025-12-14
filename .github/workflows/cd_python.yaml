@@ -2,7 +2,7 @@ name: CD - Deploy to Server
 
 on:
   workflow_run:
-    workflows: ['CI - Test & Build']
+    workflows: ["CI - Test & Build"]
     types:
       - completed
     branches: [main]

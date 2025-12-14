@@ -14,8 +14,6 @@ from src.routes import (
     simulation_router,
     meta_router,
     recommendation_router,
-    additional_data_router,
-    disaster_history_router,
     dashboard_router,
     past_router
 )
@@ -74,8 +72,6 @@ app.include_router(reports_router)
 app.include_router(simulation_router)
 app.include_router(meta_router)
 app.include_router(recommendation_router)
-app.include_router(additional_data_router)
-app.include_router(disaster_history_router)
 app.include_router(dashboard_router)
 app.include_router(past_router)
 

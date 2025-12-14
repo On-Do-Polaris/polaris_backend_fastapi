@@ -43,36 +43,36 @@ async def start_analysis(
     return await service.start_analysis_async(request.site.id, request, background_tasks)
 
 
-@router.get("/status", response_model=AnalysisJobStatus)
-async def get_analysis_status(
-    user_id: Optional[UUID] = Query(None, alias="userId"),
-    job_id: Optional[UUID] = Query(None, alias="jobId"),
-    api_key: str = Depends(verify_api_key),
-    service = Depends(get_analysis_service),
-):
-    """
-    분석 작업 상태 조회 (Spring Boot 호환)
+# @router.get("/status", response_model=AnalysisJobStatus)
+# async def get_analysis_status(
+#     user_id: Optional[UUID] = Query(None, alias="userId"),
+#     job_id: Optional[UUID] = Query(None, alias="jobId"),
+#     api_key: str = Depends(verify_api_key),
+#     service = Depends(get_analysis_service),
+# ):
+#     """
+#     분석 작업 상태 조회 (Spring Boot 호환)
 
-    Args:
-        userId: 사용자 ID (최근 작업 조회)
-        jobId: 작업 ID (특정 작업 조회)
+#     Args:
+#         userId: 사용자 ID (최근 작업 조회)
+#         jobId: 작업 ID (특정 작업 조회)
 
-    Returns:
-        AnalysisJobStatus: 작업 상태 정보
-    """
-    # jobId가 있으면 jobId로 조회
-    if job_id:
-        result = await service.get_job_status_by_id(job_id)
-    # userId가 있으면 userId로 최근 작업 조회
-    elif user_id:
-        result = await service.get_latest_job_status_by_user(user_id)
-    else:
-        raise HTTPException(status_code=400, detail="Either userId or jobId must be provided")
+#     Returns:
+#         AnalysisJobStatus: 작업 상태 정보
+#     """
+#     # jobId가 있으면 jobId로 조회
+#     if job_id:
+#         result = await service.get_job_status_by_id(job_id)
+#     # userId가 있으면 userId로 최근 작업 조회
+#     elif user_id:
+#         result = await service.get_latest_job_status_by_user(user_id)
+#     else:
+#         raise HTTPException(status_code=400, detail="Either userId or jobId must be provided")
 
-    if not result:
-        raise HTTPException(status_code=404, detail="Analysis job not found")
+#     if not result:
+#         raise HTTPException(status_code=404, detail="Analysis job not found")
 
-    return result
+#     return result
 
 
 # @router.post("/enhance", response_model=AnalysisJobStatus, status_code=200)
@@ -260,3 +260,22 @@ async def get_ssp_projection(
     if not result:
         raise HTTPException(status_code=404, detail="Analysis not found")
     return result
+
+
+@router.post("/modelops/recommendation-completed", status_code=200) # ModelOps 전용
+async def mark_recommendation_completed(
+    user_id: UUID = Query(..., alias="userId"),
+    api_key: str = Depends(verify_api_key),
+    service = Depends(get_analysis_service),
+):
+    """
+    ModelOps 서버에서 후보지 추천 완료 시 호출하는 엔드포인트
+
+    Args:
+        userId: 사용자 ID
+
+    Returns:
+        200 OK
+    """
+    await service.mark_modelops_recommendation_completed(user_id)
+    return {"status": "success", "message": f"Recommendation completed for user {user_id}"}

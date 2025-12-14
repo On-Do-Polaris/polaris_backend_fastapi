@@ -165,17 +165,17 @@ async def get_physical_risk_scores(
     return result
 
 
-@router.get("/past-events", response_model=PastEventsResponse) # 사용
-async def get_past_events(
-    site_id: UUID = Query(..., alias="siteId"),
-    api_key: str = Depends(verify_api_key),
-    service = Depends(get_analysis_service),
-):
-    """과거 재난 이력 조회 - query parameters 사용"""
-    result = await service.get_past_events(site_id)
-    if not result:
-        raise HTTPException(status_code=404, detail="Analysis not found")
-    return result
+# @router.get("/past-events", response_model=PastEventsResponse) # 사용
+# async def get_past_events(
+#     site_id: UUID = Query(..., alias="siteId"),
+#     api_key: str = Depends(verify_api_key),
+#     service = Depends(get_analysis_service),
+# ):
+#     """과거 재난 이력 조회 - query parameters 사용"""
+#     result = await service.get_past_events(site_id)
+#     if not result:
+#         raise HTTPException(status_code=404, detail="Analysis not found")
+#     return result
 
 
 @router.get("/financial-impacts", response_model=FinancialImpactResponse) # 사용
@@ -204,18 +204,18 @@ async def get_vulnerability(
     return result
 
 
-@router.get("/total", response_model=AnalysisTotalResponse) # 사용
-async def get_total_analysis(
-    site_id: UUID = Query(..., alias="siteId"),
-    hazard_type: str = Query(..., alias="hazardType"),
-    api_key: str = Depends(verify_api_key),
-    service = Depends(get_analysis_service),
-):
-    """특정 Hazard 기준 통합 분석 결과 - query parameters 사용"""
-    result = await service.get_total_analysis(site_id, hazard_type)
-    if not result:
-        raise HTTPException(status_code=404, detail="Analysis not found")
-    return result
+# @router.get("/total", response_model=AnalysisTotalResponse) # 사용
+# async def get_total_analysis(
+#     site_id: UUID = Query(..., alias="siteId"),
+#     hazard_type: str = Query(..., alias="hazardType"),
+#     api_key: str = Depends(verify_api_key),
+#     service = Depends(get_analysis_service),
+# ):
+#     """특정 Hazard 기준 통합 분석 결과 - query parameters 사용"""
+#     result = await service.get_total_analysis(site_id, hazard_type)
+#     if not result:
+#         raise HTTPException(status_code=404, detail="Analysis not found")
+#     return result
 
 
 @router.get("/summary", response_model=AnalysisSummaryResponse) # 사용
@@ -246,22 +246,22 @@ async def get_analysis_summary(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.get("/ssp", response_model=PhysicalRiskScoreResponse) # 사용
-async def get_ssp_projection(
-    site_id: UUID = Query(..., alias="siteId"),
-    hazard_type: Optional[str] = Query(None, alias="hazardType"),
-    api_key: str = Depends(verify_api_key),
-    service = Depends(get_analysis_service),
-):
-    """
-    SSP 시나리오별 리스크 전망 (Spring Boot 호환)
+# @router.get("/ssp", response_model=PhysicalRiskScoreResponse) # 사용
+# async def get_ssp_projection(
+#     site_id: UUID = Query(..., alias="siteId"),
+#     hazard_type: Optional[str] = Query(None, alias="hazardType"),
+#     api_key: str = Depends(verify_api_key),
+#     service = Depends(get_analysis_service),
+# ):
+#     """
+#     SSP 시나리오별 리스크 전망 (Spring Boot 호환)
 
-    physical-risk-scores와 동일한 데이터를 반환합니다.
-    """
-    result = await service.get_physical_risk_scores(site_id, hazard_type)
-    if not result:
-        raise HTTPException(status_code=404, detail="Analysis not found")
-    return result
+#     physical-risk-scores와 동일한 데이터를 반환합니다.
+#     """
+#     result = await service.get_physical_risk_scores(site_id, hazard_type)
+#     if not result:
+#         raise HTTPException(status_code=404, detail="Analysis not found")
+#     return result
 
 
 @router.post("/modelops/recommendation-completed", status_code=200) # ModelOps 전용

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from uuid import UUID
 import logging
@@ -14,6 +14,7 @@ router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
 @router.get("/summary", response_model=DashboardSummaryResponse)
 async def get_dashboard_summary(
+    user_id: UUID = Query(..., alias="userId"),
     api_key: str = Depends(verify_api_key)
 ) -> DashboardSummaryResponse:
     """
@@ -22,4 +23,4 @@ async def get_dashboard_summary(
     전체 사업장의 통합 리스크 점수와 주요 기후 리스크를 반환합니다.
     """
     service = DashboardService()
-    return await service.get_dashboard_summary()
+    return await service.get_dashboard_summary(user_id)

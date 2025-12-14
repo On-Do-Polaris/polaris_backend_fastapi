@@ -1,5 +1,6 @@
-from uuid import uuid4
+from uuid import uuid4, UUID
 from datetime import datetime, timedelta
+from typing import Optional
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
@@ -24,6 +25,8 @@ class ReportService:
         """서비스 초기화"""
         self._analyzer = None
         self._report_results = {}  # report_id별 결과 캐시
+        self._user_reports = {}  # user_id → [report_ids] 매핑 (In-Memory)
+        self._additional_data = {}  # user_id → Spring Boot 추가 데이터 (In-Memory)
         self._executor = ThreadPoolExecutor(max_workers=4)  # 비동기 실행용 Thread Pool
 
     def _get_analyzer(self) -> SKAXPhysicalRiskAnalyzer:
@@ -86,17 +89,27 @@ class ReportService:
 
                 # 리포트 ID 생성 및 결과 캐싱
                 report_id = uuid4()
+                user_id = getattr(request, 'user_id', None)  # userId 추출 (나중에 스키마 추가)
+
                 self._report_results[report_id] = {
                     'site_id': request.site_id,
+                    'user_id': user_id,
                     'result': result,
                     'created_at': datetime.now()
                 }
+
+                # userId → reportId 매핑 저장
+                if user_id:
+                    if user_id not in self._user_reports:
+                        self._user_reports[user_id] = []
+                    self._user_reports[user_id].append(report_id)
 
                 return {
                     "success": True,
                     "message": "리포트가 생성되었습니다.",
                     "siteId": str(request.site_id),
                     "reportId": str(report_id),
+                    "userId": str(user_id) if user_id else None
                 }
 
             return {
@@ -217,6 +230,82 @@ class ReportService:
             print(f"Error retrieving PDF: {e}")
             return None
 
+    async def get_reports_by_user_id(self, user_id) -> Optional[dict]:
+        """
+        userId로 리포트 조회 (Spring Boot 호환)
+
+        Args:
+            user_id: 사용자 ID (UUID 또는 문자열)
+
+        Returns:
+            최신 리포트 데이터 또는 None
+        """
+        # userId로 reportId 목록 조회
+        report_ids = self._user_reports.get(user_id, [])
+
+        if not report_ids:
+            return None
+
+        # 최신 리포트 반환 (마지막 항목)
+        latest_report_id = report_ids[-1]
+        return await self.get_report_web_view(str(latest_report_id))
+
+    async def get_latest_report_by_user(self, user_id) -> Optional[dict]:
+        """
+        userId로 최신 리포트 조회
+
+        Args:
+            user_id: 사용자 ID
+
+        Returns:
+            최신 리포트 또는 None
+        """
+        return await self.get_reports_by_user_id(user_id)
+
+    async def register_report_data(self, user_id, data: dict) -> dict:
+        """
+        리포트 추가 데이터 등록 (Spring Boot 호환)
+
+        Spring Boot에서 전송한 추가 데이터를 메모리에 저장하여
+        AI Agent가 리포트 생성 시 사용할 수 있도록 합니다.
+
+        Args:
+            user_id: 사용자 ID
+            data: Spring Boot에서 전송한 추가 데이터
+
+        Returns:
+            등록 결과 (success, message, userId, dataKeys, registeredAt)
+        """
+        # 사용자별 추가 데이터 저장
+        self._additional_data[user_id] = {
+            'data': data,
+            'registered_at': datetime.now(),
+            'user_id': user_id
+        }
+
+        return {
+            "success": True,
+            "message": "리포트 추가 데이터가 등록되었습니다.",
+            "userId": str(user_id),
+            "dataKeys": list(data.keys()),
+            "registeredAt": datetime.now().isoformat()
+        }
+
+    def get_additional_data(self, user_id) -> Optional[dict]:
+        """
+        사용자의 추가 데이터 조회 (AI Agent용)
+
+        Args:
+            user_id: 사용자 ID
+
+        Returns:
+            저장된 추가 데이터 또는 None
+        """
+        cached = self._additional_data.get(user_id)
+        if cached:
+            return cached.get('data')
+        return None
+
     async def delete_report(self) -> dict:
         """Spring Boot API 호환 - 리포트 삭제"""
         if settings.USE_MOCK_DATA:
@@ -227,6 +316,7 @@ class ReportService:
 
         # 캐시 초기화
         self._report_results.clear()
+        self._user_reports.clear()
 
         return {
             "success": True,

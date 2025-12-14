@@ -2,28 +2,6 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 from uuid import UUID
 from datetime import datetime
-from enum import Enum
-
-from .common import HazardType
-
-
-class DisasterSeverity(str, Enum):
-    """재해 심각도 (ERD api_disaster_yearbook 기준)"""
-    MINOR = "경미"
-    MODERATE = "보통"
-    SEVERE = "심각"
-    CATASTROPHIC = "대재해"
-
-
-class DisasterType(str, Enum):
-    """재해 유형 (ERD api_disaster_yearbook 기준)"""
-    TYPHOON = "태풍"
-    HEAVY_RAIN = "호우"
-    HEAVY_SNOW = "대설"
-    STRONG_WIND = "강풍"
-    WIND_WAVE = "풍랑"
-    EARTHQUAKE = "지진"
-    OTHER = "기타"
 
 
 class DisasterYearbookRecord(BaseModel):
@@ -60,23 +38,14 @@ class DisasterYearbookRecord(BaseModel):
 
 
 class DisasterHistoryRecord(BaseModel):
-    """재해이력 레코드 (사용자 정의 이력)"""
-    id: UUID = Field(..., description="재해이력 ID")
-    site_id: UUID = Field(..., alias="siteId", description="사업장 ID")
-    disaster_type: HazardType = Field(..., alias="disasterType", description="재해 유형")
-    occurred_at: datetime = Field(..., alias="occurredAt", description="발생 일시")
-    severity: DisasterSeverity = Field(..., description="심각도")
-    damage_amount: Optional[float] = Field(None, alias="damageAmount", description="피해 금액 (원)")
-    casualties: Optional[int] = Field(None, description="인명 피해 (명)")
-    description: Optional[str] = Field(None, description="상세 설명")
-    recovery_duration: Optional[int] = Field(None, alias="recoveryDuration", description="복구 기간 (일)")
-
-    # 추가 메타데이터
-    location: Optional[str] = Field(None, description="발생 위치")
-    weather_condition: Optional[str] = Field(None, alias="weatherCondition", description="기상 상황")
-
-    created_at: datetime = Field(default_factory=datetime.now, alias="createdAt", description="생성 일시")
-    updated_at: Optional[datetime] = Field(None, alias="updatedAt", description="수정 일시")
+    """재해이력 레코드 (api_emergency_messages 테이블 기준)"""
+    id: int = Field(..., description="재해이력 ID")
+    alert_date: datetime = Field(..., alias="alertDate", description="재난문자 발령 일자")
+    disaster_type: str = Field(..., alias="disasterType", description="재난 유형 (9종: 강풍/풍랑/호우/대설/건조/지진해일/한파/태풍/황사/폭염)")
+    severity: str = Field(..., description="강도 (주의보/경보)")
+    region: str = Field(..., description="수신 지역명")
+    created_at: Optional[datetime] = Field(None, alias="createdAt", description="레코드 생성 시각")
+    updated_at: Optional[datetime] = Field(None, alias="updatedAt", description="레코드 수정 시각")
 
     class Config:
         populate_by_name = True
@@ -93,9 +62,9 @@ class DisasterHistoryListResponse(BaseModel):
 
 class DisasterHistoryFilter(BaseModel):
     """재해이력 필터 (쿼리 파라미터)"""
-    site_id: Optional[UUID] = Field(None, alias="siteId", description="사업장 ID로 필터링")
-    disaster_type: Optional[HazardType] = Field(None, alias="disasterType", description="재해 유형으로 필터링")
-    severity: Optional[DisasterSeverity] = Field(None, description="심각도로 필터링")
+    disaster_type: Optional[str] = Field(None, alias="disasterType", description="재해 유형으로 필터링")
+    severity: Optional[str] = Field(None, description="강도로 필터링 (주의보/경보)")
+    region: Optional[str] = Field(None, description="지역명으로 필터링")
     start_date: Optional[datetime] = Field(None, alias="startDate", description="시작 날짜 (이후 발생)")
     end_date: Optional[datetime] = Field(None, alias="endDate", description="종료 날짜 (이전 발생)")
     limit: int = Field(100, description="조회 개수 제한", ge=1, le=1000)
@@ -110,7 +79,7 @@ class DisasterStatistics(BaseModel):
     total_disasters: int = Field(..., alias="totalDisasters", description="총 재해 건수")
     total_damage: float = Field(..., alias="totalDamage", description="총 피해 금액 (원)")
     total_casualties: int = Field(..., alias="totalCasualties", description="총 인명 피해 (명)")
-    most_common_type: Optional[HazardType] = Field(None, alias="mostCommonType", description="가장 빈번한 재해 유형")
+    most_common_type: Optional[str] = Field(None, alias="mostCommonType", description="가장 빈번한 재해 유형")
     by_type: dict = Field(default_factory=dict, alias="byType", description="재해 유형별 통계")
     by_severity: dict = Field(default_factory=dict, alias="bySeverity", description="심각도별 통계")
 

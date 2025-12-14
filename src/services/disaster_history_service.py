@@ -1,34 +1,36 @@
-from uuid import UUID
+import sys
+import os
 from datetime import datetime
-from typing import List, Optional
+from typing import Optional
 
+# ai_agent 모듈 경로 추가
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+
+from ai_agent.utils.database import DatabaseManager
 from src.core.config import settings
 from src.schemas.disaster_history import (
     DisasterHistoryRecord,
     DisasterHistoryListResponse,
     DisasterHistoryFilter,
     DisasterStatistics,
-    DisasterSeverity,
 )
-from src.schemas.common import HazardType
 
 
 class DisasterHistoryService:
-    """재해이력 서비스 - DB에서 재해이력 조회"""
+    """재해이력 서비스 - DB에서 api_emergency_messages 조회"""
 
     def __init__(self):
         """서비스 초기화"""
-        # TODO: DB connection pool 초기화
-        self._db_connection = None
+        self.db = DatabaseManager(database_url=settings.DATABASE_URL)
 
     async def get_disaster_history(
         self, filters: DisasterHistoryFilter
     ) -> DisasterHistoryListResponse:
         """
-        재해이력 목록 조회
+        재해이력 목록 조회 (api_emergency_messages 테이블)
 
         Args:
-            filters: 필터 조건 (site_id, disaster_type, severity, date_range, pagination)
+            filters: 필터 조건 (disaster_type, severity, region, date_range, pagination)
 
         Returns:
             DisasterHistoryListResponse: 재해이력 목록과 전체 개수
@@ -36,41 +38,77 @@ class DisasterHistoryService:
         if settings.USE_MOCK_DATA:
             return self._get_mock_disaster_history(filters)
 
-        # TODO: 실제 DB 쿼리 구현
-        # query = """
-        #     SELECT
-        #         id, site_id, disaster_type, occurred_at, severity,
-        #         damage_amount, casualties, description, recovery_duration,
-        #         location, weather_condition, created_at, updated_at
-        #     FROM disaster_history
-        #     WHERE 1=1
-        #         AND ($1::uuid IS NULL OR site_id = $1)
-        #         AND ($2::text IS NULL OR disaster_type = $2)
-        #         AND ($3::text IS NULL OR severity = $3)
-        #         AND ($4::timestamp IS NULL OR occurred_at >= $4)
-        #         AND ($5::timestamp IS NULL OR occurred_at <= $5)
-        #     ORDER BY occurred_at DESC
-        #     LIMIT $6 OFFSET $7
-        # """
-        # async with self._db_connection.cursor() as cursor:
-        #     await cursor.execute(query, (
-        #         filters.site_id,
-        #         filters.disaster_type.value if filters.disaster_type else None,
-        #         filters.severity.value if filters.severity else None,
-        #         filters.start_date,
-        #         filters.end_date,
-        #         filters.limit,
-        #         filters.offset
-        #     ))
-        #     rows = await cursor.fetchall()
-        #     total = await self._get_total_count(filters)
-        #
-        # records = [DisasterHistoryRecord(**row) for row in rows]
-        # return DisasterHistoryListResponse(total=total, data=records)
+        # WHERE 조건 구성
+        where_conditions = []
+        params = []
 
-        raise NotImplementedError("DB connection not implemented yet")
+        if filters.disaster_type:
+            where_conditions.append("disaster_type = %s")
+            params.append(filters.disaster_type)
 
-    async def get_disaster_by_id(self, disaster_id: UUID) -> Optional[DisasterHistoryRecord]:
+        if filters.severity:
+            where_conditions.append("severity = %s")
+            params.append(filters.severity)
+
+        if filters.region:
+            where_conditions.append("region LIKE %s")
+            params.append(f"%{filters.region}%")
+
+        if filters.start_date:
+            where_conditions.append("alert_date >= %s")
+            params.append(filters.start_date.date() if hasattr(filters.start_date, 'date') else filters.start_date)
+
+        if filters.end_date:
+            where_conditions.append("alert_date <= %s")
+            params.append(filters.end_date.date() if hasattr(filters.end_date, 'date') else filters.end_date)
+
+        where_clause = " AND ".join(where_conditions) if where_conditions else "1=1"
+
+        # 전체 개수 조회
+        count_query = f"""
+            SELECT COUNT(*) as total
+            FROM api_emergency_messages
+            WHERE {where_clause}
+        """
+        count_result = self.db.execute_query(count_query, tuple(params) if params else None)
+        total = count_result[0]['total'] if count_result else 0
+
+        # 데이터 조회
+        data_query = f"""
+            SELECT
+                id,
+                alert_date,
+                disaster_type,
+                severity,
+                region,
+                created_at,
+                updated_at
+            FROM api_emergency_messages
+            WHERE {where_clause}
+            ORDER BY alert_date DESC, id DESC
+            LIMIT %s OFFSET %s
+        """
+        params.extend([filters.limit, filters.offset])
+
+        rows = self.db.execute_query(data_query, tuple(params))
+
+        # DisasterHistoryRecord 객체로 변환
+        records = [
+            DisasterHistoryRecord(
+                id=row['id'],
+                alert_date=row['alert_date'],
+                disaster_type=row['disaster_type'],
+                severity=row['severity'],
+                region=row['region'],
+                created_at=row.get('created_at'),
+                updated_at=row.get('updated_at')
+            )
+            for row in rows
+        ]
+
+        return DisasterHistoryListResponse(total=total, data=records)
+
+    async def get_disaster_by_id(self, disaster_id: int) -> Optional[DisasterHistoryRecord]:
         """
         특정 재해이력 조회
 
@@ -87,91 +125,118 @@ class DisasterHistoryService:
                     return record
             return None
 
-        # TODO: 실제 DB 쿼리 구현
-        # query = "SELECT * FROM disaster_history WHERE id = $1"
-        # async with self._db_connection.cursor() as cursor:
-        #     await cursor.execute(query, (disaster_id,))
-        #     row = await cursor.fetchone()
-        #     if row:
-        #         return DisasterHistoryRecord(**row)
-        #     return None
+        # 실제 DB 쿼리
+        query = """
+            SELECT
+                id,
+                alert_date,
+                disaster_type,
+                severity,
+                region,
+                created_at,
+                updated_at
+            FROM api_emergency_messages
+            WHERE id = %s
+        """
+        rows = self.db.execute_query(query, (disaster_id,))
 
-        raise NotImplementedError("DB connection not implemented yet")
+        if not rows:
+            return None
 
-    async def get_disaster_statistics(
-        self, site_id: Optional[UUID] = None
-    ) -> DisasterStatistics:
+        row = rows[0]
+        return DisasterHistoryRecord(
+            id=row['id'],
+            alert_date=row['alert_date'],
+            disaster_type=row['disaster_type'],
+            severity=row['severity'],
+            region=row['region'],
+            created_at=row.get('created_at'),
+            updated_at=row.get('updated_at')
+        )
+
+    async def get_disaster_statistics(self) -> DisasterStatistics:
         """
         재해 통계 조회
-
-        Args:
-            site_id: 사업장 ID (None이면 전체 통계)
 
         Returns:
             DisasterStatistics: 재해 통계
         """
         if settings.USE_MOCK_DATA:
-            return self._get_mock_statistics(site_id)
+            return self._get_mock_statistics()
 
-        # TODO: 실제 DB 쿼리 구현
-        # query = """
-        #     SELECT
-        #         COUNT(*) as total_disasters,
-        #         COALESCE(SUM(damage_amount), 0) as total_damage,
-        #         COALESCE(SUM(casualties), 0) as total_casualties,
-        #         MODE() WITHIN GROUP (ORDER BY disaster_type) as most_common_type
-        #     FROM disaster_history
-        #     WHERE ($1::uuid IS NULL OR site_id = $1)
-        # """
-        # ...
+        # 전체 통계
+        total_query = """
+            SELECT COUNT(*) as total_disasters
+            FROM api_emergency_messages
+        """
+        total_result = self.db.execute_query(total_query)
+        total_disasters = total_result[0]['total_disasters'] if total_result else 0
 
-        raise NotImplementedError("DB connection not implemented yet")
+        # 재난 유형별 통계
+        type_query = """
+            SELECT
+                disaster_type,
+                COUNT(*) as count
+            FROM api_emergency_messages
+            GROUP BY disaster_type
+            ORDER BY count DESC
+        """
+        type_results = self.db.execute_query(type_query)
+        by_type = {row['disaster_type']: {"count": row['count']} for row in type_results}
+        most_common_type = type_results[0]['disaster_type'] if type_results else None
+
+        # 강도별 통계
+        severity_query = """
+            SELECT
+                severity,
+                COUNT(*) as count
+            FROM api_emergency_messages
+            GROUP BY severity
+            ORDER BY count DESC
+        """
+        severity_results = self.db.execute_query(severity_query)
+        by_severity = {row['severity']: {"count": row['count']} for row in severity_results}
+
+        return DisasterStatistics(
+            total_disasters=total_disasters,
+            total_damage=0,  # api_emergency_messages에는 피해액 정보 없음
+            total_casualties=0,  # api_emergency_messages에는 인명피해 정보 없음
+            most_common_type=most_common_type,
+            by_type=by_type,
+            by_severity=by_severity,
+        )
 
     def _get_mock_disaster_history(
         self, filters: DisasterHistoryFilter
     ) -> DisasterHistoryListResponse:
-        """Mock 데이터 반환"""
-        from uuid import uuid4
-
+        """Mock 데이터 반환 (api_emergency_messages 테이블 형식)"""
         mock_records = [
             DisasterHistoryRecord(
-                id=uuid4(),
-                site_id=filters.site_id or uuid4(),
-                disaster_type=HazardType.TYPHOON,
-                occurred_at=datetime(2023, 8, 15, 10, 30),
-                severity=DisasterSeverity.SEVERE,
-                damage_amount=500000000,  # 5억원
-                casualties=0,
-                description="태풍 카눈으로 인한 지붕 파손 및 침수 피해",
-                recovery_duration=14,
-                location="건물 1동",
-                weather_condition="강풍 및 폭우",
+                id=1,
+                alert_date=datetime(2023, 8, 15, 10, 30),
+                disaster_type="태풍",
+                severity="경보",
+                region="서울특별시, 경기도",
+                created_at=datetime(2023, 8, 15, 10, 30),
+                updated_at=None,
             ),
             DisasterHistoryRecord(
-                id=uuid4(),
-                site_id=filters.site_id or uuid4(),
-                disaster_type=HazardType.INLAND_FLOOD,
-                occurred_at=datetime(2023, 7, 10, 14, 0),
-                severity=DisasterSeverity.MODERATE,
-                damage_amount=150000000,  # 1.5억원
-                casualties=0,
-                description="집중호우로 인한 지하주차장 침수",
-                recovery_duration=7,
-                location="지하 1층 주차장",
-                weather_condition="시간당 80mm 집중호우",
+                id=2,
+                alert_date=datetime(2023, 7, 10, 14, 0),
+                disaster_type="호우",
+                severity="주의보",
+                region="부산광역시",
+                created_at=datetime(2023, 7, 10, 14, 0),
+                updated_at=None,
             ),
             DisasterHistoryRecord(
-                id=uuid4(),
-                site_id=filters.site_id or uuid4(),
-                disaster_type=HazardType.HIGH_TEMPERATURE,
-                occurred_at=datetime(2023, 8, 1, 15, 0),
-                severity=DisasterSeverity.MINOR,
-                damage_amount=5000000,  # 500만원
-                casualties=2,  # 온열질환자
-                description="폭염으로 인한 옥외 작업자 온열질환 발생",
-                recovery_duration=1,
-                location="야외 작업장",
-                weather_condition="기온 38도, 체감온도 42도",
+                id=3,
+                alert_date=datetime(2023, 8, 1, 15, 0),
+                disaster_type="폭염",
+                severity="경보",
+                region="대구광역시, 경상북도",
+                created_at=datetime(2023, 8, 1, 15, 0),
+                updated_at=None,
             ),
         ]
 
@@ -185,13 +250,17 @@ class DisasterHistoryService:
             filtered_records = [
                 r for r in filtered_records if r.severity == filters.severity
             ]
+        if filters.region:
+            filtered_records = [
+                r for r in filtered_records if filters.region in r.region
+            ]
         if filters.start_date:
             filtered_records = [
-                r for r in filtered_records if r.occurred_at >= filters.start_date
+                r for r in filtered_records if r.alert_date >= filters.start_date
             ]
         if filters.end_date:
             filtered_records = [
-                r for r in filtered_records if r.occurred_at <= filters.end_date
+                r for r in filtered_records if r.alert_date <= filters.end_date
             ]
 
         # Pagination
@@ -200,21 +269,20 @@ class DisasterHistoryService:
 
         return DisasterHistoryListResponse(total=total, data=paginated_records)
 
-    def _get_mock_statistics(self, site_id: Optional[UUID] = None) -> DisasterStatistics:
+    def _get_mock_statistics(self) -> DisasterStatistics:
         """Mock 통계 데이터 반환"""
         return DisasterStatistics(
             total_disasters=3,
-            total_damage=655000000,  # 6.55억원
-            total_casualties=2,
-            most_common_type=HazardType.TYPHOON,
+            total_damage=0,  # api_emergency_messages에는 피해액 정보 없음
+            total_casualties=0,  # api_emergency_messages에는 인명피해 정보 없음
+            most_common_type="태풍",
             by_type={
-                "태풍": {"count": 1, "damage": 500000000},
-                "내륙침수": {"count": 1, "damage": 150000000},
-                "폭염": {"count": 1, "damage": 5000000},
+                "태풍": {"count": 1},
+                "호우": {"count": 1},
+                "폭염": {"count": 1},
             },
             by_severity={
-                "심각": {"count": 1, "damage": 500000000},
-                "보통": {"count": 1, "damage": 150000000},
-                "경미": {"count": 1, "damage": 5000000},
+                "경보": {"count": 2},
+                "주의보": {"count": 1},
             },
         )

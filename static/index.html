@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ModelOps API 테스트 콘솔</title>
+    <title>ModelOps Site Assessment API 테스트 콘솔</title>
     <style>
         * {
             margin: 0;
@@ -37,7 +37,7 @@
         }
 
         .container {
-            max-width: 1400px;
+            max-width: 1600px;
             margin: 0 auto;
         }
 
@@ -66,28 +66,9 @@
             background-clip: text;
         }
 
-        .config-section {
-            display: flex;
-            gap: 1rem;
-            align-items: center;
-        }
-
-        .config-input {
-            padding: 0.5rem 1rem;
-            border: 2px solid var(--gray-200);
-            border-radius: 8px;
-            font-size: 0.9rem;
-            min-width: 250px;
-        }
-
-        .config-input:focus {
-            outline: none;
-            border-color: var(--primary);
-        }
-
         .grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
             gap: 2rem;
             margin-bottom: 2rem;
         }
@@ -140,7 +121,7 @@
         .badge.info { background: #cffafe; color: #164e63; }
 
         .form-group {
-            margin-bottom: 1.25rem;
+            margin-bottom: 1rem;
         }
 
         .form-label {
@@ -153,10 +134,10 @@
 
         .form-input, .form-select {
             width: 100%;
-            padding: 0.75rem;
+            padding: 0.65rem;
             border: 2px solid var(--gray-200);
             border-radius: 8px;
-            font-size: 0.95rem;
+            font-size: 0.9rem;
             transition: all 0.2s;
             font-family: inherit;
         }
@@ -167,8 +148,10 @@
             box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
         }
 
-        .form-input::placeholder {
-            color: var(--gray-400);
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
         }
 
         .btn {
@@ -304,38 +287,6 @@
             word-wrap: break-word;
         }
 
-        .progress-container {
-            margin-top: 1rem;
-        }
-
-        .progress-bar {
-            height: 30px;
-            background: var(--gray-200);
-            border-radius: 15px;
-            overflow: hidden;
-            position: relative;
-        }
-
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, var(--primary), var(--info));
-            transition: width 0.3s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: 600;
-            font-size: 0.85rem;
-        }
-
-        .progress-info {
-            margin-top: 0.75rem;
-            display: flex;
-            justify-content: space-between;
-            color: var(--gray-600);
-            font-size: 0.85rem;
-        }
-
         .status-indicator {
             display: inline-flex;
             align-items: center;
@@ -380,38 +331,41 @@
             grid-column: 1 / -1;
         }
 
-        .risk-grid {
+        .risk-summary {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
             gap: 1rem;
             margin-top: 1rem;
+            padding: 1rem;
+            background: var(--gray-50);
+            border-radius: 10px;
         }
 
         .risk-item {
-            background: white;
-            border: 2px solid var(--gray-200);
-            border-radius: 10px;
-            padding: 1rem;
             text-align: center;
-            transition: all 0.2s;
-        }
-
-        .risk-item:hover {
-            border-color: var(--primary);
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+            padding: 1rem;
+            background: white;
+            border-radius: 8px;
+            border: 2px solid var(--gray-200);
         }
 
         .risk-name {
-            font-weight: 600;
+            font-size: 0.75rem;
+            color: var(--gray-600);
             margin-bottom: 0.5rem;
-            color: var(--gray-700);
+            font-weight: 600;
         }
 
         .risk-value {
-            font-size: 1.75rem;
+            font-size: 1.5rem;
             font-weight: 700;
             color: var(--primary);
+        }
+
+        .section-divider {
+            margin: 1.5rem 0;
+            border: 0;
+            border-top: 2px dashed var(--gray-200);
         }
 
         .quick-test-buttons {
@@ -420,25 +374,13 @@
             flex-wrap: wrap;
         }
 
-        .json-key {
-            color: #881391;
-            font-weight: 600;
+        .collapsible {
+            cursor: pointer;
+            user-select: none;
         }
 
-        .json-string {
-            color: #1a1aa6;
-        }
-
-        .json-number {
-            color: #1c00cf;
-        }
-
-        .json-boolean {
-            color: #0d22ff;
-        }
-
-        .json-null {
-            color: #808080;
+        .collapsible:hover {
+            opacity: 0.8;
         }
     </style>
 </head>
@@ -446,10 +388,8 @@
     <div class="container">
         <div class="header">
             <div class="header-content">
-                <div class="logo">🔬 ModelOps API 테스트 콘솔</div>
-                <div class="config-section">
-                    <div id="healthStatus"></div>
-                </div>
+                <div class="logo">🏢 ModelOps Site Assessment API 테스트</div>
+                <div id="healthStatus"></div>
             </div>
         </div>
 
@@ -473,155 +413,167 @@
                 <div id="healthResult" class="result-box" style="display: none;"></div>
             </div>
 
-            <!-- Risk Assessment Calculation -->
-            <div class="card">
-                <div class="card-header">
-                    <h2 class="card-title">
-                        🎯 Risk Assessment
-                        <span class="badge success">POST</span>
-                    </h2>
-                </div>
-                <form onsubmit="event.preventDefault(); calculateRiskAssessment();">
-                    <div class="form-group">
-                        <label class="form-label">위도 (Latitude)</label>
-                        <input type="number"
-                               id="calcLatitude"
-                               class="form-input"
-                               step="0.000001"
-                               min="-90"
-                               max="90"
-                               value="37.5665"
-                               placeholder="37.5665"
-                               required>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">경도 (Longitude)</label>
-                        <input type="number"
-                               id="calcLongitude"
-                               class="form-input"
-                               step="0.000001"
-                               min="-180"
-                               max="180"
-                               value="126.9780"
-                               placeholder="126.9780"
-                               required>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Site ID (선택)</label>
-                        <input type="text"
-                               id="calcSiteId"
-                               class="form-input"
-                               placeholder="site-001">
-                    </div>
-                    <button type="submit" class="btn btn-primary btn-block" id="calcButton">
-                        🚀 계산 시작
-                    </button>
-                </form>
-                <div id="calcResult"></div>
-            </div>
-
-            <!-- Status Check -->
-            <div class="card">
-                <div class="card-header">
-                    <h2 class="card-title">
-                        📊 Status Check
-                        <span class="badge info">GET</span>
-                    </h2>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Request ID</label>
-                    <input type="text"
-                           id="statusRequestId"
-                           class="form-input"
-                           placeholder="request-id-from-calculation">
-                </div>
-                <button class="btn btn-info btn-block" onclick="checkStatus()">
-                    🔍 상태 조회
-                </button>
-                <div id="statusResult"></div>
-            </div>
-
-            <!-- Get Cached Results -->
-            <div class="card">
-                <div class="card-header">
-                    <h2 class="card-title">
-                        💾 Get Cached Results
-                        <span class="badge warning">GET</span>
-                    </h2>
-                </div>
-                <form onsubmit="event.preventDefault(); getCachedResults();">
-                    <div class="form-group">
-                        <label class="form-label">위도 (Latitude)</label>
-                        <input type="number"
-                               id="cacheLatitude"
-                               class="form-input"
-                               step="0.000001"
-                               value="37.5665"
-                               placeholder="37.5665">
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">경도 (Longitude)</label>
-                        <input type="number"
-                               id="cacheLongitude"
-                               class="form-input"
-                               step="0.000001"
-                               value="126.9780"
-                               placeholder="126.9780">
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">또는 Site ID</label>
-                        <input type="text"
-                               id="cacheSiteId"
-                               class="form-input"
-                               placeholder="site-001">
-                    </div>
-                    <button type="submit" class="btn btn-warning btn-block">
-                        📥 캐시 조회
-                    </button>
-                </form>
-                <div id="cacheResult"></div>
-            </div>
-
-            <!-- Full Workflow Test -->
+            <!-- Site Risk Calculation -->
             <div class="card full-width">
                 <div class="card-header">
                     <h2 class="card-title">
-                        🔄 전체 워크플로우 테스트
-                        <span class="badge danger">AUTO</span>
+                        🎯 사업장 리스크 계산
+                        <span class="badge success">POST</span>
+                    </h2>
+                </div>
+                <form onsubmit="event.preventDefault(); calculateSiteRisk();">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">위도 (Latitude) *</label>
+                            <input type="number" id="siteLatitude" class="form-input" step="0.000001" value="37.5665" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">경도 (Longitude) *</label>
+                            <input type="number" id="siteLongitude" class="form-input" step="0.000001" value="126.9780" required>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Site ID (선택)</label>
+                        <input type="text" id="siteId" class="form-input" placeholder="SITE-2025-001">
+                    </div>
+
+                    <hr class="section-divider">
+                    <h3 style="margin-bottom: 1rem; font-size: 1.1rem; color: var(--gray-700);">📋 건물 정보 (필수)</h3>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">건물 유형 *</label>
+                            <select id="buildingType" class="form-select" required>
+                                <option value="office">사무실 (Office)</option>
+                                <option value="factory">공장 (Factory)</option>
+                                <option value="warehouse">창고 (Warehouse)</option>
+                                <option value="residential">주거 (Residential)</option>
+                                <option value="commercial">상업 (Commercial)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">구조 *</label>
+                            <select id="structure" class="form-select" required>
+                                <option value="철근콘크리트">철근콘크리트</option>
+                                <option value="철골">철골</option>
+                                <option value="목조">목조</option>
+                                <option value="조적">조적</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">건물 연식 (년) *</label>
+                            <input type="number" id="buildingAge" class="form-input" value="15" min="0" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">전체 면적 (m²) *</label>
+                            <input type="number" id="totalArea" class="form-input" value="2500" min="0" required>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">지상 층수 *</label>
+                            <input type="number" id="groundFloors" class="form-input" value="5" min="0" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">지하 층수 *</label>
+                            <input type="number" id="basementFloors" class="form-input" value="1" min="0" required>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">필로티 구조 여부</label>
+                            <select id="hasPiloti" class="form-select">
+                                <option value="false">없음</option>
+                                <option value="true">있음</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">지면 고도 (m)</label>
+                            <input type="number" id="elevation" class="form-input" value="10" step="0.1">
+                        </div>
+                    </div>
+
+                    <hr class="section-divider">
+                    <h3 style="margin-bottom: 1rem; font-size: 1.1rem; color: var(--gray-700);">💰 자산 정보 (선택)</h3>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">총 자산 가치 (원)</label>
+                            <input type="number" id="totalValue" class="form-input" value="50000000000" min="0">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">보험 커버리지 비율 (0~1)</label>
+                            <input type="number" id="insuranceRate" class="form-input" value="0.3" step="0.1" min="0" max="1">
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary btn-block" id="siteCalcButton">
+                        🚀 리스크 계산 시작
+                    </button>
+                </form>
+                <div id="siteCalcResult"></div>
+            </div>
+
+            <!-- Relocation Recommendation -->
+            <div class="card full-width">
+                <div class="card-header">
+                    <h2 class="card-title">
+                        📍 이전 후보지 추천
+                        <span class="badge warning">POST</span>
                     </h2>
                 </div>
                 <div class="alert alert-info">
-                    이 테스트는 Risk Assessment 계산 → 상태 폴링 → 결과 조회까지 자동으로 수행합니다.
+                    이 기능은 여러 후보지 격자를 평가하여 최적의 이전 위치를 추천합니다. (시간이 다소 소요될 수 있습니다)
                 </div>
-                <div class="form-group">
-                    <label class="form-label">위도 (Latitude)</label>
-                    <input type="number"
-                           id="workflowLatitude"
-                           class="form-input"
-                           step="0.000001"
-                           value="35.1796"
-                           placeholder="35.1796 (부산)">
-                </div>
-                <div class="form-group">
-                    <label class="form-label">경도 (Longitude)</label>
-                    <input type="number"
-                           id="workflowLongitude"
-                           class="form-input"
-                           step="0.000001"
-                           value="129.0756"
-                           placeholder="129.0756 (부산)">
-                </div>
-                <button class="btn btn-danger btn-block" onclick="runFullWorkflow()" id="workflowButton">
-                    ⚡ 전체 테스트 실행
-                </button>
-                <div id="workflowResult"></div>
+                <form onsubmit="event.preventDefault(); recommendLocations();">
+                    <div class="form-group">
+                        <label class="form-label">후보지 격자 (JSON 배열) *</label>
+                        <textarea id="candidateGrids" class="form-input" rows="5" required>[
+  {"latitude": 37.5665, "longitude": 126.9780},
+  {"latitude": 37.5666, "longitude": 126.9781},
+  {"latitude": 37.5667, "longitude": 126.9782}
+]</textarea>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">최대 추천 개수</label>
+                            <input type="number" id="maxCandidates" class="form-input" value="3" min="1" max="10">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">SSP 시나리오</label>
+                            <select id="sspScenario" class="form-select">
+                                <option value="ssp2">SSP2</option>
+                                <option value="ssp5">SSP5</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">목표 연도</label>
+                        <input type="number" id="targetYear" class="form-input" value="2040" min="2020" max="2100">
+                    </div>
+
+                    <div class="alert alert-warning">
+                        ⚠️ 건물 정보와 자산 정보는 위의 "사업장 리스크 계산" 섹션에서 입력한 값을 사용합니다.
+                    </div>
+
+                    <button type="submit" class="btn btn-danger btn-block" id="recommendButton">
+                        🔍 후보지 추천 시작
+                    </button>
+                </form>
+                <div id="recommendResult"></div>
             </div>
         </div>
     </div>
 
     <script>
         let baseURL = '/modelops-proxy';
-        let currentRequestId = null;
 
         // Auto health check on load
         window.addEventListener('load', () => {
@@ -651,6 +603,33 @@
             element.style.display = 'block';
         }
 
+        // Get Building Info
+        function getBuildingInfo() {
+            return {
+                building_type: document.getElementById('buildingType').value,
+                structure: document.getElementById('structure').value,
+                building_age: parseInt(document.getElementById('buildingAge').value),
+                total_area_m2: parseFloat(document.getElementById('totalArea').value),
+                ground_floors: parseInt(document.getElementById('groundFloors').value),
+                basement_floors: parseInt(document.getElementById('basementFloors').value),
+                has_piloti: document.getElementById('hasPiloti').value === 'true',
+                elevation_m: parseFloat(document.getElementById('elevation').value)
+            };
+        }
+
+        // Get Asset Info
+        function getAssetInfo() {
+            const totalValue = document.getElementById('totalValue').value;
+            const insuranceRate = document.getElementById('insuranceRate').value;
+
+            if (!totalValue) return null;
+
+            return {
+                total_value: parseFloat(totalValue),
+                insurance_coverage_rate: parseFloat(insuranceRate)
+            };
+        }
+
         // Health Check
         async function checkHealth() {
             const statusDiv = document.getElementById('healthStatus');
@@ -678,27 +657,33 @@
             }
         }
 
-        // Calculate Risk Assessment
-        async function calculateRiskAssessment() {
-            const button = document.getElementById('calcButton');
+        // Calculate Site Risk
+        async function calculateSiteRisk() {
+            const button = document.getElementById('siteCalcButton');
             button.disabled = true;
             button.innerHTML = '<div class="loading"></div> 계산 중...';
 
-            const latitude = parseFloat(document.getElementById('calcLatitude').value);
-            const longitude = parseFloat(document.getElementById('calcLongitude').value);
-            const siteId = document.getElementById('calcSiteId').value;
+            const latitude = parseFloat(document.getElementById('siteLatitude').value);
+            const longitude = parseFloat(document.getElementById('siteLongitude').value);
+            const siteId = document.getElementById('siteId').value;
 
             const payload = {
                 latitude,
-                longitude
+                longitude,
+                building_info: getBuildingInfo()
             };
 
             if (siteId) {
                 payload.site_id = siteId;
             }
 
+            const assetInfo = getAssetInfo();
+            if (assetInfo) {
+                payload.asset_info = assetInfo;
+            }
+
             try {
-                const response = await fetch(`${baseURL}/api/v1/risk-assessment/calculate`, {
+                const response = await fetch(`${baseURL}/api/v1/site-assessment/calculate`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -709,228 +694,117 @@
                 const data = await response.json();
 
                 if (response.ok) {
-                    currentRequestId = data.request_id;
-                    document.getElementById('statusRequestId').value = data.request_id;
-                    showResult('calcResult', data, 'success');
-
-                    // Show alert with request_id
-                    const alert = `
-                        <div class="alert alert-success">
-                            ✅ 계산이 시작되었습니다!<br>
-                            <strong>Request ID:</strong> ${data.request_id}
-                        </div>
-                    `;
-                    document.getElementById('calcResult').innerHTML = alert + document.getElementById('calcResult').innerHTML;
-                } else {
-                    showResult('calcResult', data, 'error');
-                }
-            } catch (error) {
-                showResult('calcResult', `요청 실패: ${error.message}`, 'error');
-            } finally {
-                button.disabled = false;
-                button.innerHTML = '🚀 계산 시작';
-            }
-        }
-
-        // Check Status
-        async function checkStatus() {
-            const requestId = document.getElementById('statusRequestId').value;
-            if (!requestId) {
-                showResult('statusResult', '⚠️ Request ID를 입력해주세요', 'warning');
-                return;
-            }
-
-            try {
-                const response = await fetch(`${baseURL}/api/v1/risk-assessment/status?request_id=${requestId}`);
-                const data = await response.json();
-
-                if (response.ok) {
-                    // Show progress bar
-                    const progress = data.progress || 0;
-                    const progressHTML = `
-                        <div class="progress-container">
-                            <div class="progress-bar">
-                                <div class="progress-fill" style="width: ${progress}%">
-                                    ${progress.toFixed(1)}%
-                                </div>
-                            </div>
-                            <div class="progress-info">
-                                <span>상태: <strong>${data.status}</strong></span>
-                                <span>${data.current || 0} / ${data.total || 9}</span>
-                            </div>
-                            ${data.current_risk ? `<div class="alert alert-info" style="margin-top: 1rem;">현재 처리 중: <strong>${data.current_risk}</strong></div>` : ''}
-                        </div>
-                    `;
-
-                    document.getElementById('statusResult').innerHTML = progressHTML;
-                    showResult('statusResult', data, 'info');
-                } else {
-                    showResult('statusResult', data, 'error');
-                }
-            } catch (error) {
-                showResult('statusResult', `요청 실패: ${error.message}`, 'error');
-            }
-        }
-
-        // Get Cached Results
-        async function getCachedResults() {
-            const latitude = document.getElementById('cacheLatitude').value;
-            const longitude = document.getElementById('cacheLongitude').value;
-            const siteId = document.getElementById('cacheSiteId').value;
-
-            if (!siteId && (!latitude || !longitude)) {
-                showResult('cacheResult', '⚠️ Site ID 또는 위도/경도를 입력해주세요', 'warning');
-                return;
-            }
-
-            const params = new URLSearchParams();
-            if (siteId) params.append('site_id', siteId);
-            if (latitude) params.append('latitude', latitude);
-            if (longitude) params.append('longitude', longitude);
-
-            try {
-                const response = await fetch(`${baseURL}/api/v1/risk-assessment/results?${params}`);
-                const data = await response.json();
-
-                if (response.ok) {
                     // Display summary
                     const summary = data.summary || {};
                     const summaryHTML = `
                         <div class="alert alert-success">
-                            ✅ 캐시된 결과를 찾았습니다!
+                            ✅ 리스크 계산 완료!
                         </div>
-                        <div class="risk-grid">
-                            ${Object.entries(data.integrated_risk || {}).map(([risk, value]) => `
-                                <div class="risk-item">
-                                    <div class="risk-name">${risk}</div>
-                                    <div class="risk-value">${value.risk_score?.toFixed(2) || 'N/A'}</div>
-                                </div>
-                            `).join('')}
+                        <div class="risk-summary">
+                            <div class="risk-item">
+                                <div class="risk-name">총 통합 리스크</div>
+                                <div class="risk-value">${summary.total_integrated_risk?.toFixed(2) || 'N/A'}</div>
+                            </div>
+                            <div class="risk-item">
+                                <div class="risk-name">총 AAL</div>
+                                <div class="risk-value">${summary.total_final_aal?.toFixed(6) || 'N/A'}</div>
+                            </div>
+                            <div class="risk-item">
+                                <div class="risk-name">평가 리스크 수</div>
+                                <div class="risk-value">${summary.risk_count || 'N/A'}</div>
+                            </div>
                         </div>
                     `;
 
-                    document.getElementById('cacheResult').innerHTML = summaryHTML;
-                    showResult('cacheResult', data, 'success');
-                } else if (response.status === 404) {
-                    showResult('cacheResult', '❌ 해당 위치의 캐시된 결과가 없습니다', 'error');
+                    document.getElementById('siteCalcResult').innerHTML = summaryHTML;
+                    showResult('siteCalcResult', data, 'success');
                 } else {
-                    showResult('cacheResult', data, 'error');
+                    showResult('siteCalcResult', data, 'error');
                 }
             } catch (error) {
-                showResult('cacheResult', `요청 실패: ${error.message}`, 'error');
+                showResult('siteCalcResult', `요청 실패: ${error.message}`, 'error');
+            } finally {
+                button.disabled = false;
+                button.innerHTML = '🚀 리스크 계산 시작';
             }
         }
 
-        // Full Workflow Test
-        async function runFullWorkflow() {
-            const button = document.getElementById('workflowButton');
+        // Recommend Relocation Locations
+        async function recommendLocations() {
+            const button = document.getElementById('recommendButton');
             button.disabled = true;
-            button.innerHTML = '<div class="loading"></div> 실행 중...';
-
-            const latitude = parseFloat(document.getElementById('workflowLatitude').value);
-            const longitude = parseFloat(document.getElementById('workflowLongitude').value);
-
-            const resultDiv = document.getElementById('workflowResult');
-            resultDiv.innerHTML = '<div class="alert alert-info">⏳ Step 1/3: 리스크 평가 계산 요청 중...</div>';
+            button.innerHTML = '<div class="loading"></div> 추천 중... (시간이 소요될 수 있습니다)';
 
             try {
-                // Step 1: Calculate
-                const calcResponse = await fetch(`${baseURL}/api/v1/risk-assessment/calculate`, {
+                // Parse candidate grids
+                const candidateGridsText = document.getElementById('candidateGrids').value;
+                const candidateGrids = JSON.parse(candidateGridsText);
+
+                const payload = {
+                    candidate_grids: candidateGrids,
+                    building_info: getBuildingInfo(),
+                    search_criteria: {
+                        max_candidates: parseInt(document.getElementById('maxCandidates').value),
+                        ssp_scenario: document.getElementById('sspScenario').value,
+                        target_year: parseInt(document.getElementById('targetYear').value)
+                    }
+                };
+
+                const assetInfo = getAssetInfo();
+                if (assetInfo) {
+                    payload.asset_info = assetInfo;
+                }
+
+                const response = await fetch(`${baseURL}/api/v1/site-assessment/recommend-locations`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ latitude, longitude })
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
                 });
 
-                if (!calcResponse.ok) {
-                    throw new Error('계산 요청 실패');
-                }
+                const data = await response.json();
 
-                const calcData = await calcResponse.json();
-                const requestId = calcData.request_id;
-
-                resultDiv.innerHTML += `<div class="alert alert-success">✅ Step 1 완료: Request ID = ${requestId}</div>`;
-                resultDiv.innerHTML += '<div class="alert alert-info">⏳ Step 2/3: 작업 완료 대기 중 (폴링)...</div>';
-
-                // Step 2: Poll Status
-                let completed = false;
-                let attempts = 0;
-                const maxAttempts = 60; // 2분 (2초 간격)
-
-                while (!completed && attempts < maxAttempts) {
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-
-                    const statusResponse = await fetch(`${baseURL}/api/v1/risk-assessment/status?request_id=${requestId}`);
-                    const statusData = await statusResponse.json();
-
-                    const progress = statusData.progress || 0;
-                    const progressHTML = `
-                        <div class="progress-container">
-                            <div class="progress-bar">
-                                <div class="progress-fill" style="width: ${progress}%">
-                                    ${progress.toFixed(1)}%
+                if (response.ok) {
+                    // Display candidates
+                    const candidates = data.candidates || [];
+                    const candidatesHTML = `
+                        <div class="alert alert-success">
+                            ✅ 후보지 추천 완료! (총 ${data.total_grids_evaluated}개 격자 평가)
+                        </div>
+                        ${candidates.map(candidate => `
+                            <div style="margin-top: 1rem; padding: 1rem; background: var(--gray-50); border-radius: 10px; border-left: 4px solid var(--primary);">
+                                <h4 style="margin-bottom: 0.5rem; color: var(--primary);">
+                                    🏆 순위 ${candidate.rank} - (${candidate.latitude.toFixed(4)}, ${candidate.longitude.toFixed(4)})
+                                </h4>
+                                <div class="risk-summary">
+                                    <div class="risk-item">
+                                        <div class="risk-name">총 AAL</div>
+                                        <div class="risk-value">${candidate.total_aal.toFixed(6)}</div>
+                                    </div>
+                                    <div class="risk-item">
+                                        <div class="risk-name">평균 통합 리스크</div>
+                                        <div class="risk-value">${candidate.average_integrated_risk.toFixed(2)}</div>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="progress-info">
-                                <span>상태: <strong>${statusData.status}</strong></span>
-                                <span>${statusData.current || 0} / ${statusData.total || 9}</span>
-                            </div>
-                        </div>
+                        `).join('')}
                     `;
 
-                    // Update progress
-                    const existingProgress = resultDiv.querySelector('.progress-container');
-                    if (existingProgress) {
-                        existingProgress.outerHTML = progressHTML;
-                    } else {
-                        resultDiv.innerHTML += progressHTML;
-                    }
-
-                    if (statusData.status === 'completed') {
-                        completed = true;
-                        resultDiv.innerHTML += '<div class="alert alert-success">✅ Step 2 완료: 계산 완료!</div>';
-                    } else if (statusData.status === 'failed') {
-                        throw new Error('계산 실패');
-                    }
-
-                    attempts++;
-                }
-
-                if (!completed) {
-                    throw new Error('타임아웃: 2분 내에 완료되지 않았습니다');
-                }
-
-                // Step 3: Get Results
-                resultDiv.innerHTML += '<div class="alert alert-info">⏳ Step 3/3: 결과 조회 중...</div>';
-
-                const resultResponse = await fetch(`${baseURL}/api/v1/risk-assessment/results?latitude=${latitude}&longitude=${longitude}`);
-                const resultData = await resultResponse.json();
-
-                if (resultResponse.ok) {
-                    resultDiv.innerHTML += '<div class="alert alert-success">✅ Step 3 완료: 결과 조회 성공!</div>';
-
-                    // Display results
-                    const riskHTML = `
-                        <div class="risk-grid">
-                            ${Object.entries(resultData.integrated_risk || {}).map(([risk, value]) => `
-                                <div class="risk-item">
-                                    <div class="risk-name">${risk}</div>
-                                    <div class="risk-value">${value.risk_score?.toFixed(2) || 'N/A'}</div>
-                                </div>
-                            `).join('')}
-                        </div>
-                    `;
-
-                    resultDiv.innerHTML += riskHTML;
-                    showResult('workflowResult', resultData, 'success');
+                    document.getElementById('recommendResult').innerHTML = candidatesHTML;
+                    showResult('recommendResult', data, 'success');
                 } else {
-                    throw new Error('결과 조회 실패');
+                    showResult('recommendResult', data, 'error');
                 }
-
             } catch (error) {
-                resultDiv.innerHTML += `<div class="alert alert-error">❌ 오류: ${error.message}</div>`;
+                if (error instanceof SyntaxError) {
+                    showResult('recommendResult', `JSON 파싱 실패: 후보지 격자 형식을 확인해주세요`, 'error');
+                } else {
+                    showResult('recommendResult', `요청 실패: ${error.message}`, 'error');
+                }
             } finally {
                 button.disabled = false;
-                button.innerHTML = '⚡ 전체 테스트 실행';
+                button.innerHTML = '🔍 후보지 추천 시작';
             }
         }
     </script>

@@ -3,6 +3,7 @@ from typing import Optional
 from datetime import datetime
 from fastapi import HTTPException
 import logging
+import json
 
 from src.core.config import settings
 from src.core.errors import ErrorCode, ErrorSeverity, create_error_detail
@@ -32,6 +33,9 @@ from src.schemas.common import HazardType, SSPScenario
 from ai_agent import SKAXPhysicalRiskAnalyzer
 from ai_agent.config.settings import load_config
 
+# Database 연동
+from ai_agent.utils.database import DatabaseManager
+
 
 class AnalysisService:
     """분석 서비스 - ai_agent를 호출하여 분석 수행"""
@@ -43,6 +47,14 @@ class AnalysisService:
         self._cached_states = {}  # job_id별 State 캐시 (enhance용)
         self.logger = logging.getLogger("api.services.analysis")
 
+        # batch_jobs 테이블 연동 (jobId 기반 조회용)
+        try:
+            self.db = DatabaseManager()
+            self.logger.info("DatabaseManager initialized for batch_jobs tracking")
+        except Exception as e:
+            self.logger.warning(f"DatabaseManager initialization failed: {e}. Job tracking disabled.")
+            self.db = None
+
     def _get_analyzer(self) -> SKAXPhysicalRiskAnalyzer:
         """ai_agent 분석기 인스턴스 반환 (lazy initialization)"""
         if self._analyzer is None:
@@ -50,13 +62,13 @@ class AnalysisService:
             self._analyzer = SKAXPhysicalRiskAnalyzer(config)
         return self._analyzer
 
-    async def _run_agent_analysis(
+    def _run_agent_analysis_sync(
         self,
         site_info: dict,
         asset_value: float = 50000000000,
         additional_data: dict = None
     ) -> dict:
-        """ai_agent 분석 실행 (ERD 기준)"""
+        """ai_agent 분석 실행 (동기 함수 - 별도 스레드에서 실행)"""
         analyzer = self._get_analyzer()
 
         # SiteInfo에서 기본 위치 정보만 사용 (ERD 기준)
@@ -102,19 +114,139 @@ class AnalysisService:
         )
         return result
 
-    async def start_analysis(self, site_id: UUID, request: StartAnalysisRequest) -> AnalysisJobStatus:
-        """Spring Boot API 호환 - 분석 작업 시작 (문서 스펙 기준)"""
+    async def _run_agent_analysis(
+        self,
+        site_info: dict,
+        asset_value: float = 50000000000,
+        additional_data: dict = None
+    ) -> dict:
+        """ai_agent 분석 실행 (비동기 래퍼 - run_in_executor 사용)"""
+        import asyncio
+        loop = asyncio.get_event_loop()
+
+        # 동기 함수를 별도 스레드에서 실행 (이벤트 루프 블로킹 방지)
+        result = await loop.run_in_executor(
+            None,  # None = default ThreadPoolExecutor
+            self._run_agent_analysis_sync,
+            site_info,
+            asset_value,
+            additional_data
+        )
+        return result
+
+    def _save_job_to_db(self, job_id: UUID, site_id: UUID, request: StartAnalysisRequest, status: str, progress: int = 0, results: dict = None):
+        """batch_jobs 테이블에 job 저장"""
+        if not self.db:
+            return
+
+        try:
+            input_params = {
+                'site_id': str(site_id),
+                'user_id': str(request.user_id) if request.user_id else None,  # userId 추가 (Spring Boot 클라이언트 호환)
+                'site_name': request.site.name,
+                'hazard_types': request.hazard_types,
+                'priority': request.priority.value if request.priority else 'normal',
+                'options': {
+                    'include_financial_impact': request.options.include_financial_impact if request.options else True,
+                    'include_vulnerability': request.options.include_vulnerability if request.options else True,
+                    'include_past_events': request.options.include_past_events if request.options else True,
+                    'ssp_scenarios': [s.value for s in request.options.ssp_scenarios] if request.options else []
+                }
+            }
+
+            query = """
+                INSERT INTO batch_jobs (
+                    batch_id, job_type, status, progress,
+                    input_params, results, created_at, started_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+                ON CONFLICT (batch_id) DO UPDATE SET
+                    status = EXCLUDED.status,
+                    progress = EXCLUDED.progress,
+                    results = EXCLUDED.results,
+                    started_at = COALESCE(batch_jobs.started_at, NOW())
+            """
+            self.db.execute_update(query, (
+                str(job_id),
+                'physical_risk_analysis',
+                status,
+                progress,
+                json.dumps(input_params),
+                json.dumps(results) if results else None
+            ))
+            self.logger.info(f"Job {job_id} saved to batch_jobs table")
+        except Exception as e:
+            self.logger.error(f"Failed to save job to DB: {e}")
+
+    def _update_job_in_db(self, job_id: UUID, status: str, progress: int, results: dict = None, error: dict = None):
+        """batch_jobs 테이블의 job 상태 업데이트"""
+        if not self.db:
+            return
+
+        try:
+            # done일 때는 completed_at 설정 (상태는 ing와 done만 있음)
+            if status == 'done':
+                query = """
+                    UPDATE batch_jobs
+                    SET status = %s, progress = %s, results = %s,
+                        error_message = %s, completed_at = NOW()
+                    WHERE batch_id = %s
+                """
+                self.db.execute_update(query, (
+                    status,
+                    progress,
+                    json.dumps(results) if results else None,
+                    json.dumps(error) if error else None,
+                    str(job_id)
+                ))
+            else:
+                # ing 상태
+                query = """
+                    UPDATE batch_jobs
+                    SET status = %s, progress = %s
+                    WHERE batch_id = %s
+                """
+                self.db.execute_update(query, (status, progress, str(job_id)))
+            self.logger.info(f"Job {job_id} updated in batch_jobs table: status={status}")
+        except Exception as e:
+            self.logger.error(f"Failed to update job in DB: {e}")
+
+    async def start_analysis_async(self, site_id: UUID, request: StartAnalysisRequest, background_tasks) -> AnalysisJobStatus:
+        """
+        Spring Boot API 호환 - 분석 작업 시작 (비동기)
+
+        즉시 202 Accepted를 반환하고 백그라운드에서 분석 실행
+        """
         job_id = uuid4()
+        started_at = datetime.now()
+
+        # DB에 job 생성 (ing 상태) - user_id 포함
+        self._save_job_to_db(job_id, site_id, request, status='ing', progress=0)
 
         if settings.USE_MOCK_DATA:
             return AnalysisJobStatus(
                 jobId=str(job_id),
                 siteId=site_id,
-                status="running",
+                status="ing",
                 progress=0,
-                currentNode="physical_risk_score",
-                startedAt=datetime.now(),
+                currentNode="started",
+                startedAt=started_at,
             )
+
+        # 백그라운드에서 실제 분석 실행
+        background_tasks.add_task(self._run_analysis_background, job_id, site_id, request)
+
+        return AnalysisJobStatus(
+            jobId=str(job_id),
+            siteId=site_id,
+            status="ing",
+            progress=0,
+            currentNode="started",
+            startedAt=started_at,
+        )
+
+    async def _run_analysis_background(self, job_id: UUID, site_id: UUID, request: StartAnalysisRequest):
+        """백그라운드에서 실행되는 실제 분석 로직"""
+        self.logger.info(f"[BACKGROUND] 분석 시작: job_id={job_id}, site_id={site_id}")
 
         try:
             # Spring Boot 문서 스펙: site 객체 + hazardTypes, priority, options
@@ -134,28 +266,19 @@ class AnalysisService:
             # State 캐싱 (enhance용) - Node 1~4 결과 포함
             self._cached_states[job_id] = result.copy()
 
-            status = "completed" if result.get('workflow_status') == 'completed' else "failed"
+            # 성공/실패 관계없이 done으로 처리 (상태는 ing와 done만 있음)
+            error = {"code": "ANALYSIS_FAILED", "message": str(result.get('errors', []))} if result.get('errors') else None
 
-            return AnalysisJobStatus(
-                jobId=str(job_id),
-                siteId=site_id,
-                status=status,
-                progress=100 if status == "completed" else 0,
-                currentNode="completed" if status == "completed" else "failed",
-                startedAt=datetime.now(),
-                completedAt=datetime.now() if status == "completed" else None,
-                error={"code": "ANALYSIS_FAILED", "message": str(result.get('errors', []))} if result.get('errors') else None,
-            )
+            # DB에 완료 상태 저장 (status='done')
+            self._update_job_in_db(job_id, status='done', progress=100, results=result, error=error)
+
+            self.logger.info(f"[BACKGROUND] 분석 완료: job_id={job_id}")
+
         except Exception as e:
-            return AnalysisJobStatus(
-                jobId=str(job_id),
-                siteId=site_id,
-                status="failed",
-                progress=0,
-                currentNode="failed",
-                startedAt=datetime.now(),
-                error={"code": "ANALYSIS_FAILED", "message": str(e)},
-            )
+            self.logger.error(f"[BACKGROUND] 분석 실패: job_id={job_id}, error={str(e)}", exc_info=True)
+            error = {"code": "ANALYSIS_FAILED", "message": str(e)}
+            # 실패해도 done으로 처리
+            self._update_job_in_db(job_id, status='done', progress=100, error=error)
 
     async def enhance_analysis(
         self,
@@ -297,19 +420,167 @@ class AnalysisService:
                 error=error_detail.dict(),
             )
 
-    async def get_job_status(self, site_id: UUID, job_id: UUID) -> Optional[AnalysisJobStatus]:
-        """Spring Boot API 호환 - 작업 상태 조회"""
+    async def get_job_status(self, job_id: UUID, site_id: Optional[UUID] = None) -> Optional[AnalysisJobStatus]:
+        """
+        Spring Boot API 호환 - 작업 상태 조회
+
+        Args:
+            job_id: 작업 ID (필수)
+            site_id: 사업장 ID (선택, 하위 호환성용)
+
+        Returns:
+            AnalysisJobStatus 또는 None (job이 없을 경우)
+        """
         if settings.USE_MOCK_DATA:
             return AnalysisJobStatus(
                 jobId=str(job_id),
-                siteId=site_id,
+                siteId=str(site_id) if site_id else "00000000-0000-0000-0000-000000000000",
                 status="completed",
                 progress=100,
                 currentNode="completed",
                 startedAt=datetime.now(),
                 completedAt=datetime.now(),
             )
-        return None
+
+        # batch_jobs 테이블에서 jobId로 조회
+        if not self.db:
+            self.logger.warning("Database not available, cannot query job status")
+            return None
+
+        try:
+            query = """
+                SELECT
+                    batch_id, job_type, status, progress,
+                    input_params, results, error_message,
+                    created_at, started_at, completed_at
+                FROM batch_jobs
+                WHERE batch_id = %s
+            """
+            result = self.db.execute_query(query, (str(job_id),))
+
+            if not result or len(result) == 0:
+                self.logger.warning(f"Job {job_id} not found in batch_jobs")
+                return None
+
+            job = result[0]
+            input_params = job.get('input_params', {})
+
+            # site_id 추출 (input_params에서)
+            job_site_id = input_params.get('site_id') if isinstance(input_params, dict) else None
+
+            # error_message 파싱
+            error_msg = job.get('error_message')
+            error_dict = None
+            if error_msg:
+                try:
+                    error_dict = json.loads(error_msg) if isinstance(error_msg, str) else error_msg
+                except:
+                    error_dict = {"code": "UNKNOWN_ERROR", "message": str(error_msg)}
+
+            return AnalysisJobStatus(
+                jobId=str(job['batch_id']),
+                siteId=job_site_id or (str(site_id) if site_id else None),
+                status=job['status'],
+                progress=job.get('progress', 0),
+                currentNode=job['status'],  # status를 currentNode로 사용
+                currentHazard=None,
+                startedAt=job.get('started_at'),
+                completedAt=job.get('completed_at'),
+                estimatedCompletionTime=None,
+                error=error_dict
+            )
+        except Exception as e:
+            self.logger.error(f"Failed to query job status from DB: {e}")
+            return None
+
+    async def get_job_status_by_id(self, job_id: UUID) -> Optional[AnalysisJobStatus]:
+        """
+        jobId로 분석 작업 상태 조회 (Spring Boot 클라이언트 호환)
+
+        Args:
+            job_id: 작업 ID
+
+        Returns:
+            AnalysisJobStatus 또는 None (job이 없을 경우)
+        """
+        return await self.get_job_status(job_id)
+
+    async def get_latest_job_status_by_user(self, user_id: UUID) -> Optional[AnalysisJobStatus]:
+        """
+        userId로 가장 최근 분석 작업 상태 조회 (Spring Boot 클라이언트 호환)
+
+        Args:
+            user_id: 사용자 ID
+
+        Returns:
+            AnalysisJobStatus 또는 None (해당 사용자의 job이 없을 경우)
+        """
+        if settings.USE_MOCK_DATA:
+            return AnalysisJobStatus(
+                jobId="00000000-0000-0000-0000-000000000000",
+                siteId="00000000-0000-0000-0000-000000000000",
+                status="completed",
+                progress=100,
+                currentNode="completed",
+                startedAt=datetime.now(),
+                completedAt=datetime.now(),
+            )
+
+        # batch_jobs 테이블에서 userId로 가장 최근 job 조회
+        if not self.db:
+            self.logger.warning("Database not available, cannot query job status")
+            return None
+
+        try:
+            # TODO: batch_jobs 테이블에 user_id 컬럼 추가 필요
+            # 현재는 input_params JSON 내부에서 user_id를 찾아야 함
+            # 임시 구현: input_params::jsonb ? 'user_id' 조건 사용
+            query = """
+                SELECT
+                    batch_id, job_type, status, progress,
+                    input_params, results, error_message,
+                    created_at, started_at, completed_at
+                FROM batch_jobs
+                WHERE input_params::jsonb->>'user_id' = %s
+                ORDER BY created_at DESC
+                LIMIT 1
+            """
+            result = self.db.execute_query(query, (str(user_id),))
+
+            if not result or len(result) == 0:
+                self.logger.warning(f"No jobs found for user {user_id}")
+                return None
+
+            job = result[0]
+            input_params = job.get('input_params', {})
+
+            # site_id 추출 (input_params에서)
+            job_site_id = input_params.get('site_id') if isinstance(input_params, dict) else None
+
+            # error_message 파싱
+            error_msg = job.get('error_message')
+            error_dict = None
+            if error_msg:
+                try:
+                    error_dict = json.loads(error_msg) if isinstance(error_msg, str) else error_msg
+                except:
+                    error_dict = {"code": "UNKNOWN_ERROR", "message": str(error_msg)}
+
+            return AnalysisJobStatus(
+                jobId=str(job['batch_id']),
+                siteId=job_site_id,
+                status=job['status'],
+                progress=job.get('progress', 0),
+                currentNode=job['status'],  # status를 currentNode로 사용
+                currentHazard=None,
+                startedAt=job.get('started_at'),
+                completedAt=job.get('completed_at'),
+                estimatedCompletionTime=None,
+                error=error_dict
+            )
+        except Exception as e:
+            self.logger.error(f"Failed to query latest job status for user {user_id}: {e}")
+            return None
 
     async def get_physical_risk_scores(
         self, site_id: UUID, hazard_type: Optional[str]
@@ -341,7 +612,98 @@ class AnalysisService:
 
             return PhysicalRiskScoreResponse(scenarios=scenarios)
 
-        return None
+        # 실제 DB에서 조회
+        from ai_agent.utils.database import DatabaseManager
+
+        self.logger.info(f"[PHYSICAL_RISK] 물리적 리스크 점수 조회: site_id={site_id}, hazard_type={hazard_type}")
+
+        try:
+            db = DatabaseManager()
+
+            # hazard_type 한글 -> 영문 매핑 (Spring Boot 통일안)
+            hazard_mapping = {
+                '극심한 고온': 'extreme_heat',
+                '극심한 한파': 'extreme_cold',
+                '산불': 'wildfire',
+                '가뭄': 'drought',
+                '물부족': 'water_stress',
+                '해수면 상승': 'sea_level_rise',
+                '하천 홍수': 'river_flood',
+                '도시 홍수': 'urban_flood',
+                '태풍': 'typhoon'
+            }
+
+            risk_type_en = hazard_mapping.get(hazard_type, hazard_type) if hazard_type else None
+
+            # site_risk_results 테이블에서 조회
+            if risk_type_en:
+                query = """
+                    SELECT
+                        site_id,
+                        risk_type,
+                        physical_risk_score_100 as risk_score,
+                        aal_percentage,
+                        risk_level
+                    FROM site_risk_results
+                    WHERE site_id = %s AND risk_type = %s
+                """
+                rows = db.execute_query(query, (str(site_id), risk_type_en))
+            else:
+                query = """
+                    SELECT
+                        site_id,
+                        risk_type,
+                        physical_risk_score_100 as risk_score,
+                        aal_percentage,
+                        risk_level
+                    FROM site_risk_results
+                    WHERE site_id = %s
+                    LIMIT 1
+                """
+                rows = db.execute_query(query, (str(site_id),))
+
+            self.logger.info(f"[PHYSICAL_RISK] 쿼리 실행 완료: {len(rows)}개 행 조회됨")
+
+            if not rows:
+                self.logger.warning(f"[PHYSICAL_RISK] 데이터 없음: site_id={site_id}, hazard_type={hazard_type}")
+                return None
+
+            # Mock 데이터로 반환 (실제로는 DB에서 시나리오별 데이터 필요)
+            # TODO: site_risk_results에 SSP 시나리오별 데이터 추가 필요
+            risk_score = int(rows[0]['risk_score']) if rows[0].get('risk_score') else 72
+
+            # 영문 -> 한글 역매핑 (Spring Boot 통일안)
+            reverse_hazard_mapping = {
+                'extreme_heat': '폭염',  # HazardType enum의 HIGH_TEMPERATURE
+                'extreme_cold': '한파',  # HazardType enum의 COLD_WAVE
+                'wildfire': '산불',
+                'drought': '가뭄',
+                'water_stress': '물부족',  # HazardType enum의 WATER_SCARCITY
+                'sea_level_rise': '해안침수',  # HazardType enum의 COASTAL_FLOOD (임시)
+                'river_flood': '내륙침수',  # HazardType enum의 INLAND_FLOOD
+                'urban_flood': '도시침수',  # HazardType enum의 URBAN_FLOOD
+                'typhoon': '태풍'
+            }
+
+            # DB에서 조회한 risk_type(영문)을 한글로 변환
+            db_risk_type = rows[0].get('risk_type', 'high_temperature')
+            risk_type_korean = reverse_hazard_mapping.get(db_risk_type, '폭염')
+
+            scenarios = []
+            for scenario in [SSPScenario.SSP1_26, SSPScenario.SSP2_45, SSPScenario.SSP3_70, SSPScenario.SSP5_85]:
+                scenarios.append(SSPScenarioScore(
+                    scenario=scenario,
+                    riskType=risk_type_korean,
+                    shortTerm=ShortTermScore(q1=risk_score-5, q2=risk_score, q3=risk_score+5, q4=risk_score),
+                    midTerm=MidTermScore(year2026=risk_score, year2027=risk_score+2, year2028=risk_score+4, year2029=risk_score+6, year2030=risk_score+8),
+                    longTerm=LongTermScore(year2020s=risk_score, year2030s=risk_score+6, year2040s=risk_score+12, year2050s=risk_score+17),
+                ))
+
+            return PhysicalRiskScoreResponse(scenarios=scenarios)
+
+        except Exception as e:
+            self.logger.error(f"[PHYSICAL_RISK] 데이터 조회 실패: {str(e)}", exc_info=True)
+            return None
 
     async def get_past_events(self, site_id: UUID) -> Optional[PastEventsResponse]:
         """Spring Boot API 호환 - 과거 재난 이력 조회"""
@@ -393,10 +755,109 @@ class AnalysisService:
 
             return FinancialImpactResponse(scenarios=scenarios)
 
-        return None
+        # 실제 DB에서 조회
+        from ai_agent.utils.database import DatabaseManager
+
+        self.logger.info(f"[FINANCIAL_IMPACT] 재무 영향 데이터 조회 시작: site_id={site_id}")
+
+        try:
+            db = DatabaseManager()
+
+            # site_risk_results 테이블에서 AAL 데이터 조회
+            # 주의: site_risk_results 테이블에는 scenario 컬럼이 없으므로
+            # risk_type별 단일 AAL 값을 기준으로 4개 시나리오를 생성합니다
+            query = """
+                SELECT
+                    risk_type,
+                    aal_percentage
+                FROM site_risk_results
+                WHERE site_id = %s
+                ORDER BY risk_type
+            """
+
+            rows = db.execute_query(query, (str(site_id),))
+
+            if not rows:
+                self.logger.warning(f"[FINANCIAL_IMPACT] site_id={site_id}에 대한 AAL 데이터가 없습니다")
+                return None
+
+            # 영문 -> 한글 역매핑 (DB의 risk_type은 영문)
+            reverse_hazard_mapping = {
+                'extreme_heat': '폭염',
+                'extreme_cold': '한파',
+                'wildfire': '산불',
+                'drought': '가뭄',
+                'water_stress': '물부족',
+                'sea_level_rise': '해안침수',
+                'river_flood': '내륙침수',
+                'urban_flood': '도시침수',
+                'typhoon': '태풍'
+            }
+
+            # SSP 시나리오별 배율 (기준 AAL 대비)
+            scenario_multipliers = {
+                SSPScenario.SSP1_26: 0.8,   # 낙관적 시나리오 (-20%)
+                SSPScenario.SSP2_45: 1.0,   # 중간 시나리오 (기준)
+                SSPScenario.SSP3_70: 1.3,   # 비관적 시나리오 (+30%)
+                SSPScenario.SSP5_85: 1.5,   # 최악 시나리오 (+50%)
+            }
+
+            # SSPScenarioImpact 리스트 생성
+            scenarios = []
+            for row in rows:
+                db_risk_type = row['risk_type']
+                aal_pct = row['aal_percentage']  # 0.0~100.0 범위
+
+                # risk_type 변환 (영문 -> HazardType enum용 한글)
+                mapped_risk_type = reverse_hazard_mapping.get(db_risk_type)
+                if not mapped_risk_type:
+                    self.logger.warning(f"[FINANCIAL_IMPACT] 알 수 없는 risk_type: {db_risk_type}")
+                    continue
+
+                # AAL 백분율 -> 0.0~1.0 비율로 변환
+                base_aal = aal_pct / 100.0
+
+                # 4개 SSP 시나리오별로 데이터 생성
+                for scenario_enum, multiplier in scenario_multipliers.items():
+                    scenario_aal = base_aal * multiplier
+
+                    scenarios.append(SSPScenarioImpact(
+                        scenario=scenario_enum,
+                        riskType=mapped_risk_type,
+                        shortTerm=ShortTermAAL(
+                            q1=scenario_aal * 0.95,
+                            q2=scenario_aal * 1.00,
+                            q3=scenario_aal * 1.05,
+                            q4=scenario_aal * 1.02
+                        ),
+                        midTerm=MidTermAAL(
+                            year2026=scenario_aal * 1.00,
+                            year2027=scenario_aal * 1.05,
+                            year2028=scenario_aal * 1.10,
+                            year2029=scenario_aal * 1.15,
+                            year2030=scenario_aal * 1.20
+                        ),
+                        longTerm=LongTermAAL(
+                            year2020s=scenario_aal * 1.00,
+                            year2030s=scenario_aal * 1.20,
+                            year2040s=scenario_aal * 1.40,
+                            year2050s=scenario_aal * 1.60
+                        )
+                    ))
+
+            if not scenarios:
+                self.logger.warning(f"[FINANCIAL_IMPACT] 유효한 AAL 데이터를 찾을 수 없습니다")
+                return None
+
+            self.logger.info(f"[FINANCIAL_IMPACT] {len(scenarios)}개 시나리오 AAL 데이터 조회 성공")
+            return FinancialImpactResponse(scenarios=scenarios)
+
+        except Exception as e:
+            self.logger.error(f"[FINANCIAL_IMPACT] DB 조회 실패: {e}", exc_info=True)
+            return None
 
     async def get_vulnerability(self, site_id: UUID) -> Optional[VulnerabilityResponse]:
-        """Spring Boot API 호환 - 취약성 분석"""
+        """Spring Boot API 호환 - 취약성 분석 (메모리 캐시 전용)"""
         if settings.USE_MOCK_DATA:
             vulnerabilities = [
                 RiskVulnerability(riskType="폭염", vulnerabilityScore=75),
@@ -410,7 +871,72 @@ class AnalysisService:
                 vulnerabilities=vulnerabilities,
             )
 
-        return None
+        # 메모리 캐시에서 Agent 분석 결과 조회
+        cached_result = self._analysis_results.get(site_id)
+        if not cached_result:
+            self.logger.warning(f"[VULNERABILITY] 메모리 캐시에 분석 결과 없음: site_id={site_id}")
+            return None
+
+        if 'building_characteristics' not in cached_result:
+            self.logger.warning(f"[VULNERABILITY] building_characteristics 없음: site_id={site_id}")
+            return None
+
+        self.logger.info(f"[VULNERABILITY] 메모리 캐시에서 building_characteristics 조회: site_id={site_id}")
+
+        building_chars = cached_result['building_characteristics']
+
+        # Risk type 매핑 (영문 -> 한글)
+        risk_type_mapping = {
+            'extreme_heat': '폭염',
+            'extreme_cold': '한파',
+            'wildfire': '산불',
+            'drought': '가뭄',
+            'water_stress': '물부족',
+            'sea_level_rise': '해안침수',
+            'river_flood': '내륙침수',
+            'urban_flood': '도시침수',
+            'typhoon': '태풍'
+        }
+
+        vulnerabilities = []
+
+        # vulnerability_scores 형식인 경우 (dict)
+        if 'vulnerability_scores' in building_chars:
+            vuln_scores = building_chars['vulnerability_scores']
+            for risk_type_en, score in vuln_scores.items():
+                korean_name = risk_type_mapping.get(risk_type_en, risk_type_en)
+                vulnerabilities.append(
+                    RiskVulnerability(
+                        riskType=korean_name,
+                        vulnerabilityScore=int(score) if score is not None else 0
+                    )
+                )
+
+        # vulnerabilities 리스트 형식인 경우
+        elif 'vulnerabilities' in building_chars:
+            for vuln_item in building_chars['vulnerabilities']:
+                risk_type = vuln_item.get('riskType') or vuln_item.get('risk_type')
+                score = vuln_item.get('score') or vuln_item.get('vulnerabilityScore', 0)
+
+                # 영문이면 한글로 변환
+                korean_name = risk_type_mapping.get(risk_type, risk_type)
+
+                vulnerabilities.append(
+                    RiskVulnerability(
+                        riskType=korean_name,
+                        vulnerabilityScore=int(score) if score is not None else 0
+                    )
+                )
+
+        if not vulnerabilities:
+            self.logger.warning(f"[VULNERABILITY] building_characteristics에 vulnerability 데이터 없음: site_id={site_id}")
+            return None
+
+        self.logger.info(f"[VULNERABILITY] 메모리 캐시에서 {len(vulnerabilities)}개 취약성 점수 반환")
+        return VulnerabilityResponse(
+            siteId=site_id,
+            vulnerabilities=vulnerabilities,
+        )
 
     async def get_total_analysis(
         self, site_id: UUID, hazard_type: str
@@ -472,3 +998,93 @@ class AnalysisService:
             )
 
         return None
+
+    def _check_and_send_completion_callback(self, user_id: UUID):
+        """
+        리포트 생성과 후보지 추천이 모두 완료되었는지 확인 후 Spring Boot 콜백
+
+        Args:
+            user_id: 사용자 ID
+        """
+        if not user_id or not self.db:
+            return
+
+        try:
+            # batch_jobs에서 user_id의 작업 상태 확인
+            query = """
+                SELECT
+                    input_params::jsonb->>'user_id' as user_id,
+                    MAX(CASE WHEN job_type = 'physical_risk_analysis' AND status = 'completed' THEN 1 ELSE 0 END) as report_done,
+                    MAX(CASE WHEN job_type = 'site_recommendation' AND status = 'completed' THEN 1 ELSE 0 END) as recommendation_done
+                FROM batch_jobs
+                WHERE input_params::jsonb->>'user_id' = %s
+                GROUP BY input_params::jsonb->>'user_id'
+            """
+            result = self.db.execute_query(query, (str(user_id),))
+
+            if result and len(result) > 0:
+                row = result[0]
+                report_done = row.get('report_done') == 1
+                recommendation_done = row.get('recommendation_done') == 1
+
+                # 둘 다 완료되었는지 확인
+                if report_done and recommendation_done:
+                    # 콜백 전송 여부 확인 (중복 방지)
+                    callback_check_query = """
+                        SELECT COUNT(*) as callback_sent
+                        FROM batch_jobs
+                        WHERE input_params::jsonb->>'user_id' = %s
+                        AND job_type = 'spring_boot_callback'
+                        AND status = 'completed'
+                    """
+                    callback_result = self.db.execute_query(callback_check_query, (str(user_id),))
+
+                    if callback_result and callback_result[0].get('callback_sent', 0) == 0:
+                        # Spring Boot 콜백 호출
+                        from ai_agent.services.springboot_client import get_springboot_client
+
+                        springboot_client = get_springboot_client()
+                        springboot_client.notify_analysis_completion(user_id)
+
+                        # 콜백 전송 기록 저장
+                        self._save_callback_record(user_id)
+                        self.logger.info(f"[CALLBACK] Spring Boot 알림 전송 완료: user_id={user_id}")
+                    else:
+                        self.logger.info(f"[CALLBACK] 이미 전송됨: user_id={user_id}")
+                else:
+                    self.logger.debug(f"[CALLBACK] 아직 미완료 - report: {report_done}, recommendation: {recommendation_done}")
+        except Exception as e:
+            self.logger.error(f"Spring Boot 콜백 확인/전송 실패: {str(e)}")
+            # 에러 발생해도 분석 결과는 유효
+
+    def _save_callback_record(self, user_id: UUID):
+        """콜백 전송 기록 저장"""
+        if not self.db:
+            return
+
+        try:
+            query = """
+                INSERT INTO batch_jobs (
+                    batch_id, job_type, status, progress,
+                    input_params, created_at, completed_at
+                ) VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
+            """
+            self.db.execute_update(query, (
+                str(uuid4()),
+                'spring_boot_callback',
+                'completed',
+                100,
+                json.dumps({'user_id': str(user_id)})
+            ))
+        except Exception as e:
+            self.logger.error(f"콜백 기록 저장 실패: {str(e)}")
+
+    async def on_report_generation_completed(self, user_id: UUID):
+        """리포트 생성 완료 시 호출"""
+        self.logger.info(f"[CALLBACK] 리포트 생성 완료: user_id={user_id}")
+        self._check_and_send_completion_callback(user_id)
+
+    async def on_relocation_recommendation_completed(self, user_id: UUID):
+        """후보지 추천 완료 시 호출"""
+        self.logger.info(f"[CALLBACK] 후보지 추천 완료: user_id={user_id}")
+        self._check_and_send_completion_callback(user_id)

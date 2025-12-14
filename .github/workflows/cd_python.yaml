@@ -2,7 +2,7 @@ name: CD - Deploy to Server
 
 on:
   workflow_run:
-    workflows: ['CI - Test & Build']
+    workflows: ["CI - Test & Build"]
     types:
       - completed
     branches: [main]
@@ -83,10 +83,13 @@ jobs:
               -e OPENAI_API_KEY='${{ secrets.OPENAI_API_KEY }}' \
               -e DATABASE_URL='${{ secrets.DATABASE_URL }}' \
               -e USE_MOCK_DATA='${{ secrets.USE_MOCK_DATA }}' \
+              -e WORKFLOW_MOCK_MODE='${{ secrets.WORKFLOW_MOCK_MODE }}' \
               -e LANGSMITH_ENABLED='${{ secrets.LANGSMITH_ENABLED }}' \
               -e LANGSMITH_API_KEY='${{ secrets.LANGSMITH_API_KEY }}' \
               -e LANGSMITH_PROJECT='${{ secrets.LANGSMITH_PROJECT }}' \
+              -e MODELOPS_URL='${{ secrets.MODELOPS_URL }}' \
               -e MODELOPS_BASE_URL='${{ secrets.MODELOPS_BASE_URL }}' \
+              -e SPRING_BOOT_BASE_URL='${{ secrets.SPRING_BOOT_BASE_URL }}' \
               ${IMAGE}
 
             # Health check - 컨테이너가 준비될 때까지 대기

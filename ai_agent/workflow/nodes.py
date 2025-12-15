@@ -44,7 +44,7 @@ from ..agents import (
 	FinalizerNode
 )
 
-from ..agents.data_processing.building_characteristics_agent import BuildingCharacteristicsAgent
+from ..agents.primary_data.building_characteristics_agent import BuildingCharacteristicsAgent
 
 # Scratch Space Manager 초기화 (TTL 4시간)
 scratch_manager = ScratchSpaceManager(base_path="./scratch", default_ttl_hours=4)

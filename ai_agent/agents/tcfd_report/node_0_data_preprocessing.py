@@ -403,7 +403,7 @@ class DataPreprocessingNode:
                     })
 
                 try:
-                    bc_results = bc_agent.analyze_batch(bc_input)
+                    bc_results = await bc_agent.analyze_batch(bc_input)
 
                     # 결과를 building_data에 저장
                     for site_id, result in bc_results.items():

@@ -31,7 +31,7 @@ except ImportError:
 		return decorator
 
 from ..agents import (
-	DataCollectionAgent,
+	# DataCollectionAgent,        # 삭제됨 (Node 0에서 DB 직접 조회)
 	# VulnerabilityAnalysisAgent,  # 삭제됨 (ModelOps가 V 계산)
 	# Physical Risk Score Agents,  # 삭제됨 (ModelOps가 H×E×V 계산)
 	# AAL Analysis Agents,         # 삭제됨 (ModelOps가 AAL 계산)

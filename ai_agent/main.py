@@ -548,6 +548,64 @@ class SKAXPhysicalRiskAnalyzer:
 				'errors': [str(e)]
 			}
 
+	@traceable(name="skax_analyze_multiple_sites", tags=["workflow", "main", "orchestrator", "multi-site"])
+	def analyze_multiple_sites(
+    	self,
+    	target_locations: List[Dict[str, Any]],
+    	building_infos: List[Dict[str, Any]],
+    	asset_infos: List[Dict[str, Any]],
+    	analysis_params: Dict[str, Any],
+    	user_id: Optional[UUID],
+    	hazard_types: List[str],
+    	priority: Priority,
+    	options: Optional[AnalysisOptions],
+    	additional_data: Optional[Dict[str, Any]] = None,
+    	language: str = 'ko'
+    ) -> Dict[str, Any]:
+		"""
+   		[TODO] 다중 사업장 물리적 리스크 분석 실행 (Agent 구현 예정)
+    	이 메소드는 여러 사업장 리스트를 받아 내부적으로 분석을 수행하고 결과를 종합하여 반환합니다.
+		현재는 Agent 로직이 수정 중이므로 Mock 데이터를 반환합니다.
+
+        Args:
+            target_locations: 분석 대상 위치 정보 리스트
+             building_infos: 건물 정보 리스트 (target_locations와 동일한 순서)
+             asset_infos: 자산 정보 리스트 (target_locations와 동일한 순서)
+             analysis_params: 분석 파라미터 (모든 사업장에 공통 적용)
+             user_id: 사용자 ID (로그 및 추적용)
+             hazard_types: 분석할 위험 유형 목록 (모든 사업장에 공통 적용)
+             priority: 작업 우선순위 (모든 사업장에 공통 적용)
+             options: 분석 옵션 (모든 사업장에 공통 적용)
+             additional_data: 추가 데이터 (선택사항, 모든 사업장에 공통 적용)
+             language: 보고서 언어 ('ko' 또는 'en', 기본값: 'ko')
+        Returns:
+            Mock 분석 결과 딕셔너리
+        """
+		self.logger.warning(
+            f"Agent method analyze_multiple_sites is called with mock implementation. "
+            f"user_id={user_id}, site_count={len(target_locations)}, hazard_types={hazard_types}"
+        )
+
+		results_per_site = []
+
+		for idx, loc in enumerate(target_locations):
+			site_id = loc.get("id") or str(uuid4()) # Use actual site ID if present, otherwise generate mock
+			results_per_site.append({
+                "site_id": site_id,
+                "site_name": loc.get("name", f"Site {idx+1}"),
+                "physical_risk_score": 75 + idx * 2, # Mock score
+                "aal_score": 0.02 + (idx * 0.005), # Mock AAL
+                "summary": f"Mock analysis summary for {loc.get('name', 'unknown location')}."
+            })
+
+		return {
+            'workflow_status': 'completed',
+            'message': "Mock multi-site analysis completed successfully.",
+            'total_sites': len(target_locations),
+            'hazard_types_requested': hazard_types,
+             'results_per_site': results_per_site
+		}
+
 	def _get_agent_configs(self) -> list:
 		"""
 		Agent 설정 목록 반환 (Additional Data Guideline 생성용)

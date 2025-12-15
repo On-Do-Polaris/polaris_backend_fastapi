@@ -637,9 +637,16 @@ class AnalysisService:
 
 
     async def get_physical_risk_scores(
-        self, site_id: UUID, hazard_type: Optional[str]
+        self, site_id: UUID, hazard_type: Optional[str], term: Optional[str] = None
     ) -> Optional[PhysicalRiskScoreResponse]:
-        """Spring Boot API 호환 - 시나리오별 물리적 리스크 점수 조회"""
+        """
+        Spring Boot API 호환 - 시나리오별 물리적 리스크 점수 조회
+
+        Args:
+            site_id: 사업장 ID
+            hazard_type: 위험 유형 (선택)
+            term: 분석 기간 (short/mid/long) (선택)
+        """
         if settings.USE_MOCK_DATA:
             risk_type = HazardType.HIGH_TEMPERATURE
             if hazard_type:
@@ -663,46 +670,124 @@ class AnalysisService:
 
             return PhysicalRiskScoreResponse(scenarios=scenarios)
 
-        self.logger.info(f"[PHYSICAL_RISK] 물리적 리스크 점수 조회: site_id={site_id}, hazard_type={hazard_type}")
+        self.logger.info(f"[PHYSICAL_RISK] 물리적 리스크 점수 조회: site_id={site_id}, hazard_type={hazard_type}, term={term}")
 
         try:
             db = DatabaseManager()
-            risk_type_en = hazard_type
 
+            # term에 따라 조회할 연도 결정 (DB에는 varchar로 저장)
+            # 단기(short): '2026' (1개)
+            # 중기(mid): '2026', '2027', '2028', '2029', '2030' (5개)
+            # 장기(long): '2020s', '2030s', '2040s', '2050s' (4개)
+            target_years = []
+            if term == 'short':
+                target_years = ['2026']
+            elif term == 'mid':
+                target_years = ['2026', '2027', '2028', '2029', '2030']
+            elif term == 'long':
+                target_years = ['2020s', '2030s', '2040s', '2050s']
+            else:
+                # term이 없거나 잘못된 경우 모든 연도 조회
+                target_years = ['2026', '2027', '2028', '2029', '2030', '2020s', '2030s', '2040s', '2050s']
+
+            # H × E × V / 10000 계산을 위해 3개 테이블 JOIN
             query = """
                 SELECT
-                    site_id, risk_type, physical_risk_score_100 as risk_score, aal_percentage, risk_level
-                FROM site_risk_results
-                WHERE site_id = %s
+                    h.risk_type,
+                    h.target_year,
+                    h.ssp126_score_100 as h_ssp126,
+                    h.ssp245_score_100 as h_ssp245,
+                    h.ssp370_score_100 as h_ssp370,
+                    h.ssp585_score_100 as h_ssp585,
+                    e.exposure_score,
+                    v.vulnerability_score
+                FROM hazard_results h
+                JOIN exposure_results e ON
+                    h.latitude = e.latitude AND
+                    h.longitude = e.longitude AND
+                    h.risk_type = e.risk_type AND
+                    h.target_year = e.target_year
+                JOIN vulnerability_results v ON
+                    e.site_id = v.site_id AND
+                    e.risk_type = v.risk_type AND
+                    e.target_year = v.target_year
+                WHERE e.site_id = %s
+                    AND h.target_year = ANY(%s)
             """
-            params = [str(site_id)]
-            if risk_type_en:
-                query += " AND risk_type = %s"
-                params.append(risk_type_en)
+            params = [str(site_id), target_years]
+
+            if hazard_type:
+                query += " AND h.risk_type = %s"
+                params.append(hazard_type)
+
+            query += " ORDER BY h.risk_type, h.target_year"
 
             rows = db.execute_query(query, tuple(params))
             self.logger.info(f"[PHYSICAL_RISK] 쿼리 실행 완료: {len(rows)}개 행 조회됨")
 
             if not rows:
-                self.logger.warning(f"[PHYSICAL_RISK] 데이터 없음: site_id={site_id}, hazard_type={hazard_type}")
+                self.logger.warning(f"[PHYSICAL_RISK] 데이터 없음: site_id={site_id}, hazard_type={hazard_type}, term={term}")
                 return None
 
-            # 결과를 SSP 시나리오별로 변환 (현재 DB 스키마는 시나리오별 데이터가 없으므로 임시 생성)
-            scenarios = []
+            # risk_type별로 그룹화
+            risk_data = {}
             for row in rows:
-                risk_score = int(row.get('risk_score', 72))
-                db_risk_type = row.get('risk_type', 'extreme_heat')
-                risk_type_korean = RISK_TYPE_KR_MAPPING.get(db_risk_type, db_risk_type)
+                risk_type = row['risk_type']
+                target_year = row['target_year']
 
-                for scenario in [SSPScenario.SSP1_26, SSPScenario.SSP2_45, SSPScenario.SSP3_70, SSPScenario.SSP5_85]:
+                if risk_type not in risk_data:
+                    risk_data[risk_type] = {}
+
+                # Physical Risk Score = H × E × V / 10000
+                E = row['exposure_score']
+                V = row['vulnerability_score']
+
+                risk_data[risk_type][target_year] = {
+                    'ssp126': (row['h_ssp126'] * E * V / 10000) if row['h_ssp126'] else 0,
+                    'ssp245': (row['h_ssp245'] * E * V / 10000) if row['h_ssp245'] else 0,
+                    'ssp370': (row['h_ssp370'] * E * V / 10000) if row['h_ssp370'] else 0,
+                    'ssp585': (row['h_ssp585'] * E * V / 10000) if row['h_ssp585'] else 0,
+                }
+
+            # SSP 시나리오별로 결과 생성
+            scenarios = []
+            for risk_type, year_data in risk_data.items():
+                risk_type_korean = RISK_TYPE_KR_MAPPING.get(risk_type, risk_type)
+
+                for scenario_enum, scenario_key in [
+                    (SSPScenario.SSP1_26, 'ssp126'),
+                    (SSPScenario.SSP2_45, 'ssp245'),
+                    (SSPScenario.SSP3_70, 'ssp370'),
+                    (SSPScenario.SSP5_85, 'ssp585')
+                ]:
+                    # 단기: 2026년 데이터를 4분기로 분할 (동일한 값)
+                    short_score = int(year_data.get('2026', {}).get(scenario_key, 0))
+
+                    # 중기: 2026-2030년 데이터
+                    mid_scores = {
+                        'year2026': int(year_data.get('2026', {}).get(scenario_key, 0)),
+                        'year2027': int(year_data.get('2027', {}).get(scenario_key, 0)),
+                        'year2028': int(year_data.get('2028', {}).get(scenario_key, 0)),
+                        'year2029': int(year_data.get('2029', {}).get(scenario_key, 0)),
+                        'year2030': int(year_data.get('2030', {}).get(scenario_key, 0)),
+                    }
+
+                    # 장기: 2020s, 2030s, 2040s, 2050s
+                    long_scores = {
+                        'year2020s': int(year_data.get('2020s', {}).get(scenario_key, 0)),
+                        'year2030s': int(year_data.get('2030s', {}).get(scenario_key, 0)),
+                        'year2040s': int(year_data.get('2040s', {}).get(scenario_key, 0)),
+                        'year2050s': int(year_data.get('2050s', {}).get(scenario_key, 0)),
+                    }
+
                     scenarios.append(SSPScenarioScore(
-                        scenario=scenario,
+                        scenario=scenario_enum,
                         riskType=risk_type_korean,
-                        shortTerm=ShortTermScore(q1=risk_score-5, q2=risk_score, q3=risk_score+5, q4=risk_score),
-                        midTerm=MidTermScore(year2026=risk_score, year2027=risk_score+2, year2028=risk_score+4, year2029=risk_score+6, year2030=risk_score+8),
-                        longTerm=LongTermScore(year2020s=risk_score, year2030s=risk_score+6, year2040s=risk_score+12, year2050s=risk_score+17),
+                        shortTerm=ShortTermScore(q1=short_score, q2=short_score, q3=short_score, q4=short_score),
+                        midTerm=MidTermScore(**mid_scores),
+                        longTerm=LongTermScore(**long_scores),
                     ))
-            
+
             return PhysicalRiskScoreResponse(scenarios=scenarios)
 
         except Exception as e:
@@ -721,8 +806,17 @@ class AnalysisService:
             return PastEventsResponse(siteId=site_id, siteName="서울 본사", disasters=disasters)
         return None
 
-    async def get_financial_impacts(self, site_id: UUID) -> Optional[FinancialImpactResponse]:
-        """Spring Boot API 호환 - 시나리오별 재무 영향(AAL) 조회"""
+    async def get_financial_impacts(
+        self, site_id: UUID, hazard_type: Optional[str] = None, term: Optional[str] = None
+    ) -> Optional[FinancialImpactResponse]:
+        """
+        Spring Boot API 호환 - 시나리오별 재무 영향(AAL) 조회
+
+        Args:
+            site_id: 사업장 ID
+            hazard_type: 위험 유형 (선택)
+            term: 분석 기간 (short/mid/long) (선택)
+        """
         if settings.USE_MOCK_DATA:
             scenarios = []
             for scenario in [SSPScenario.SSP1_26, SSPScenario.SSP2_45, SSPScenario.SSP3_70, SSPScenario.SSP5_85]:
@@ -735,34 +829,110 @@ class AnalysisService:
                 ))
             return FinancialImpactResponse(scenarios=scenarios)
 
-        self.logger.info(f"[FINANCIAL_IMPACT] 재무 영향 데이터 조회 시작: site_id={site_id}")
+        self.logger.info(f"[FINANCIAL_IMPACT] 재무 영향 데이터 조회 시작: site_id={site_id}, hazard_type={hazard_type}, term={term}")
         try:
             db = DatabaseManager()
-            query = "SELECT risk_type, aal_percentage FROM site_risk_results WHERE site_id = %s ORDER BY risk_type"
-            rows = db.execute_query(query, (str(site_id),))
+
+            # term에 따라 조회할 연도 결정 (DB에는 varchar로 저장)
+            # 단기(short): '2026' (1개)
+            # 중기(mid): '2026', '2027', '2028', '2029', '2030' (5개)
+            # 장기(long): '2020s', '2030s', '2040s', '2050s' (4개)
+            target_years = []
+            if term == 'short':
+                target_years = ['2026']
+            elif term == 'mid':
+                target_years = ['2026', '2027', '2028', '2029', '2030']
+            elif term == 'long':
+                target_years = ['2020s', '2030s', '2040s', '2050s']
+            else:
+                # term이 없거나 잘못된 경우 모든 연도 조회
+                target_years = ['2026', '2027', '2028', '2029', '2030', '2020s', '2030s', '2040s', '2050s']
+
+            # aal_scaled_results 테이블에서 직접 AAL 조회
+            query = """
+                SELECT
+                    risk_type,
+                    target_year,
+                    ssp126_final_aal,
+                    ssp245_final_aal,
+                    ssp370_final_aal,
+                    ssp585_final_aal
+                FROM aal_scaled_results
+                WHERE site_id = %s
+                    AND target_year = ANY(%s)
+            """
+            params = [str(site_id), target_years]
+
+            if hazard_type:
+                query += " AND risk_type = %s"
+                params.append(hazard_type)
+
+            query += " ORDER BY risk_type, target_year"
+
+            rows = db.execute_query(query, tuple(params))
+            self.logger.info(f"[FINANCIAL_IMPACT] 쿼리 실행 완료: {len(rows)}개 행 조회됨")
+
             if not rows:
                 self.logger.warning(f"[FINANCIAL_IMPACT] site_id={site_id}에 대한 AAL 데이터가 없습니다")
                 return None
-            
-            scenario_multipliers = {
-                SSPScenario.SSP1_26: 0.8, SSPScenario.SSP2_45: 1.0,
-                SSPScenario.SSP3_70: 1.3, SSPScenario.SSP5_85: 1.5,
-            }
-            scenarios = []
+
+            # risk_type별로 그룹화
+            aal_data = {}
             for row in rows:
-                db_risk_type = row['risk_type']
-                aal_pct = row['aal_percentage']
-                mapped_risk_type = RISK_TYPE_KR_MAPPING.get(db_risk_type, db_risk_type)
-                base_aal = aal_pct / 100.0
-                for scenario_enum, multiplier in scenario_multipliers.items():
-                    scenario_aal = base_aal * multiplier
+                risk_type = row['risk_type']
+                target_year = row['target_year']
+
+                if risk_type not in aal_data:
+                    aal_data[risk_type] = {}
+
+                aal_data[risk_type][target_year] = {
+                    'ssp126': row['ssp126_final_aal'] if row['ssp126_final_aal'] else 0,
+                    'ssp245': row['ssp245_final_aal'] if row['ssp245_final_aal'] else 0,
+                    'ssp370': row['ssp370_final_aal'] if row['ssp370_final_aal'] else 0,
+                    'ssp585': row['ssp585_final_aal'] if row['ssp585_final_aal'] else 0,
+                }
+
+            # SSP 시나리오별로 결과 생성
+            scenarios = []
+            for risk_type, year_data in aal_data.items():
+                risk_type_korean = RISK_TYPE_KR_MAPPING.get(risk_type, risk_type)
+
+                for scenario_enum, scenario_key in [
+                    (SSPScenario.SSP1_26, 'ssp126'),
+                    (SSPScenario.SSP2_45, 'ssp245'),
+                    (SSPScenario.SSP3_70, 'ssp370'),
+                    (SSPScenario.SSP5_85, 'ssp585')
+                ]:
+                    # 단기: 2026년 데이터를 4분기로 분할 (동일한 값)
+                    short_aal = year_data.get('2026', {}).get(scenario_key, 0)
+
+                    # 중기: 2026-2030년 데이터
+                    mid_aal = {
+                        'year2026': year_data.get('2026', {}).get(scenario_key, 0),
+                        'year2027': year_data.get('2027', {}).get(scenario_key, 0),
+                        'year2028': year_data.get('2028', {}).get(scenario_key, 0),
+                        'year2029': year_data.get('2029', {}).get(scenario_key, 0),
+                        'year2030': year_data.get('2030', {}).get(scenario_key, 0),
+                    }
+
+                    # 장기: 2020s, 2030s, 2040s, 2050s
+                    long_aal = {
+                        'year2020s': year_data.get('2020s', {}).get(scenario_key, 0),
+                        'year2030s': year_data.get('2030s', {}).get(scenario_key, 0),
+                        'year2040s': year_data.get('2040s', {}).get(scenario_key, 0),
+                        'year2050s': year_data.get('2050s', {}).get(scenario_key, 0),
+                    }
+
                     scenarios.append(SSPScenarioImpact(
-                        scenario=scenario_enum, riskType=mapped_risk_type,
-                        shortTerm=ShortTermAAL(q1=scenario_aal*0.95, q2=scenario_aal*1.0, q3=scenario_aal*1.05, q4=scenario_aal*1.02),
-                        midTerm=MidTermAAL(year2026=scenario_aal*1.0, year2027=scenario_aal*1.05, year2028=scenario_aal*1.1, year2029=scenario_aal*1.15, year2030=scenario_aal*1.2),
-                        longTerm=LongTermAAL(year2020s=scenario_aal*1.0, year2030s=scenario_aal*1.2, year2040s=scenario_aal*1.4, year2050s=scenario_aal*1.6)
+                        scenario=scenario_enum,
+                        riskType=risk_type_korean,
+                        shortTerm=ShortTermAAL(q1=short_aal, q2=short_aal, q3=short_aal, q4=short_aal),
+                        midTerm=MidTermAAL(**mid_aal),
+                        longTerm=LongTermAAL(**long_aal),
                     ))
-            if not scenarios: return None
+
+            if not scenarios:
+                return None
             return FinancialImpactResponse(scenarios=scenarios)
         except Exception as e:
             self.logger.error(f"[FINANCIAL_IMPACT] DB 조회 실패: {e}", exc_info=True)

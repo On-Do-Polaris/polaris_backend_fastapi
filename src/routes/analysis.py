@@ -159,11 +159,19 @@ async def get_analysis_status(
 async def get_physical_risk_scores(
     site_id: UUID = Query(..., alias="siteId"),
     hazard_type: Optional[str] = Query(None, alias="hazardType"),
+    term: Optional[str] = Query(None, description="분석 기간 (short/mid/long)"),
     api_key: str = Depends(verify_api_key),
     service = Depends(get_analysis_service),
 ):
-    """시나리오별 물리적 리스크 점수 조회 - query parameters 사용"""
-    result = await service.get_physical_risk_scores(site_id, hazard_type)
+    """
+    시나리오별 물리적 리스크 점수 조회 - query parameters 사용
+
+    Args:
+        siteId: 사업장 ID
+        hazardType: 위험 유형 (선택)
+        term: 분석 기간 (short/mid/long) (선택)
+    """
+    result = await service.get_physical_risk_scores(site_id, hazard_type, term)
     if not result:
         raise HTTPException(status_code=404, detail="Analysis not found")
     return result
@@ -185,11 +193,20 @@ async def get_physical_risk_scores(
 @router.get("/financial-impacts", response_model=FinancialImpactResponse) # 사용
 async def get_financial_impacts(
     site_id: UUID = Query(..., alias="siteId"),
+    hazard_type: Optional[str] = Query(None, alias="hazardType"),
+    term: Optional[str] = Query(None, description="분석 기간 (short/mid/long)"),
     api_key: str = Depends(verify_api_key),
     service = Depends(get_analysis_service),
 ):
-    """시나리오별 재무 영향(AAL) 조회 - query parameters 사용"""
-    result = await service.get_financial_impacts(site_id)
+    """
+    시나리오별 재무 영향(AAL) 조회 - query parameters 사용
+
+    Args:
+        siteId: 사업장 ID
+        hazardType: 위험 유형 (선택)
+        term: 분석 기간 (short/mid/long) (선택)
+    """
+    result = await service.get_financial_impacts(site_id, hazard_type, term)
     if not result:
         raise HTTPException(status_code=404, detail="Analysis not found")
     return result

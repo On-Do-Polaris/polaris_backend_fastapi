@@ -45,71 +45,147 @@ class DashboardService:
         """실제 DB에서 대시보드 요약 데이터를 조회하여 반환"""
         logger.debug(f"Querying database for dashboard summary for user_id={user_id}")
 
-        query = """
-        WITH LatestRiskScores AS (
-            -- 각 사업장의 최신 리스크 점수를 찾습니다.
-            SELECT
-                prs.site_id,
-                prs.total_risk_score,
-                ROW_NUMBER() OVER(PARTITION BY prs.site_id ORDER BY prs.created_at DESC) as rn_risk
-            FROM physical_risk_summary prs
-        ),
-        MainSiteHazards AS (
-            -- 각 사업장의 가장 점수가 높은 위험 요소를 찾습니다.
-            SELECT
-                hr.site_id,
-                hr.risk_type,
-                ROW_NUMBER() OVER(PARTITION BY hr.site_id ORDER BY hr.hazard_score DESC, hr.calculated_at DESC) as rn_hazard
-            FROM hazard_results hr
-        )
-        -- 기본 사업장 정보와 위에서 계산된 리스크/위험 정보를 조합합니다.
+        # 9개 리스크 타입
+        RISK_TYPES = [
+            'extreme_heat', 'extreme_cold', 'river_flood', 'urban_flood',
+            'drought', 'water_stress', 'sea_level_rise', 'typhoon', 'wildfire'
+        ]
+
+        # 영문 → 한글 매핑
+        RISK_TYPE_KR_MAPPING = {
+            'extreme_heat': '폭염',
+            'extreme_cold': '한파',
+            'wildfire': '산불',
+            'drought': '가뭄',
+            'water_stress': '물부족',
+            'sea_level_rise': '해안침수',
+            'river_flood': '내륙침수',
+            'urban_flood': '도시침수',
+            'typhoon': '태풍'
+        }
+
+        # 2040년, SSP2 시나리오 기준
+        TARGET_YEAR = 2040
+        SSP_SCENARIO = 'ssp245'
+
+        # 사용자의 모든 사업장 조회
+        sites_query = """
         SELECT
-            s.site_id,
-            s.name AS site_name,
-            s.site_type,
-            s.latitude,
-            s.longitude,
-            s.address AS location,
-            COALESCE(lrs.total_risk_score, 0) AS total_risk_score,
-            msh.risk_type AS main_hazard
-        FROM site s
-        LEFT JOIN LatestRiskScores lrs ON s.site_id = lrs.site_id AND lrs.rn_risk = 1
-        LEFT JOIN MainSiteHazards msh ON s.site_id = msh.site_id AND msh.rn_hazard = 1
-        WHERE s.user_id = %s;
+            site_id,
+            name,
+            site_type,
+            latitude,
+            longitude,
+            jibun_address,
+            road_address
+        FROM site
+        WHERE user_id = %s
         """
 
         try:
-            results = self.db_manager.execute_query(query, (str(user_id),))
+            sites = self.db_manager.execute_query(sites_query, (str(user_id),))
         except Exception as e:
-            logger.error(f"Database query failed for dashboard summary: {e}", exc_info=True)
-            # DB 오류 시 비어있는 응답 반환
+            logger.error(f"Database query failed for sites: {e}", exc_info=True)
             return DashboardSummaryResponse(main_climate_risk="Error", sites=[])
 
-        if not results:
+        if not sites:
             return DashboardSummaryResponse(main_climate_risk="No data", sites=[])
-        
+
         sites_summary: List[SiteSummary] = []
-        main_hazards = []
+        all_risk_type_scores = {risk_type: [] for risk_type in RISK_TYPES}
 
-        for row in results:
+        # 각 사업장별로 물리 리스크 점수 계산
+        for site in sites:
+            site_id = site['site_id']
+            latitude = site['latitude']
+            longitude = site['longitude']
+
+            # 각 재해 유형별 H, E, V 점수 조회 및 물리 리스크 계산
+            risk_scores = []
+
+            for risk_type in RISK_TYPES:
+                try:
+                    # Hazard 조회 (격자 기반)
+                    hazard_query = """
+                    SELECT ssp245_score_100
+                    FROM hazard_results
+                    WHERE latitude = %s AND longitude = %s
+                    AND risk_type = %s AND target_year = %s
+                    LIMIT 1
+                    """
+                    hazard_result = self.db_manager.execute_query(
+                        hazard_query,
+                        (latitude, longitude, risk_type, TARGET_YEAR)
+                    )
+                    hazard = hazard_result[0]['ssp245_score_100'] if hazard_result else 0
+
+                    # Exposure 조회 (사업장 기반)
+                    exposure_query = """
+                    SELECT exposure_score
+                    FROM exposure_results
+                    WHERE site_id = %s AND risk_type = %s AND target_year = %s
+                    LIMIT 1
+                    """
+                    exposure_result = self.db_manager.execute_query(
+                        exposure_query,
+                        (str(site_id), risk_type, TARGET_YEAR)
+                    )
+                    exposure = exposure_result[0]['exposure_score'] if exposure_result else 0
+
+                    # Vulnerability 조회 (사업장 기반)
+                    vulnerability_query = """
+                    SELECT vulnerability_score
+                    FROM vulnerability_results
+                    WHERE site_id = %s AND risk_type = %s AND target_year = %s
+                    LIMIT 1
+                    """
+                    vulnerability_result = self.db_manager.execute_query(
+                        vulnerability_query,
+                        (str(site_id), risk_type, TARGET_YEAR)
+                    )
+                    vulnerability = vulnerability_result[0]['vulnerability_score'] if vulnerability_result else 0
+
+                    # 물리 리스크 점수 계산: (H × E × V) / 10000
+                    physical_risk_score = (hazard * exposure * vulnerability) / 10000.0
+                    risk_scores.append(physical_risk_score)
+
+                    # 전체 사업장의 재해 유형별 점수 저장 (mainClimateRisk 계산용)
+                    all_risk_type_scores[risk_type].append(physical_risk_score)
+
+                except Exception as e:
+                    logger.warning(f"Failed to calculate risk for site {site_id}, risk_type {risk_type}: {e}")
+                    risk_scores.append(0)
+                    all_risk_type_scores[risk_type].append(0)
+
+            # 해당 사업장의 totalRiskScore = 9개 재해 유형의 평균
+            total_risk_score = int(sum(risk_scores) / len(risk_scores)) if risk_scores else 0
+
             sites_summary.append(SiteSummary(
-                siteId=row['site_id'],
-                siteName=row['site_name'],
-                siteType=row['site_type'],
-                latitude=row['latitude'],
-                longitude=row['longitude'],
-                location=row['location'],
-                totalRiskScore=int(row['total_risk_score'])
+                siteId=site['site_id'],
+                siteName=site['name'],
+                siteType=site['site_type'],
+                latitude=site['latitude'],
+                longitude=site['longitude'],
+                jibunAddress=site.get('jibun_address'),
+                roadAddress=site.get('road_address'),
+                totalRiskScore=total_risk_score
             ))
-            if row['main_hazard']:
-                main_hazards.append(row['main_hazard'])
 
-        # 가장 빈번하게 발생한 주요 리스크를 찾습니다.
-        if not main_hazards:
-            main_climate_risk = "Not available"
+        # mainClimateRisk: 모든 사업장의 재해 유형별 평균 중 가장 높은 유형
+        risk_type_averages = {}
+        for risk_type, scores in all_risk_type_scores.items():
+            if scores:
+                risk_type_averages[risk_type] = sum(scores) / len(scores)
+            else:
+                risk_type_averages[risk_type] = 0
+
+        if risk_type_averages:
+            main_risk_type = max(risk_type_averages, key=risk_type_averages.get)
+            main_climate_risk = RISK_TYPE_KR_MAPPING.get(main_risk_type, main_risk_type)
         else:
-            most_common_hazard = Counter(main_hazards).most_common(1)
-            main_climate_risk = most_common_hazard[0][0] if most_common_hazard else "Not available"
+            main_climate_risk = "Not available"
+
+        logger.info(f"Dashboard summary completed: {len(sites_summary)} sites, main risk: {main_climate_risk}")
 
         return DashboardSummaryResponse(
             mainClimateRisk=main_climate_risk,
@@ -127,7 +203,8 @@ class DashboardService:
                 siteType="본사",
                 latitude=37.5665,
                 longitude=126.9780,
-                location="서울특별시 강남구",
+                jibunAddress="서울특별시 강남구 역삼동 123-45",
+                roadAddress="서울특별시 강남구 테헤란로 123",
                 totalRiskScore=75
             ),
             SiteSummary(
@@ -136,7 +213,8 @@ class DashboardService:
                 siteType="공장",
                 latitude=35.1796,
                 longitude=129.0756,
-                location="부산광역시 해운대구",
+                jibunAddress="부산광역시 해운대구 우동 456-78",
+                roadAddress="부산광역시 해운대구 해운대로 456",
                 totalRiskScore=82
             ),
             SiteSummary(
@@ -145,7 +223,8 @@ class DashboardService:
                 siteType="연구소",
                 latitude=36.3504,
                 longitude=127.3845,
-                location="대전광역시 유성구",
+                jibunAddress="대전광역시 유성구 궁동 789-12",
+                roadAddress="대전광역시 유성구 대학로 789",
                 totalRiskScore=65
             ),
             SiteSummary(
@@ -154,12 +233,13 @@ class DashboardService:
                 siteType="물류센터",
                 latitude=35.1595,
                 longitude=126.8526,
-                location="광주광역시 북구",
+                jibunAddress="광주광역시 북구 문흥동 234-56",
+                roadAddress="광주광역시 북구 첨단과기로 234",
                 totalRiskScore=70
             )
         ]
 
-        main_climate_risk = "극심한 고온"
+        main_climate_risk = "폭염"
 
         return DashboardSummaryResponse(
             mainClimateRisk=main_climate_risk,

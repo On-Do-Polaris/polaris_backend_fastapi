@@ -1,15 +1,15 @@
 // ================================================================
 // SKALA Physical Risk AI - Datawarehouse ERD
 // ================================================================
-// Database: skala_datawarehouse (Port: 5434)
+// Database: datawarehouse (Port: 5432)
 // Services: FastAPI + ModelOPS
-// Total Tables: 44
+// Total Tables: 57 (site_risk_results, site_risk_summary 삭제로 59→57)
 //
-// Last Modified: 2025-12-08
-// Version: v04
+// Last Modified: 2025-12-14
+// Version: v12 (코드 매핑 테이블 추가)
 // ================================================================
 
-Project skala_datawarehouse {
+Project datawarehouse {
   database_type: 'PostgreSQL'
   Note: '''
     SKALA Physical Risk AI 시스템 데이터웨어하우스
@@ -25,25 +25,32 @@ Project skala_datawarehouse {
 
 Table location_admin {
   admin_id serial [pk, note: '행정구역 ID']
-  admin_code varchar(10) [unique, not null, note: '행정구역 코드 (10자리)']
+  admin_code varchar(10) [unique, not null, note: '행정구역 코드']
   admin_name varchar(100) [not null, note: '행정구역명']
   sido_code varchar(2) [note: '시도코드 2자리']
   sigungu_code varchar(5) [note: '시군구코드 5자리']
   emd_code varchar(10) [note: '읍면동코드 10자리']
   level smallint [not null, note: '1:시도, 2:시군구, 3:읍면동']
-  geom geometry [not null, note: 'MULTIPOLYGON EPSG:5174']
+  geom geometry [note: 'MULTIPOLYGON EPSG:5174 (level=1은 NULL)']
   centroid geometry [note: 'POINT EPSG:5174']
-  population_2020 integer [note: '2020년 인구']
-  population_2025 integer [note: '2025년 추정 인구']
-  population_2030 integer [note: '2030년 추정 인구']
-  population_2035 integer [note: '2035년 추정 인구']
-  population_2040 integer [note: '2040년 추정 인구']
-  population_2045 integer [note: '2045년 추정 인구']
-  population_2050 integer [note: '2050년 인구']
-  population_change_2020_2050 integer [note: '2020-2050 순증감 (명)']
-  population_change_rate_percent numeric [note: '2020-2050 증감률 (%)']
+  population_2020 integer [note: '2020년 장래인구 (level=1만)']
+  population_2025 integer [note: '2025년 장래인구 (level=1만)']
+  population_2030 integer [note: '2030년 장래인구 (level=1만)']
+  population_2035 integer [note: '2035년 장래인구 (level=1만)']
+  population_2040 integer [note: '2040년 장래인구 (level=1만)']
+  population_2045 integer [note: '2045년 장래인구 (level=1만)']
+  population_2050 integer [note: '2050년 장래인구 (level=1만)']
+  population_change_2020_2050 integer [note: '2020-2050 순증감 (level=1만)']
+  population_change_rate_percent numeric [note: '2020-2050 증감률 (level=1만)']
+  population_current integer [note: '현재인구 SGIS (level=3만)']
+  population_current_year integer [note: '현재인구 기준연도 (2024)']
 
-  Note: '행정구역 위치 정보 (5,259 rows) - 인구 전망 데이터 포함'
+  Note: '''
+    행정구역 위치 정보 (5,024 rows)
+    - level=1 (시도): 17개, 장래인구추계 (2020~2050)
+    - level=3 (읍면동): 5,007개, 현재인구 (SGIS API)
+    - 읍면동 미래인구 = 시도미래 × (읍면동현재 / 시도현재)
+  '''
 
   indexes {
     admin_code
@@ -84,40 +91,181 @@ Table sea_level_grid {
 }
 
 // ============================================
-// 2. Climate Data - Daily (2개)
+// 2. Climate Data - Monthly Extreme Temperature (2개)
 // ============================================
 
 Table tamax_data {
-  time date [not null, note: '관측일']
-  admin_id integer [not null, ref: > location_admin.admin_id, note: '행정구역 ID']
-  ssp1 real [note: 'SSP1-2.6']
-  ssp2 real [note: 'SSP2-4.5']
-  ssp3 real [note: 'SSP3-7.0']
-  ssp5 real [note: 'SSP5-8.5']
+  grid_id integer [not null, ref: > location_grid.grid_id, note: '격자 ID']
+  observation_date date [not null, note: '관측 월']
+  ssp1 real [note: 'SSP1-2.6 최고기온 (°C)']
+  ssp2 real [note: 'SSP2-4.5 최고기온 (°C)']
+  ssp3 real [note: 'SSP3-7.0 최고기온 (°C)']
+  ssp5 real [note: 'SSP5-8.5 최고기온 (°C)']
 
-  Note: '일 최고기온 (Daily, ~7.63M rows)'
+  Note: '월 최고기온 (Monthly, 격자 레벨, 10년 단위 파티셔닝)'
 
   indexes {
-    (time, admin_id) [pk]
-    admin_id
-    time
+    (observation_date, grid_id) [pk]
+    grid_id
+    observation_date
   }
 }
 
 Table tamin_data {
-  time date [not null, note: '관측일']
-  admin_id integer [not null, ref: > location_admin.admin_id, note: '행정구역 ID']
-  ssp1 real [note: 'SSP1-2.6']
-  ssp2 real [note: 'SSP2-4.5']
-  ssp3 real [note: 'SSP3-7.0']
-  ssp5 real [note: 'SSP5-8.5']
+  grid_id integer [not null, ref: > location_grid.grid_id, note: '격자 ID']
+  observation_date date [not null, note: '관측 월']
+  ssp1 real [note: 'SSP1-2.6 최저기온 (°C)']
+  ssp2 real [note: 'SSP2-4.5 최저기온 (°C)']
+  ssp3 real [note: 'SSP3-7.0 최저기온 (°C)']
+  ssp5 real [note: 'SSP5-8.5 최저기온 (°C)']
 
-  Note: '일 최저기온 (Daily, ~7.63M rows)'
+  Note: '월 최저기온 (Monthly, 격자 레벨, 10년 단위 파티셔닝)'
 
   indexes {
-    (time, admin_id) [pk]
-    admin_id
-    time
+    (observation_date, grid_id) [pk]
+    grid_id
+    observation_date
+  }
+}
+
+// ============================================
+// 2b. Climate Data - Daily SGG261 (8개) - NEW
+// ============================================
+// 261개 시군구 × 29,200일 × 4 SSP = 약 30M rows per 테이블
+// 10년 단위 파티셔닝 (8개 파티션)
+
+Table location_sgg261 {
+  sgg261_id serial [pk, note: '시군구 ID']
+  admin_code varchar(10) [unique, not null, note: '10자리 행정코드']
+  sido_name varchar(50) [not null, note: '시도명']
+  sigungu_name varchar(50) [not null, note: '시군구명']
+  full_name varchar(100) [note: 'sido_name + sigungu_name (GENERATED)']
+  created_at timestamptz [default: `CURRENT_TIMESTAMP`]
+
+  Note: 'sgg261 시군구 코드 매핑 (261개 행정구역)'
+
+  indexes {
+    admin_code
+    sido_name
+  }
+}
+
+Table ta_daily_sgg261 {
+  admin_code varchar(10) [not null, ref: > location_sgg261.admin_code]
+  observation_date date [not null, note: '관측일']
+  ssp1 real [note: 'SSP1-2.6 평균기온 (°C)']
+  ssp2 real [note: 'SSP2-4.5 평균기온 (°C)']
+  ssp3 real [note: 'SSP3-7.0 평균기온 (°C)']
+  ssp5 real [note: 'SSP5-8.5 평균기온 (°C)']
+
+  Note: '일 평균기온 (Daily, sgg261 시군구 단위, 2021-2100)'
+
+  indexes {
+    (observation_date, admin_code) [pk]
+    admin_code
+    observation_date
+  }
+}
+
+Table tamax_daily_sgg261 {
+  admin_code varchar(10) [not null, ref: > location_sgg261.admin_code]
+  observation_date date [not null, note: '관측일']
+  ssp1 real [note: 'SSP1-2.6 최고기온 (°C)']
+  ssp2 real [note: 'SSP2-4.5 최고기온 (°C)']
+  ssp3 real [note: 'SSP3-7.0 최고기온 (°C)']
+  ssp5 real [note: 'SSP5-8.5 최고기온 (°C)']
+
+  Note: '일 최고기온 (Daily, sgg261 시군구 단위, 2021-2100)'
+
+  indexes {
+    (observation_date, admin_code) [pk]
+    admin_code
+    observation_date
+  }
+}
+
+Table tamin_daily_sgg261 {
+  admin_code varchar(10) [not null, ref: > location_sgg261.admin_code]
+  observation_date date [not null, note: '관측일']
+  ssp1 real [note: 'SSP1-2.6 최저기온 (°C)']
+  ssp2 real [note: 'SSP2-4.5 최저기온 (°C)']
+  ssp3 real [note: 'SSP3-7.0 최저기온 (°C)']
+  ssp5 real [note: 'SSP5-8.5 최저기온 (°C)']
+
+  Note: '일 최저기온 (Daily, sgg261 시군구 단위, 2021-2100)'
+
+  indexes {
+    (observation_date, admin_code) [pk]
+    admin_code
+    observation_date
+  }
+}
+
+Table rn_daily_sgg261 {
+  admin_code varchar(10) [not null, ref: > location_sgg261.admin_code]
+  observation_date date [not null, note: '관측일']
+  ssp1 real [note: 'SSP1-2.6 강수량 (mm)']
+  ssp2 real [note: 'SSP2-4.5 강수량 (mm)']
+  ssp3 real [note: 'SSP3-7.0 강수량 (mm)']
+  ssp5 real [note: 'SSP5-8.5 강수량 (mm)']
+
+  Note: '일 강수량 (Daily, sgg261 시군구 단위, 2021-2100)'
+
+  indexes {
+    (observation_date, admin_code) [pk]
+    admin_code
+    observation_date
+  }
+}
+
+Table rhm_daily_sgg261 {
+  admin_code varchar(10) [not null, ref: > location_sgg261.admin_code]
+  observation_date date [not null, note: '관측일']
+  ssp1 real [note: 'SSP1-2.6 상대습도 (%)']
+  ssp2 real [note: 'SSP2-4.5 상대습도 (%)']
+  ssp3 real [note: 'SSP3-7.0 상대습도 (%)']
+  ssp5 real [note: 'SSP5-8.5 상대습도 (%)']
+
+  Note: '일 상대습도 (Daily, sgg261 시군구 단위, 2021-2100)'
+
+  indexes {
+    (observation_date, admin_code) [pk]
+    admin_code
+    observation_date
+  }
+}
+
+Table ws_daily_sgg261 {
+  admin_code varchar(10) [not null, ref: > location_sgg261.admin_code]
+  observation_date date [not null, note: '관측일']
+  ssp1 real [note: 'SSP1-2.6 풍속 (m/s)']
+  ssp2 real [note: 'SSP2-4.5 풍속 (m/s)']
+  ssp3 real [note: 'SSP3-7.0 풍속 (m/s)']
+  ssp5 real [note: 'SSP5-8.5 풍속 (m/s)']
+
+  Note: '일 풍속 (Daily, sgg261 시군구 단위, 2021-2100)'
+
+  indexes {
+    (observation_date, admin_code) [pk]
+    admin_code
+    observation_date
+  }
+}
+
+Table si_daily_sgg261 {
+  admin_code varchar(10) [not null, ref: > location_sgg261.admin_code]
+  observation_date date [not null, note: '관측일']
+  ssp1 real [note: 'SSP1-2.6 일사량 (MJ/m²)']
+  ssp2 real [note: 'SSP2-4.5 일사량 (MJ/m²)']
+  ssp3 real [note: 'SSP3-7.0 일사량 (MJ/m²)']
+  ssp5 real [note: 'SSP5-8.5 일사량 (MJ/m²)']
+
+  Note: '일 일사량 (Daily, sgg261 시군구 단위, 2021-2100)'
+
+  indexes {
+    (observation_date, admin_code) [pk]
+    admin_code
+    observation_date
   }
 }
 
@@ -511,17 +659,14 @@ Table site_additional_data {
   data_category varchar(50) [not null, note: '데이터 카테고리: building/asset/power/insurance/custom']
   raw_text text [note: '원본 텍스트 (PDF 추출 등)']
   structured_data jsonb [note: '정형화된 JSONB 데이터']
-  file_name varchar(255) [note: '업로드 파일명']
-  file_s3_key varchar(500) [note: 'S3 저장 키']
-  file_size bigint [note: '파일 크기 (bytes)']
-  file_mime_type varchar(100) [note: 'MIME 타입']
+  file_content jsonb [note: '파일 내용 JSON 변환 저장']
   metadata jsonb [note: '추가 메타데이터']
   uploaded_by uuid [note: '업로드 사용자 ID']
   uploaded_at timestamp [note: '업로드 시점']
   expires_at timestamp [note: '만료 시점']
 
   Note: '''
-    사용자 추가 데이터 (JSONB 기반)
+    사용자 추가 데이터 (JSONB 기반, S3 미사용)
     - power: 전력 사용량 데이터
     - building: 건물 정보
     - asset: 자산 가치 정보
@@ -576,162 +721,178 @@ Table batch_jobs {
 // 9. ModelOPS Tables (5개) - H x E x V = Risk
 // ============================================
 
-Table probability_results {
-  latitude decimal(9,6) [not null, note: '격자 위도']
-  longitude decimal(9,6) [not null, note: '격자 경도']
-  risk_type varchar(50) [not null, note: '위험 유형 (9가지)']
-  aal real [note: '연간 평균 손실률 (0.0~1.0)']
-  bin_probabilities jsonb [note: 'bin별 발생확률 배열']
-  bin_data jsonb [note: '히스토그램 상세 (하위 호환)']
-  calculation_details jsonb [note: '계산 상세정보']
-  calculated_at timestamp [note: '계산 시점']
-
-  Note: '''
-    P(H) 확률 결과 (~4.06M rows)
-    bin_probabilities: [0.65, 0.25, 0.08, 0.015, 0.005]
-  '''
-
-  indexes {
-    (latitude, longitude, risk_type) [pk]
-    risk_type
-    (latitude, longitude)
-    aal
-    calculated_at
-  }
-}
-
 Table hazard_results {
   latitude decimal(9,6) [not null, note: '격자 위도']
   longitude decimal(9,6) [not null, note: '격자 경도']
   risk_type varchar(50) [not null, note: '위험 유형 (9가지)']
-  hazard_score real [not null, note: '원본 위험도 점수']
-  hazard_score_100 real [not null, note: '0-100 정규화 점수']
-  hazard_level varchar(20) [not null, note: '위험 등급: 낮음/보통/높음/매우높음']
-  calculated_at timestamp [note: '계산 시점']
+  target_year varchar(10) [not null, note: '목표 연도 (예: 2030, 2050)']
 
-  Note: 'Hazard Score 결과 (H) (~4.06M rows)'
+  ssp126_score_100 real [note: 'SSP1-2.6 위험도 (0~100)']
+  ssp245_score_100 real [note: 'SSP2-4.5 위험도 (0~100)']
+  ssp370_score_100 real [note: 'SSP3-7.0 위험도 (0~100)']
+  ssp585_score_100 real [note: 'SSP5-8.5 위험도 (0~100)']
+
+  Note: '''
+    격자별 Hazard 점수 (4개 시나리오, 연도별)
+    예상 행 수: 451,351 grids × 9 types × 80 years = 약 3,251만 rows
+  '''
 
   indexes {
-    (latitude, longitude, risk_type) [pk]
+    (latitude, longitude, risk_type, target_year) [pk]
     risk_type
+    target_year
     (latitude, longitude)
-    hazard_level
-    hazard_score_100
-    calculated_at
+  }
+}
+
+Table probability_results {
+  latitude decimal(9,6) [not null, note: '격자 위도']
+  longitude decimal(9,6) [not null, note: '격자 경도']
+  risk_type varchar(50) [not null, note: '위험 유형 (9가지)']
+  target_year varchar(10) [not null, note: '목표 연도 (예: 2030, 2050)']
+
+  ssp126_base_aal real [note: 'SSP1-2.6 기본 AAL']
+  ssp245_base_aal real [note: 'SSP2-4.5 기본 AAL']
+  ssp370_base_aal real [note: 'SSP3-7.0 기본 AAL']
+  ssp585_aal real [note: 'SSP5-8.5 연간 평균 손실률 (0.0~1.0)']
+
+  damage_rates jsonb [note: 'Bin별 적용 손상률 (예: [0.0, 0.02, 0.07, 0.20])']
+
+  ssp126_bin_probs jsonb [note: 'SSP1-2.6 bin별 확률 [0.65, 0.25, 0.08, 0.015, 0.005]']
+  ssp245_bin_probs jsonb [note: 'SSP2-4.5 bin별 확률']
+  ssp370_bin_probs jsonb [note: 'SSP3-7.0 bin별 확률']
+  ssp585_bin_probs jsonb [note: 'SSP5-8.5 bin별 확률']
+
+  Note: '''
+    격자별 확률 및 AAL (4개 시나리오, 연도별)
+    예상 행 수: 451,351 grids × 9 types × 80 years = 약 3,251만 rows
+  '''
+
+  indexes {
+    (latitude, longitude, risk_type, target_year) [pk]
+    risk_type
+    target_year
+    (latitude, longitude)
   }
 }
 
 Table exposure_results {
+  site_id uuid [not null, note: 'Application DB sites.id 참조']
   latitude decimal(9,6) [not null, note: '격자 위도']
   longitude decimal(9,6) [not null, note: '격자 경도']
   risk_type varchar(50) [not null, note: '위험 유형 (9가지)']
-  exposure_score real [note: '노출도 점수 (0.0~1.0)']
-  proximity_factor real [note: '근접도 계수']
-  normalized_asset_value real [note: '정규화 자산가치']
-  calculated_at timestamp [note: '계산 시점']
+  target_year varchar(10) [not null, note: '목표 연도 (예: 2030, 2050)']
+  exposure_score real [not null, note: '노출도 점수 (0.0~100.0)']
 
-  Note: 'Exposure Score 결과 (E) (~4.06M rows)'
+  Note: '''
+    Site별 Exposure 점수 (시나리오 독립적, 연도별)
+    예상 행 수: 실제 site 분석 시 생성
+  '''
 
   indexes {
-    (latitude, longitude, risk_type) [pk]
+    (site_id, risk_type, target_year) [pk]
+    site_id
     risk_type
+    target_year
     (latitude, longitude)
     exposure_score
-    calculated_at
   }
 }
 
 Table vulnerability_results {
+  site_id uuid [not null, note: 'Application DB sites.id 참조']
   latitude decimal(9,6) [not null, note: '격자 위도']
   longitude decimal(9,6) [not null, note: '격자 경도']
   risk_type varchar(50) [not null, note: '위험 유형 (9가지)']
-  vulnerability_score real [note: '취약성 점수 (0~100)']
-  vulnerability_level varchar(20) [note: '등급: very_low/low/medium/high/very_high']
-  factors jsonb [note: '취약성 요인 상세']
-  calculated_at timestamp [note: '계산 시점']
+  target_year varchar(10) [not null, note: '목표 연도 (예: 2030, 2050)']
+  vulnerability_score real [not null, note: '취약성 점수 (0~100)']
 
-  Note: 'Vulnerability Score 결과 (V) (~4.06M rows)'
+  Note: '''
+    Site별 Vulnerability 점수 (시나리오 독립적, 연도별)
+    예상 행 수: 실제 site 분석 시 생성
+  '''
 
   indexes {
-    (latitude, longitude, risk_type) [pk]
+    (site_id, risk_type, target_year) [pk]
+    site_id
     risk_type
+    target_year
     (latitude, longitude)
-    vulnerability_level
     vulnerability_score
-    calculated_at
   }
 }
 
 Table aal_scaled_results {
+  site_id uuid [not null, note: 'Application DB sites.id 참조']
   latitude decimal(9,6) [not null, note: '격자 위도']
   longitude decimal(9,6) [not null, note: '격자 경도']
   risk_type varchar(50) [not null, note: '위험 유형 (9가지)']
-  base_aal real [note: '기본 AAL (probability_results.aal)']
-  vulnerability_scale real [note: 'F_vuln (0.9~1.1)']
-  final_aal real [note: '최종 AAL = base_aal × F_vuln × (1-insurance_rate)']
-  insurance_rate real [default: 0.0, note: '보험 보전율 (0~1)']
-  expected_loss bigint [note: '예상 손실액 (원)']
-  calculated_at timestamp [note: '계산 시점']
+  target_year varchar(10) [not null, note: '목표 연도 (예: 2030, 2050)']
+
+  ssp126_final_aal real [note: 'SSP1-2.6 최종 AAL']
+  ssp245_final_aal real [note: 'SSP2-4.5 최종 AAL']
+  ssp370_final_aal real [note: 'SSP3-7.0 최종 AAL']
+  ssp585_final_aal real [note: 'SSP5-8.5 최종 AAL']
 
   Note: '''
-    AAL 최종 결과 (~4.06M rows)
-    F_vuln = 0.9 + (V_score / 100) × 0.2
-    final_aal = base_aal × F_vuln × (1 - insurance_rate)
+    Site별 Vulnerability 반영 최종 AAL (4개 시나리오, 연도별)
+    예상 행 수: 실제 site 분석 시 생성
+    공식: final_aal = base_aal × F_vuln × (1 - insurance_rate)
   '''
 
   indexes {
-    (latitude, longitude, risk_type) [pk]
+    (site_id, risk_type, target_year) [pk]
+    site_id
     risk_type
+    target_year
     (latitude, longitude)
-    final_aal
-    expected_loss
-    calculated_at
   }
 }
 
 // ============================================
-// 10. API Cache Tables (11개)
+// 10. API Cache Tables (13개)
 // ============================================
 
-Table api_buildings {
-  building_id serial [pk, note: '건물 ID']
-  mgm_bld_pk varchar(100) [unique, note: '관리 건축물 PK']
-  platgb_cd varchar(10) [note: '대지구분코드']
-  sigungu_cd varchar(10) [note: '시군구코드']
-  bjdong_cd varchar(10) [note: '법정동코드']
-  bun varchar(10) [note: '번']
-  ji varchar(10) [note: '지']
-  na_ugrnd_cd varchar(10) [note: '지상지하코드']
-  na_bjdong_nm varchar(200) [note: '법정동명']
-  na_road_nm varchar(500) [note: '도로명주소']
-  dong_nm varchar(200) [note: '동명칭']
-  ho_nm varchar(100) [note: '호명칭']
-  main_atch_gb_cd varchar(10) [note: '주부속구분코드']
-  strct_cd varchar(10) [note: '구조코드']
-  strct_nm varchar(100) [note: '구조명']
-  etc_purps varchar(500) [note: '기타용도']
-  main_purp_cd varchar(10) [note: '주용도코드']
-  main_purp_cd_nm varchar(200) [note: '주용도코드명']
-  use_apr_day date [note: '사용승인일']
-  pmsday date [note: '허가일']
-  grnd_flr_cnt integer [note: '지상층수']
-  ugrnd_flr_cnt integer [note: '지하층수']
-  tot_area double [note: '연면적(㎡)']
-  arch_area double [note: '건축면적(㎡)']
-  plat_area double [note: '대지면적(㎡)']
-  bc_rat double [note: '건폐율(%)']
-  vlr_rat double [note: '용적률(%)']
-  heit double [note: '높이(m)']
-  cached_at timestamp [note: '캐시 시점']
-  api_response jsonb [note: 'API 응답 원본']
+Table building_aggregate_cache {
+  cache_id uuid [pk, note: '캐시 ID (UUID)']
+  sigungu_cd varchar(10) [not null, note: '시군구코드']
+  bjdong_cd varchar(10) [not null, note: '법정동코드']
+  bun varchar(10) [not null, note: '번 (4자리)']
+  ji varchar(10) [not null, note: '지 (4자리)']
+  jibun_address varchar(500) [note: '지번 주소']
+  road_address varchar(500) [note: '도로명 주소']
+  building_count integer [not null, note: '해당 번지의 총 건물 수']
+  structure_types jsonb [note: '구조 종류 배열: ["철근콘크리트구조", "철골구조"]']
+  purpose_types jsonb [note: '용도 종류 배열: ["교육연구시설", "업무시설"]']
+  max_ground_floors integer [note: '최대 지상 층수']
+  max_underground_floors integer [note: '최대 지하 층수']
+  min_underground_floors integer [note: '최소 지하 층수']
+  buildings_with_seismic integer [note: '내진설계 적용 건물 수']
+  buildings_without_seismic integer [note: '내진설계 미적용 건물 수']
+  oldest_approval_date date [note: '가장 오래된 건물 사용승인일']
+  newest_approval_date date [note: '가장 최근 건물 사용승인일']
+  oldest_building_age_years integer [note: '가장 오래된 건물 연식 (년)']
+  total_floor_area_sqm numeric(15,2) [note: '총 연면적 (m²)']
+  total_building_area_sqm numeric(15,2) [note: '총 건축면적 (m²)']
+  floor_details jsonb [note: '층별 정보 샘플 (최대 100개)']
+  floor_purpose_types jsonb [note: '층별 용도 종류 (중복 제거)']
+  cached_at timestamp [note: '캐시 생성 시간']
+  updated_at timestamp [note: '캐시 갱신 시간']
+  api_call_count integer [note: 'API 호출 횟수 (비용 추적)']
+  data_quality_score numeric(3,2) [note: '데이터 품질 점수 (0~1)']
 
-  Note: '건축물대장 API - Vulnerability 계산용'
+  Note: '''
+    건축물 집계 캐시 (번지 단위) - Vulnerability 계산용
+    - 하나의 번지에 있는 여러 건물을 집계하여 1개 row로 저장
+    - 구조 종류, 용도 종류를 JSONB 배열로 저장
+    - 24시간 캐시 유효기간
+  '''
 
   indexes {
-    sigungu_cd
-    bjdong_cd
-    use_apr_day
-    strct_cd
+    (sigungu_cd, bjdong_cd, bun, ji) [unique, name: 'uk_building_aggregate']
+    (sigungu_cd, bjdong_cd, bun, ji) [name: 'idx_building_agg_location']
+    cached_at [name: 'idx_building_agg_cached_at']
+    (sigungu_cd, bjdong_cd) [name: 'idx_building_agg_region']
   }
 }
 
@@ -777,6 +938,25 @@ Table api_wamis_stations {
   }
 }
 
+Table api_wamis_flow {
+  flow_id serial [pk]
+  obs_code varchar(50) [not null, ref: > api_wamis_stations.obs_code, note: '관측소 코드']
+  obs_date date [not null, note: '관측일 (YYYY-MM-DD)']
+  flow_m3s double [note: '유량 (m³/s)']
+  year integer [note: '관측 연도 (인덱스용)']
+  cached_at timestamp [default: `CURRENT_TIMESTAMP`]
+
+  Note: 'WAMIS 일유량 데이터 - Water Stress Probability TRWR 계산용'
+
+  indexes {
+    (obs_code, obs_date) [unique]
+    obs_code
+    obs_date
+    year
+    (obs_code, year)
+  }
+}
+
 Table api_river_info {
   river_id serial [pk]
   river_code varchar(50) [unique, note: '하천 코드']
@@ -803,31 +983,26 @@ Table api_river_info {
 }
 
 Table api_emergency_messages {
-  message_id serial [pk]
-  msg_sn varchar(50) [unique, note: '메시지 일련번호']
-  msg_cn text [note: '메시지 내용']
-  msg_se_cd varchar(10) [note: '메시지 구분코드']
-  msg_se_nm varchar(100) [note: '메시지 구분명']
-  rcptn_rgn_nm text [note: '수신지역명']
-  rgn_cd varchar(20) [note: '지역코드']
-  crt_dt timestamp [note: '생성일시']
-  mdf_dt timestamp [note: '수정일시']
-  emrg_step_nm varchar(100) [note: '긴급단계명']
-  dst_se_nm varchar(100) [note: '재난유형명']
-  is_flood_related boolean [note: '홍수 관련']
-  is_typhoon_related boolean [note: '태풍 관련']
-  is_heat_related boolean [note: '폭염 관련']
-  is_cold_related boolean [note: '한파 관련']
-  is_fire_related boolean [note: '화재 관련']
-  cached_at timestamp
-  api_response jsonb
+  id bigserial [pk, note: 'PK, 고유 식별자']
+  alert_date date [not null, note: '재난문자 발령 일자 (YYYY-MM-DD, 시간 제외)']
+  disaster_type varchar(50) [not null, note: '재난 유형 (9종 제한: 강풍/풍랑/호우/대설/건조/지진해일/한파/태풍/황사/폭염)']
+  severity varchar(10) [not null, note: '강도 (주의보/경보 키워드 매칭)']
+  region text [not null, note: '수신 지역명 (복수 지역 쉼표 구분 가능)']
+  created_at timestamp [not null, default: `CURRENT_TIMESTAMP`, note: '레코드 생성 시각']
+  updated_at timestamp [note: '레코드 수정 시각']
 
-  Note: '긴급재난문자 - 재난 이력 추적'
+  Note: '''
+    긴급재난문자 - 재난 이력 추적 (9종 재난 유형별 발생 이력)
+    - 재난 유형 9종: 강풍, 풍랑, 호우, 대설, 건조, 지진해일, 한파, 태풍, 황사, 폭염
+    - 강도: 주의보, 경보 (내용에서 키워드 검색)
+    - 날짜: YYYY-MM-DD 형식만 (시간 제외)
+  '''
 
   indexes {
-    crt_dt
-    rcptn_rgn_nm
-    dst_se_nm
+    alert_date
+    disaster_type
+    severity
+    (alert_date, disaster_type, severity, region) [unique, name: 'uk_emergency_messages']
   }
 }
 
@@ -922,8 +1097,8 @@ Table api_typhoon_besttrack {
   day integer
   hour integer
   obs_datetime timestamp
-  lon double
-  lat double
+  longitude double
+  latitude double
   geom geometry [note: 'Point 4326']
   max_wind_speed double [note: 'm/s']
   central_pressure double [note: 'hPa']
@@ -1013,3 +1188,136 @@ Table api_vworld_geocode {
     bjdong_cd
   }
 }
+
+Table api_sgis_population {
+  id serial [pk]
+  sgis_code varchar(10) [not null, note: 'SGIS 8자리 행정구역코드']
+  admin_name varchar(100) [not null, note: '읍면동명']
+  sido_code varchar(2) [note: '시도코드 (2자리)']
+  sido_name varchar(50) [note: '시도명']
+  sigungu_code varchar(5) [note: '시군구코드 (5자리)']
+  sigungu_name varchar(50) [note: '시군구명']
+  population integer [not null, note: '인구수']
+  year integer [not null, note: '기준연도']
+  gender varchar(10) [default: 'total', note: '성별 (total/male/female)']
+  cached_at timestamp [default: `NOW()`]
+
+  Note: '''
+    SGIS 인구통계 API 데이터 (읍면동 단위)
+    - 데이터 소스: SGIS (통계지리정보서비스) API
+    - API URL: https://sgisapi.mods.go.kr/OpenAPI3/stats/searchpopulation.json
+    - SGIS 8자리 코드와 location_admin 10자리 코드 매핑용
+    - Physical Risk Exposure 계산에 활용
+  '''
+
+  indexes {
+    (sgis_code, year, gender) [unique, name: 'uk_sgis_population']
+    sgis_code [name: 'idx_sgis_pop_code']
+    admin_name [name: 'idx_sgis_pop_name']
+    sigungu_code [name: 'idx_sgis_pop_sigungu']
+    year [name: 'idx_sgis_pop_year']
+  }
+}
+
+// ============================================
+// 12. Site Risk Tables (1개) - 후보지 정보
+// ============================================
+// [참고] site_risk_results, site_risk_summary 삭제됨
+// H, E, V, AAL 결과는 9번 ModelOPS 테이블들에서 관리
+
+Table candidate_sites {
+  id uuid [pk, note: '후보지 ID']
+
+  // 기본 정보
+  name varchar(255) [not null, note: '후보지 이름']
+  road_address varchar(500) [note: '도로명 주소']
+  jibun_address varchar(500) [note: '지번 주소']
+  city varchar(100) [note: '도시']
+  latitude decimal(10,8) [not null, note: '위도']
+  longitude decimal(11,8) [not null, note: '경도']
+
+  // 리스크 점수 (FastAPI가 계산)
+  risk_score integer [note: '종합 리스크 점수 (0-100)']
+  risk_level varchar(20) [note: 'low/medium/high/critical']
+  risks jsonb [note: '개별 리스크 점수 {flood, typhoon, heatwave, ...}']
+
+  // 재무 지표
+  aal decimal(15,2) [note: '연평균 손실 (AAL)']
+  cvar decimal(15,2) [note: '조건부 VaR']
+  estimated_cost decimal(15,2) [note: '이전 예상 비용']
+  carbon_impact decimal(15,2) [note: '탄소 영향']
+  cost_change decimal(15,2) [note: '비용 변화']
+
+  // 특성 정보
+  location_summary text [note: '위치 요약 설명']
+  advantages "text[]" [note: '장점 배열']
+  disadvantages "text[]" [note: '단점 배열']
+
+  // 상태 관리
+  is_active boolean [default: true, note: '활성 여부']
+  created_at timestamp [note: '생성 시점']
+  updated_at timestamp [note: '수정 시점']
+
+  Note: '사업장 이전 후보지 정보 (FastAPI/AI Agent 관리)'
+
+  indexes {
+    (latitude, longitude)
+    risk_level
+    city
+    is_active
+  }
+}
+
+// ============================================
+// 13. Code Mapping Tables (2개) - 행정동-SGIS 코드 변환
+// ============================================
+// 행정동 코드(location_admin)와 SGIS 코드(api_sgis_population) 간
+// 시도/시군구 코드 매핑을 위한 테이블
+
+Table sido_code_mapping {
+  admin_sido varchar(2) [pk, note: '행정동 시도코드 (11, 26, 27, ...)']
+  sgis_sido varchar(2) [not null, note: 'SGIS 시도코드 (11, 21, 22, ...)']
+  sido_name varchar(50) [not null, note: '시도명']
+
+  Note: '''
+    행정동-SGIS 시도 코드 매핑 (19개)
+    - 행정동: 11(서울), 26(부산), 27(대구), 28(인천), ...
+    - SGIS: 11(서울), 21(부산), 22(대구), 23(인천), ...
+    - 강원/전북 특별자치도: 기존코드(42,45) + 신코드(51,52) 모두 지원
+    - 17_load_sgis_population.py ETL에서 자동 생성
+  '''
+}
+
+Table sigungu_code_mapping {
+  id serial [pk, note: '매핑 ID']
+  sido_code varchar(2) [not null, note: '행정동 시도코드']
+  admin_sigungu varchar(5) [not null, note: '행정동 시군구코드 (location_admin.sigungu_code)']
+  sgis_sigungu varchar(5) [not null, note: 'SGIS 시군구코드 (api_sgis_population.sigungu_code)']
+  sigungu_name varchar(50) [note: '시군구명']
+  verified boolean [default: false, note: '수동 검증 여부 (자동=false, 수동=true)']
+  created_at timestamp [default: `NOW()`]
+
+  Note: '''
+    행정동-SGIS 시군구 코드 매핑 (252개)
+    - 읍면동 이름 매칭으로 자동 생성 (241개)
+    - 이름이 다른 경우 수동 매핑 (11개)
+    - 100% 커버리지 달성
+    - 17_load_sgis_population.py ETL에서 자동 생성
+  '''
+
+  indexes {
+    (sido_code, admin_sigungu) [unique, name: 'uk_sigungu_mapping']
+    admin_sigungu [name: 'idx_mapping_admin']
+    sgis_sigungu [name: 'idx_mapping_sgis']
+    sido_code [name: 'idx_mapping_sido']
+  }
+}
+
+// Ref: 코드 매핑 사용 예시
+// location_admin -> sido_code_mapping -> sigungu_code_mapping -> api_sgis_population
+// SELECT la.admin_name, asp.population
+// FROM location_admin la
+// JOIN sido_code_mapping sido ON la.sido_code = sido.admin_sido
+// JOIN sigungu_code_mapping scm ON la.sido_code = scm.sido_code AND la.sigungu_code = scm.admin_sigungu
+// JOIN api_sgis_population asp ON sido.sgis_sido = asp.sido_code AND scm.sgis_sigungu = asp.sigungu_code
+

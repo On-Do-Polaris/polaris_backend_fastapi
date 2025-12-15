@@ -4,6 +4,9 @@ from typing import Optional
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
+import os
+import shutil
+from pathlib import Path
 
 from src.core.config import settings
 from src.schemas.reports import (
@@ -262,34 +265,64 @@ class ReportService:
         """
         return await self.get_reports_by_user_id(user_id)
 
-    async def register_report_data(self, user_id, data: dict) -> dict:
+    async def register_report_data(self, user_id: UUID, site_id: UUID, file) -> dict:
         """
-        리포트 추가 데이터 등록 (Spring Boot 호환)
+        리포트 추가 데이터 등록 (파일 포함) (Spring Boot 호환)
 
-        Spring Boot에서 전송한 추가 데이터를 메모리에 저장하여
-        AI Agent가 리포트 생성 시 사용할 수 있도록 합니다.
+        Spring Boot에서 전송한 파일을 scratch/{siteId}/ 폴더에 저장합니다.
 
         Args:
             user_id: 사용자 ID
-            data: Spring Boot에서 전송한 추가 데이터
+            site_id: 사업장 ID
+            file: 업로드된 파일 (UploadFile)
 
         Returns:
-            등록 결과 (success, message, userId, dataKeys, registeredAt)
+            등록 결과 (success, message, userId, siteId, fileName, filePath, registeredAt)
         """
-        # 사용자별 추가 데이터 저장
-        self._additional_data[user_id] = {
-            'data': data,
-            'registered_at': datetime.now(),
-            'user_id': user_id
-        }
+        try:
+            # scratch/{siteId} 폴더 경로 생성
+            base_dir = Path("scratch")
+            site_dir = base_dir / str(site_id)
 
-        return {
-            "success": True,
-            "message": "리포트 추가 데이터가 등록되었습니다.",
-            "userId": str(user_id),
-            "dataKeys": list(data.keys()),
-            "registeredAt": datetime.now().isoformat()
-        }
+            # 폴더가 없으면 생성
+            site_dir.mkdir(parents=True, exist_ok=True)
+
+            # 파일 저장 경로 설정
+            file_path = site_dir / file.filename
+
+            # 파일 저장
+            with open(file_path, "wb") as buffer:
+                content = await file.read()
+                buffer.write(content)
+
+            # 메타데이터 저장 (기존 로직 유지)
+            self._additional_data[user_id] = {
+                'site_id': site_id,
+                'file_name': file.filename,
+                'file_path': str(file_path),
+                'file_size': len(content),
+                'content_type': file.content_type,
+                'registered_at': datetime.now(),
+                'user_id': user_id
+            }
+
+            return {
+                "success": True,
+                "message": "리포트 데이터 파일이 등록되었습니다.",
+                "userId": str(user_id),
+                "siteId": str(site_id),
+                "fileName": file.filename,
+                "filePath": str(file_path),
+                "fileSize": len(content),
+                "registeredAt": datetime.now().isoformat()
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"파일 저장 중 오류 발생: {str(e)}",
+                "userId": str(user_id),
+                "siteId": str(site_id)
+            }
 
     def get_additional_data(self, user_id) -> Optional[dict]:
         """

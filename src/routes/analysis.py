@@ -30,7 +30,7 @@ def get_analysis_service():
     return analysis_service_instance
 
 
-@router.post("/start", response_model=list[AnalysisJobStatus], status_code=202) # 사용
+@router.post("/start", response_model=AnalysisJobStatus, status_code=202) # 사용
 async def start_analysis(
     request: StartAnalysisRequest,
     background_tasks: BackgroundTasks,
@@ -40,25 +40,13 @@ async def start_analysis(
     """
     AI 리스크 분석 시작 (비동기) - 복수 사업장 지원
 
-    요청된 각 사업장에 대해 개별 분석 작업을 시작합니다.
-    즉시 202 Accepted를 반환하고 백그라운드에서 각 분석을 실행합니다.
+    여러 사업장에 대한 분석을 단일 배치 작업으로 시작합니다.
+    즉시 202 Accepted를 반환하고 백그라운드에서 분석을 실행합니다.
     """
     if not request.sites:
         raise HTTPException(status_code=400, detail="The 'sites' list cannot be empty.")
-
-    job_statuses = []
-    for site in request.sites:
-        job_status = await service.start_analysis_async(
-            site=site,
-            user_id=request.user_id,
-            hazard_types=request.hazard_types,
-            priority=request.priority,
-            options=request.options,
-            background_tasks=background_tasks
-        )
-        job_statuses.append(job_status)
     
-    return job_statuses
+    return await service.start_analysis_async(request, background_tasks)
 
 
 # @router.get("/status", response_model=AnalysisJobStatus)

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from uuid import UUID
 from typing import Optional
 
@@ -155,26 +155,32 @@ async def get_reports_by_user(
 
 @router.post("/data", status_code=200)
 async def register_report_data(
-    request: dict,
+    userId: str = Form(...),
+    siteId: str = Form(...),
+    file: UploadFile = File(...),
     api_key: str = Depends(verify_api_key),
     service = Depends(get_report_service),
 ):
     """
-    리포트 추가 데이터 등록 (Spring Boot 호환)
+    리포트 추가 데이터 등록 (파일 포함) (Spring Boot 호환)
 
-    Spring Boot에서 전송한 추가 데이터를 저장하여 AI Agent가 사용할 수 있도록 합니다.
+    Spring Boot에서 전송한 파일과 메타데이터를 저장하여 AI Agent가 사용할 수 있도록 합니다.
 
     Args:
-        request: {"userId": "...", "siteData": {...}, "buildingInfo": {...}, ...}
+        userId: 사용자 ID
+        siteId: 사업장 ID
+        file: 업로드할 파일
+
+    Returns:
+        등록 결과
     """
-    user_id = request.get("userId")
-    if not user_id:
-        raise HTTPException(status_code=400, detail="userId is required")
+    try:
+        user_id_uuid = UUID(userId)
+        site_id_uuid = UUID(siteId)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid userId or siteId format")
 
-    # userId를 제외한 추가 데이터만 추출
-    additional_data = {k: v for k, v in request.items() if k != "userId"}
-
-    result = await service.register_report_data(user_id, additional_data)
+    result = await service.register_report_data(user_id_uuid, site_id_uuid, file)
     return result
 
 

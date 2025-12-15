@@ -523,13 +523,15 @@ class AnalysisService:
             # 실제 상태와 진행률 계산
             actual_status = job['status']
             actual_progress = job.get('progress', 0)
-            
+
             if job['job_type'] == 'multi_site_analysis':
                 agent_results = job.get('results')
                 if agent_results and isinstance(agent_results, dict):
                     if agent_results.get('workflow_status') == 'completed':
                         actual_progress = 100
-                        actual_status = 'done'
+                        # use_additional_data가 true이면 'done-a', 아니면 'done'
+                        use_additional_data = agent_results.get('use_additional_data', False)
+                        actual_status = 'done-a' if use_additional_data else 'done'
                     elif agent_results.get('workflow_status') == 'failed':
                         actual_progress = 100
                         actual_status = 'failed'
@@ -608,13 +610,15 @@ class AnalysisService:
 
             actual_status = job['status']
             actual_progress = job.get('progress', 0)
-            
+
             if job['job_type'] == 'multi_site_analysis':
                 agent_results = job.get('results')
                 if agent_results and isinstance(agent_results, dict):
                     if agent_results.get('workflow_status') == 'completed':
                         actual_progress = 100
-                        actual_status = 'done'
+                        # use_additional_data가 true이면 'done-a', 아니면 'done'
+                        use_additional_data = agent_results.get('use_additional_data', False)
+                        actual_status = 'done-a' if use_additional_data else 'done'
                     elif agent_results.get('workflow_status') == 'failed':
                         actual_progress = 100
                         actual_status = 'failed'

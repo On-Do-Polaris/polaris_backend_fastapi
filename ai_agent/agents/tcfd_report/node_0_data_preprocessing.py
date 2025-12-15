@@ -3,17 +3,18 @@ Node 0: Data Preprocessing
 사업장 데이터 로딩 + Excel 데이터 처리 (Optional)
 
 작성일: 2025-12-15
-버전: v02 (TCFD Report v2.1 - DB Direct Queries)
+버전: v05 (target_years 필터링 추가)
 
 설계 이유:
-- Excel Optional 처리: 모든 사용자가 추가 데이터를 제공하지 않으므로 분기 처리 필수
-- 병렬 로딩: 8개 사업장 데이터 동시 로딩으로 10초 내 완료
-- DB 직접 조회: psycopg2로 application + datawarehouse 양쪽 DB 접근
-- AdditionalDataAgent 조건부 실행: Excel 파일이 있을 때만 실행
+- State 기반: TCFDReportState TypedDict 사용
+- 5개 결과 테이블 분리: 노드별 필요한 데이터만 접근
+- BC/AD 결과 별도 필드: building_data, additional_data로 분리
+- 배치 처리: 여러 사업장 동시 로딩
+- target_years: 특정 년도만 필터링 (2025~2030, 2020s~2050s)
 
 DB 접근:
-- application DB (SpringBoot): sites 테이블 (사업장 정보)
-- datawarehouse DB (ModelOps): H, E, V, AAL 결과 테이블들
+- Application DB (SpringBoot): sites 테이블 (사업장 정보)
+- Datawarehouse DB (ModelOps): H, E, V, P, AAL 결과 테이블들
 """
 
 import asyncio
@@ -22,9 +23,17 @@ import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
+from .state import TCFDReportState
 from ...utils.database import DatabaseManager
 from ..primary_data.additional_data_agent import AdditionalDataAgent
 from ..primary_data.building_characteristics_agent import BuildingCharacteristicsAgent
+
+
+# 유효한 target_year 값들 (보고서에서 사용하는 년도)
+VALID_TARGET_YEARS: List[str] = [
+    "2025", "2026", "2027", "2028", "2029", "2030",
+    "2020s", "2030s", "2040s", "2050s"
+]
 
 
 class DataPreprocessingNode:
@@ -32,19 +41,12 @@ class DataPreprocessingNode:
     Node 0: 데이터 전처리 노드 (TCFD Report v2.1)
 
     입력:
-        - site_ids: List[int] (최대 8개 사업장)
+        - site_ids: List[int] (사업장 ID 리스트)
         - excel_file: Optional[str] (Excel 파일 경로)
-        - user_id: int (Optional)
+        - target_year: Optional[str] (분석 목표 연도, None이면 전체)
 
     출력:
-        - sites_data: List[Dict] - 사업장별 분석 데이터
-            [{
-                "site_id": int,
-                "site_info": {"latitude": float, "longitude": float, "address": str, "name": str},
-                "risk_results": [...],  # H, E, V, AAL 결과
-                "building_characteristics": {...}  # BuildingCharacteristicsAgent 결과 (Node 0에서 채움)
-            }]
-        - additional_data_guidelines: Optional[Dict] - Excel 가이드라인 (조건부)
+        - TCFDReportState
     """
 
     def __init__(
@@ -52,15 +54,15 @@ class DataPreprocessingNode:
         app_db_url: Optional[str] = None,
         dw_db_url: Optional[str] = None,
         llm_client=None,
-        max_concurrent_sites: int = 10,  # 동시 처리 최대 사업장 수
-        bc_chunk_size: int = 5  # BC 청크 크기
+        max_concurrent_sites: int = 10,
+        bc_chunk_size: int = 5
     ):
         """
         두 개의 DB 연결 + LLM 클라이언트 초기화
 
         Args:
-            app_db_url: application DB URL (SpringBoot DB)
-            dw_db_url: datawarehouse DB URL (FastAPI + ModelOps DB)
+            app_db_url: Application DB URL (SpringBoot DB)
+            dw_db_url: Datawarehouse DB URL (FastAPI + ModelOps DB)
             llm_client: LLM 클라이언트 (BC, AD에 전달)
             max_concurrent_sites: DB 조회 시 동시 처리 최대 사업장 수 (기본 10)
             bc_chunk_size: BC 분석 시 청크 크기 (기본 5, API Rate Limit 고려)
@@ -94,107 +96,124 @@ class DataPreprocessingNode:
         self,
         site_ids: List[int],
         excel_file: Optional[str] = None,
-        user_id: Optional[int] = None,
-        target_year: str = "2050"
-    ) -> Dict[str, Any]:
+        target_years: Optional[List[str]] = None
+    ) -> TCFDReportState:
         """
         메인 실행 함수
 
         Args:
-            site_ids: 사업장 ID 리스트 (최대 8개)
+            site_ids: 사업장 ID 리스트
             excel_file: Excel 파일 경로 (Optional)
-            user_id: 사용자 ID (Optional)
-            target_year: 분석 목표 연도 (기본값: 2050)
+            target_years: 분석 목표 연도 리스트 (Optional).
+                         None이면 VALID_TARGET_YEARS 사용.
 
         Returns:
-            Dict with sites_data, additional_data_guidelines
+            TCFDReportState
         """
-        self.logger.info(f"Node 0 실행 시작: {len(site_ids)}개 사업장, target_year={target_year}")
+        # target_years가 None이면 기본값 사용
+        if target_years is None:
+            target_years = VALID_TARGET_YEARS
 
-        # 1. 사업장 데이터 병렬 로딩 (application + datawarehouse DB)
-        sites_data = await self._load_sites_data_parallel(site_ids, target_year)
+        self.logger.info(
+            f"Node 0 실행 시작: {len(site_ids)}개 사업장, "
+            f"target_years={target_years}"
+        )
 
-        # 2. BuildingCharacteristicsAgent 실행 (배치 처리)
+        # 1. Application DB에서 사이트 기본 정보 조회
+        site_data = await self._load_site_info_parallel(site_ids)
+
+        # 2. Datawarehouse DB에서 5개 결과 테이블 분리 조회
+        (
+            aal_scaled_results,
+            hazard_results,
+            exposure_results,
+            vulnerability_results,
+            probability_results
+        ) = await self._load_modelops_results_parallel(site_data, target_years)
+
+        # 3. BuildingCharacteristicsAgent 실행 (배치 처리) → 별도 필드로 반환
         self.logger.info("BuildingCharacteristicsAgent 실행 시작")
-        sites_data = await self._analyze_building_characteristics(sites_data)
+        building_data = await self._analyze_building_characteristics(
+            site_data, aal_scaled_results, hazard_results
+        )
 
-        # 3. Excel 데이터 처리 (Optional 분기)
-        additional_data_guidelines = None
+        # 4. Excel 데이터 처리 (Optional) → 별도 필드로 반환
+        additional_data: Dict[str, Any] = {}
+        use_additional_data = False
 
         if excel_file and os.path.exists(excel_file):
             self.logger.info(f"Excel 파일 처리 시작: {excel_file}")
-            additional_data_guidelines = await self._process_excel(excel_file, site_ids)
+            additional_data, use_additional_data = await self._process_excel(
+                excel_file, site_ids
+            )
         else:
             self.logger.info("Excel 파일 없음 - AdditionalDataAgent 건너뜀")
 
-        self.logger.info(f"Node 0 실행 완료: {len(sites_data)}개 사업장 로딩")
+        self.logger.info(f"Node 0 실행 완료: {len(site_data)}개 사업장 로딩")
 
-        return {
-            "sites_data": sites_data,
-            "additional_data_guidelines": additional_data_guidelines,
-            "loaded_at": datetime.now().isoformat(),
-            "target_year": target_year
-        }
+        # 5. State 반환
+        return TCFDReportState(
+            site_data=site_data,
+            aal_scaled_results=aal_scaled_results,
+            hazard_results=hazard_results,
+            exposure_results=exposure_results,
+            vulnerability_results=vulnerability_results,
+            probability_results=probability_results,
+            building_data=building_data,
+            additional_data=additional_data,
+            use_additional_data=use_additional_data
+        )
 
-    async def _load_sites_data_parallel(
+    # ==================== Site Info 조회 (Application DB) ====================
+
+    async def _load_site_info_parallel(
         self,
-        site_ids: List[int],
-        target_year: str
-    ) -> List[Dict]:
+        site_ids: List[int]
+    ) -> List[Dict[str, Any]]:
         """
-        병렬로 사업장 데이터 로딩 (청크 단위 처리로 메모리 관리)
+        Application DB에서 사이트 기본 정보 병렬 조회
 
         Args:
             site_ids: 사업장 ID 리스트
-            target_year: 분석 목표 연도
 
         Returns:
-            List of site data dictionaries
+            site_data 리스트 (기본 정보만)
         """
-        all_sites_data = []
-        
-        # 청크 단위로 분할 처리 (max_concurrent_sites씩)
+        all_site_data = []
+
         for i in range(0, len(site_ids), self.max_concurrent_sites):
             chunk = site_ids[i:i + self.max_concurrent_sites]
             self.logger.info(
-                f"DB 조회 청크 {i//self.max_concurrent_sites + 1}: "
-                f"{len(chunk)}개 사업장 ({i+1}~{i+len(chunk)})"
+                f"Site Info 조회 청크 {i//self.max_concurrent_sites + 1}: "
+                f"{len(chunk)}개 사업장"
             )
-            
-            tasks = [self._load_single_site(site_id, target_year) for site_id in chunk]
+
+            tasks = [self._load_single_site_info(site_id) for site_id in chunk]
             chunk_results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # 성공한 결과만 수집 (예외는 로깅)
+
             for site_id, result in zip(chunk, chunk_results):
                 if isinstance(result, Exception):
-                    self.logger.error(f"사업장 {site_id} 로딩 실패: {result}")
+                    self.logger.error(f"사업장 {site_id} 정보 조회 실패: {result}")
                 elif result is not None:
-                    all_sites_data.append(result)
-            
-            # API Rate Limit 방지를 위한 짧은 대기
-            if i + self.max_concurrent_sites < len(site_ids):
-                await asyncio.sleep(0.5)
-        
-        self.logger.info(f"총 {len(all_sites_data)}/{len(site_ids)}개 사업장 로딩 완료")
-        return all_sites_data
+                    all_site_data.append(result)
 
-    async def _load_single_site(
-        self,
-        site_id: int,
-        target_year: str
-    ) -> Optional[Dict]:
+            if i + self.max_concurrent_sites < len(site_ids):
+                await asyncio.sleep(0.3)
+
+        self.logger.info(f"Site Info 조회 완료: {len(all_site_data)}/{len(site_ids)}개")
+        return all_site_data
+
+    async def _load_single_site_info(self, site_id: int) -> Optional[Dict[str, Any]]:
         """
-        단일 사업장 데이터 로딩 (application + datawarehouse DB)
+        단일 사업장 기본 정보 조회 (Application DB)
 
         Args:
-            site_id: 사업장 ID (UUID in DB, but passed as int/str)
-            target_year: 분석 목표 연도
+            site_id: 사업장 ID
 
         Returns:
-            Dict with site_info, risk_results, building_characteristics
+            site_data Dict (기본 정보만, BC/AD 결과 없음)
         """
         try:
-            # 1. application DB에서 사업장 정보 조회
             site_query = """
                 SELECT
                     id, user_id, name,
@@ -210,156 +229,252 @@ class DataPreprocessingNode:
                 return None
 
             site_info = site_results[0]
-            latitude = float(site_info['latitude'])
-            longitude = float(site_info['longitude'])
-
-            # 2. datawarehouse DB에서 ModelOps 결과 조회
-            modelops_results = self.dw_db.fetch_all_modelops_results(
-                site_id=str(site_id),
-                latitude=latitude,
-                longitude=longitude,
-                target_year=target_year,
-                risk_type=None  # 모든 리스크 타입 조회
-            )
-
-            # 3. risk_results 포맷팅 (AAL + Physical Risk Score)
-            risk_results = self._format_risk_results(
-                modelops_results.get('aal_scaled_results', []),
-                modelops_results.get('hazard_results', [])
-            )
-
-            # 4. building_characteristics는 나중에 BuildingCharacteristicsAgent에서 채울 예정
-            # Node 0에서는 빈 딕셔너리로 placeholder 제공
 
             return {
                 "site_id": site_id,
                 "site_info": {
                     "name": site_info['name'],
-                    "latitude": latitude,
-                    "longitude": longitude,
+                    "latitude": float(site_info['latitude']),
+                    "longitude": float(site_info['longitude']),
                     "address": site_info['road_address'] or site_info['jibun_address'],
                     "type": site_info.get('type')
-                },
-                "risk_results": risk_results,
-                "modelops_raw": modelops_results,  # 원본 데이터 보관 (디버깅용)
-                "building_characteristics": None  # BC에서 채워질 예정
+                }
             }
 
         except Exception as e:
-            self.logger.error(f"사업장 {site_id} 데이터 로딩 실패: {e}", exc_info=True)
+            self.logger.error(f"사업장 {site_id} 정보 조회 실패: {e}", exc_info=True)
             return None
+
+    # ==================== ModelOps 결과 조회 (Datawarehouse DB) ====================
+
+    async def _load_modelops_results_parallel(
+        self,
+        site_data: List[Dict[str, Any]],
+        target_years: Optional[List[str]] = None
+    ) -> tuple:
+        """
+        Datawarehouse DB에서 5개 결과 테이블 분리 조회 (병렬)
+
+        Args:
+            site_data: 사이트 기본 정보 리스트
+            target_years: 분석 목표 연도 리스트 (None이면 전체)
+
+        Returns:
+            (aal_scaled_results, hazard_results, exposure_results,
+             vulnerability_results, probability_results)
+        """
+        all_aal = []
+        all_hazard = []
+        all_exposure = []
+        all_vulnerability = []
+        all_probability = []
+
+        for i in range(0, len(site_data), self.max_concurrent_sites):
+            chunk = site_data[i:i + self.max_concurrent_sites]
+            self.logger.info(
+                f"ModelOps 결과 조회 청크 {i//self.max_concurrent_sites + 1}: "
+                f"{len(chunk)}개 사업장"
+            )
+
+            tasks = [
+                self._load_single_site_modelops(site, target_years)
+                for site in chunk
+            ]
+            chunk_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for site, result in zip(chunk, chunk_results):
+                if isinstance(result, Exception):
+                    self.logger.error(
+                        f"사업장 {site['site_id']} ModelOps 결과 조회 실패: {result}"
+                    )
+                elif result is not None:
+                    all_aal.extend(result['aal_scaled_results'])
+                    all_hazard.extend(result['hazard_results'])
+                    all_exposure.extend(result['exposure_results'])
+                    all_vulnerability.extend(result['vulnerability_results'])
+                    all_probability.extend(result['probability_results'])
+
+            if i + self.max_concurrent_sites < len(site_data):
+                await asyncio.sleep(0.3)
+
+        self.logger.info(
+            f"ModelOps 결과 조회 완료: "
+            f"AAL={len(all_aal)}, H={len(all_hazard)}, E={len(all_exposure)}, "
+            f"V={len(all_vulnerability)}, P={len(all_probability)}"
+        )
+
+        return (
+            all_aal,
+            all_hazard,
+            all_exposure,
+            all_vulnerability,
+            all_probability
+        )
+
+    async def _load_single_site_modelops(
+        self,
+        site: Dict[str, Any],
+        target_years: Optional[List[str]] = None
+    ) -> Optional[Dict[str, List[Dict]]]:
+        """
+        단일 사업장 ModelOps 결과 조회 (5개 테이블)
+
+        Args:
+            site: 사이트 정보 Dict
+            target_years: 분석 목표 연도 리스트 (None이면 전체)
+
+        Returns:
+            {
+                'aal_scaled_results': [...],
+                'hazard_results': [...],
+                'exposure_results': [...],
+                'vulnerability_results': [...],
+                'probability_results': [...]
+            }
+        """
+        try:
+            site_id = str(site['site_id'])
+            latitude = site['site_info']['latitude']
+            longitude = site['site_info']['longitude']
+
+            # DatabaseManager의 fetch_all_modelops_results 사용
+            results = self.dw_db.fetch_all_modelops_results(
+                site_id=site_id,
+                latitude=latitude,
+                longitude=longitude,
+                target_years=target_years,
+                risk_type=None  # 모든 리스크 타입 조회
+            )
+
+            return results
+
+        except Exception as e:
+            self.logger.error(
+                f"사업장 {site['site_id']} ModelOps 결과 조회 실패: {e}",
+                exc_info=True
+            )
+            return None
+
+    # ==================== BC Agent 실행 ====================
 
     async def _analyze_building_characteristics(
         self,
-        sites_data: List[Dict]
-    ) -> List[Dict]:
+        site_data: List[Dict[str, Any]],
+        aal_scaled_results: List[Dict[str, Any]],
+        hazard_results: List[Dict[str, Any]]
+    ) -> Dict[int, Dict[str, Any]]:
         """
         BuildingCharacteristicsAgent를 사용하여 건물 특성 분석 (청크 단위 배치 처리)
 
         Args:
-            sites_data: 사업장 데이터 리스트
+            site_data: 사이트 기본 정보 리스트
+            aal_scaled_results: AAL 결과 (risk_scores 생성용)
+            hazard_results: Hazard 결과 (risk_scores 생성용)
 
         Returns:
-            building_characteristics가 채워진 sites_data
+            building_data: Dict[site_id, BC 분석 결과]
         """
+        building_data: Dict[int, Dict[str, Any]] = {}
+
         try:
             bc_agent = BuildingCharacteristicsAgent(llm_client=self.llm_client)
-            
-            # 청크 단위로 분할 처리 (API Rate Limit 고려)
-            for i in range(0, len(sites_data), self.bc_chunk_size):
-                chunk = sites_data[i:i + self.bc_chunk_size]
+
+            for i in range(0, len(site_data), self.bc_chunk_size):
+                chunk = site_data[i:i + self.bc_chunk_size]
                 self.logger.info(
                     f"BC 분석 청크 {i//self.bc_chunk_size + 1}: "
-                    f"{len(chunk)}개 사업장 ({i+1}~{i+len(chunk)})"
+                    f"{len(chunk)}개 사업장"
                 )
-                
+
                 # BC가 기대하는 형식으로 변환
                 bc_input = []
                 for site in chunk:
+                    # 해당 사이트의 risk_results 추출
+                    site_risk_results = self._extract_risk_results_for_site(
+                        site['site_id'],
+                        aal_scaled_results,
+                        hazard_results
+                    )
+
                     bc_input.append({
                         "site_id": site["site_id"],
                         "site_info": site["site_info"],
-                        "risk_results": site["risk_results"]
+                        "risk_results": site_risk_results
                     })
-                
-                # 배치 분석 실행 (chunk 단위)
+
                 try:
                     bc_results = bc_agent.analyze_batch(bc_input)
-                    
-                    # 결과를 sites_data에 병합
-                    for site in chunk:
-                        site_id = site["site_id"]
-                        if site_id in bc_results:
-                            site["building_characteristics"] = bc_results[site_id]
-                        else:
-                            self.logger.warning(f"사업장 {site_id} BC 분석 결과 없음")
-                            site["building_characteristics"] = {}
-                
+
+                    # 결과를 building_data에 저장
+                    for site_id, result in bc_results.items():
+                        building_data[site_id] = result
+
                 except Exception as chunk_error:
                     self.logger.error(f"BC 청크 분석 실패: {chunk_error}", exc_info=True)
-                    # 실패한 청크는 빈 딕셔너리로 채움
+                    # 실패한 사이트는 빈 딕셔너리로 저장
                     for site in chunk:
-                        site["building_characteristics"] = {}
-                
-                # API Rate Limit 방지를 위한 대기
-                if i + self.bc_chunk_size < len(sites_data):
-                    await asyncio.sleep(1.0)  # 1초 대기
-            
-            return sites_data
+                        building_data[site["site_id"]] = {}
+
+                if i + self.bc_chunk_size < len(site_data):
+                    await asyncio.sleep(1.0)
+
+            return building_data
 
         except Exception as e:
             self.logger.error(f"BuildingCharacteristicsAgent 실행 실패: {e}", exc_info=True)
-            # 실패해도 기존 데이터는 반환
-            for site in sites_data:
-                if site.get("building_characteristics") is None:
-                    site["building_characteristics"] = {}
-            return sites_data
+            # 전체 실패 시 모든 사이트에 빈 딕셔너리
+            for site in site_data:
+                building_data[site["site_id"]] = {}
+            return building_data
 
-    def _format_risk_results(
+    def _extract_risk_results_for_site(
         self,
-        aal_results: List[Dict],
-        hazard_results: List[Dict]
-    ) -> List[Dict]:
+        site_id: int,
+        aal_scaled_results: List[Dict[str, Any]],
+        hazard_results: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
         """
-        AAL + Hazard 결과를 risk_results 형식으로 변환
+        특정 사이트의 risk_results 추출 (BC Agent용)
 
         Args:
-            aal_results: AAL scaled results (from aal_scaled_results table)
-            hazard_results: Hazard results (from hazard_results table)
+            site_id: 사이트 ID
+            aal_scaled_results: 전체 AAL 결과
+            hazard_results: 전체 Hazard 결과
 
         Returns:
-            List of risk result dictionaries
-            [{
-                "risk_type": str,
-                "final_aal": float,  # SSP245 기준
-                "physical_risk_score": float  # Hazard Score (0-100)
-            }]
+            해당 사이트의 risk_results 리스트
         """
+        site_id_str = str(site_id)
         risk_map = {}
 
-        # AAL 데이터 매핑 (SSP245 시나리오 사용)
-        for aal in aal_results:
-            risk_type = aal.get('risk_type')
-            if risk_type:
-                risk_map[risk_type] = {
-                    "risk_type": risk_type,
-                    "final_aal": aal.get('ssp245_final_aal', 0.0),
-                    "physical_risk_score": 0.0  # Hazard에서 채울 예정
-                }
+        # AAL 데이터 매핑 (SSP245 기준)
+        for aal in aal_scaled_results:
+            if str(aal.get('site_id')) == site_id_str:
+                risk_type = aal.get('risk_type')
+                if risk_type:
+                    risk_map[risk_type] = {
+                        "risk_type": risk_type,
+                        "final_aal": aal.get('ssp245_final_aal', 0.0),
+                        "physical_risk_score": 0.0
+                    }
 
-        # Hazard Score 매핑 (SSP245 시나리오 사용)
+        # Hazard Score 매핑
         for hazard in hazard_results:
+            # hazard_results는 lat/lon 기반이므로 site_id가 없음
+            # 여기서는 risk_type만 매칭
             risk_type = hazard.get('risk_type')
             if risk_type and risk_type in risk_map:
                 risk_map[risk_type]["physical_risk_score"] = hazard.get('ssp245_score_100', 0.0)
 
         return list(risk_map.values())
 
+    # ==================== AD Agent 실행 ====================
+
     async def _process_excel(
         self,
         excel_file: str,
         site_ids: List[int]
-    ) -> Optional[Dict]:
+    ) -> tuple:
         """
         Excel 파일 처리 (AdditionalDataAgent 호출)
 
@@ -368,23 +483,23 @@ class DataPreprocessingNode:
             site_ids: 사업장 ID 리스트
 
         Returns:
-            Dict with site_specific_guidelines and summary
+            (additional_data: Dict, use_additional_data: bool)
         """
         try:
-            # AdditionalDataAgent 초기화 및 실행
             agent = AdditionalDataAgent(llm_client=self.llm_client)
             result = agent.analyze(excel_file, site_ids)
 
-            # AD의 실제 반환 구조에 맞춤
             if result.get("status") == "completed":
-                return {
-                    "site_specific_guidelines": result.get("site_specific_guidelines", {}),
-                    "summary": result.get("summary", "")
-                }
+                self.logger.info(
+                    f"AD 분석 완료: {len(result.get('site_specific_guidelines', {}))}개 사업장 가이드라인 생성"
+                )
+                return result, True  # additional_data, use_additional_data = True
             else:
-                self.logger.warning(f"Excel 분석 실패: {result.get('meta', {}).get('error', 'Unknown')}")
-                return None
+                self.logger.warning(
+                    f"Excel 분석 실패: {result.get('meta', {}).get('error', 'Unknown')}"
+                )
+                return {}, False
 
         except Exception as e:
             self.logger.error(f"Excel 파일 처리 실패: {e}", exc_info=True)
-            return None
+            return {}, False

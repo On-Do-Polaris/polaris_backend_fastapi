@@ -17,7 +17,7 @@ from .node_2a_scenario_analysis import ScenarioAnalysisNode
 from .node_2b_impact_analysis import ImpactAnalysisNode
 from .node_2c_mitigation_strategies import MitigationStrategiesNode
 from .node_3_strategy_section import StrategySectionNode
-from .node_4_validator import ValidatorNode
+from .node_4_validator import ValidatorRefinerNode as ValidatorNode
 from .node_5_composer import ComposerNode
 from .node_6_finalizer import FinalizerNode
 from .workflow import create_tcfd_workflow, TCFDReportState

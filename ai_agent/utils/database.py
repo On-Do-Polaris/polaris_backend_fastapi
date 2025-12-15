@@ -730,7 +730,7 @@ class DatabaseManager:
         self,
         latitude: float,
         longitude: float,
-        target_year: str,
+        target_years: Optional[List[str]] = None,
         risk_type: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
@@ -739,7 +739,8 @@ class DatabaseManager:
         Args:
             latitude: Latitude
             longitude: Longitude
-            target_year: Target year (e.g., "2030", "2050")
+            target_years: List of target years (e.g., ["2025", "2030", "2030s"]).
+                         If None, returns all years.
             risk_type: Optional risk type filter (e.g., 'TYPHOON', 'INLAND_FLOOD')
                       If None, returns all 9 risk types
 
@@ -757,32 +758,35 @@ class DatabaseManager:
                 ssp370_score_100,
                 ssp585_score_100
             FROM hazard_results
-            WHERE latitude = %s AND longitude = %s AND target_year = %s
+            WHERE latitude = %s AND longitude = %s
         """
-        params = [latitude, longitude, target_year]
+        params: List[Any] = [latitude, longitude]
+
+        if target_years:
+            placeholders = ', '.join(['%s'] * len(target_years))
+            query += f" AND target_year IN ({placeholders})"
+            params.extend(target_years)
 
         if risk_type:
             query += " AND risk_type = %s"
             params.append(risk_type)
 
-        query += " ORDER BY risk_type"
+        query += " ORDER BY target_year, risk_type"
 
         return self.execute_query(query, tuple(params))
 
     def fetch_exposure_results(
         self,
         site_id: str,
-        target_year: str,
+        target_years: Optional[List[str]] = None,
         risk_type: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Fetch Exposure Score results from ModelOps calculations
-        Note: 'exposure_score' column does not exist in DB. 
-        It is calculated from 'proximity_factor' (0-1) * 100.
 
         Args:
             site_id: Site UUID
-            target_year: Target year (e.g., "2030", "2050")
+            target_years: List of target years. If None, returns all years.
             risk_type: Optional risk type filter
 
         Returns:
@@ -795,31 +799,29 @@ class DatabaseManager:
                 longitude,
                 risk_type,
                 target_year,
-                proximity_factor
+                exposure_score
             FROM exposure_results
-            WHERE site_id = %s AND target_year = %s
+            WHERE site_id = %s
         """
-        params = [site_id, target_year]
+        params: List[Any] = [site_id]
+
+        if target_years:
+            placeholders = ', '.join(['%s'] * len(target_years))
+            query += f" AND target_year IN ({placeholders})"
+            params.extend(target_years)
 
         if risk_type:
             query += " AND risk_type = %s"
             params.append(risk_type)
 
-        query += " ORDER BY risk_type"
+        query += " ORDER BY target_year, risk_type"
 
-        results = self.execute_query(query, tuple(params))
-        
-        # Calculate exposure_score from proximity_factor
-        for result in results:
-            # Assuming proximity_factor is 0.0-1.0 and exposure_score should be 0-100
-            result['exposure_score'] = result.get('proximity_factor', 0.0) * 100.0
-            
-        return results
+        return self.execute_query(query, tuple(params))
 
     def fetch_vulnerability_results(
         self,
         site_id: str,
-        target_year: str,
+        target_years: Optional[List[str]] = None,
         risk_type: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
@@ -827,7 +829,7 @@ class DatabaseManager:
 
         Args:
             site_id: Site UUID
-            target_year: Target year (e.g., "2030", "2050")
+            target_years: List of target years. If None, returns all years.
             risk_type: Optional risk type filter
 
         Returns:
@@ -842,15 +844,20 @@ class DatabaseManager:
                 target_year,
                 vulnerability_score
             FROM vulnerability_results
-            WHERE site_id = %s AND target_year = %s
+            WHERE site_id = %s
         """
-        params = [site_id, target_year]
+        params: List[Any] = [site_id]
+
+        if target_years:
+            placeholders = ', '.join(['%s'] * len(target_years))
+            query += f" AND target_year IN ({placeholders})"
+            params.extend(target_years)
 
         if risk_type:
             query += " AND risk_type = %s"
             params.append(risk_type)
 
-        query += " ORDER BY risk_type"
+        query += " ORDER BY target_year, risk_type"
 
         return self.execute_query(query, tuple(params))
 
@@ -858,7 +865,7 @@ class DatabaseManager:
         self,
         latitude: float,
         longitude: float,
-        target_year: str,
+        target_years: Optional[List[str]] = None,
         risk_type: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
@@ -867,7 +874,7 @@ class DatabaseManager:
         Args:
             latitude: Latitude
             longitude: Longitude
-            target_year: Target year (e.g., "2030", "2050")
+            target_years: List of target years. If None, returns all years.
             risk_type: Optional risk type filter
 
         Returns:
@@ -879,32 +886,37 @@ class DatabaseManager:
                 longitude,
                 risk_type,
                 target_year,
-                ssp126_base_aal,
-                ssp245_base_aal,
-                ssp370_base_aal,
-                ssp585_base_aal,
+                ssp126_aal,
+                ssp245_aal,
+                ssp370_aal,
+                ssp585_aal,
                 damage_rates,
                 ssp126_bin_probs,
                 ssp245_bin_probs,
                 ssp370_bin_probs,
                 ssp585_bin_probs
             FROM probability_results
-            WHERE latitude = %s AND longitude = %s AND target_year = %s
+            WHERE latitude = %s AND longitude = %s
         """
-        params = [latitude, longitude, target_year]
+        params: List[Any] = [latitude, longitude]
+
+        if target_years:
+            placeholders = ', '.join(['%s'] * len(target_years))
+            query += f" AND target_year IN ({placeholders})"
+            params.extend(target_years)
 
         if risk_type:
             query += " AND risk_type = %s"
             params.append(risk_type)
 
-        query += " ORDER BY risk_type"
+        query += " ORDER BY target_year, risk_type"
 
         return self.execute_query(query, tuple(params))
 
     def fetch_aal_scaled_results(
         self,
         site_id: str,
-        target_year: str,
+        target_years: Optional[List[str]] = None,
         risk_type: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
@@ -912,7 +924,7 @@ class DatabaseManager:
 
         Args:
             site_id: Site UUID
-            target_year: Target year (e.g., "2030", "2050")
+            target_years: List of target years. If None, returns all years.
             risk_type: Optional risk type filter
 
         Returns:
@@ -930,15 +942,20 @@ class DatabaseManager:
                 ssp370_final_aal,
                 ssp585_final_aal
             FROM aal_scaled_results
-            WHERE site_id = %s AND target_year = %s
+            WHERE site_id = %s
         """
-        params = [site_id, target_year]
+        params: List[Any] = [site_id]
+
+        if target_years:
+            placeholders = ', '.join(['%s'] * len(target_years))
+            query += f" AND target_year IN ({placeholders})"
+            params.extend(target_years)
 
         if risk_type:
             query += " AND risk_type = %s"
             params.append(risk_type)
 
-        query += " ORDER BY risk_type"
+        query += " ORDER BY target_year, risk_type"
 
         return self.execute_query(query, tuple(params))
 
@@ -947,7 +964,7 @@ class DatabaseManager:
         site_id: str,
         latitude: float,
         longitude: float,
-        target_year: str,
+        target_years: Optional[List[str]] = None,
         risk_type: Optional[str] = None
     ) -> Dict[str, Any]:
         """
@@ -957,7 +974,8 @@ class DatabaseManager:
             site_id: Site UUID from application DB
             latitude: Latitude
             longitude: Longitude
-            target_year: Target year (e.g., "2030", "2050")
+            target_years: List of target years (e.g., ["2025", "2030", "2030s"]).
+                         If None, returns all years.
             risk_type: Optional risk type filter
 
         Returns:
@@ -969,11 +987,11 @@ class DatabaseManager:
             - aal_scaled_results: Final AAL (scaled by V)
         """
         return {
-            'hazard_results': self.fetch_hazard_results(latitude, longitude, target_year, risk_type),
-            'exposure_results': self.fetch_exposure_results(site_id, target_year, risk_type),
-            'vulnerability_results': self.fetch_vulnerability_results(site_id, target_year, risk_type),
-            'probability_results': self.fetch_probability_results(latitude, longitude, target_year, risk_type),
-            'aal_scaled_results': self.fetch_aal_scaled_results(site_id, target_year, risk_type)
+            'hazard_results': self.fetch_hazard_results(latitude, longitude, target_years, risk_type),
+            'exposure_results': self.fetch_exposure_results(site_id, target_years, risk_type),
+            'vulnerability_results': self.fetch_vulnerability_results(site_id, target_years, risk_type),
+            'probability_results': self.fetch_probability_results(latitude, longitude, target_years, risk_type),
+            'aal_scaled_results': self.fetch_aal_scaled_results(site_id, target_years, risk_type)
         }
 
     # ==================== Batch Jobs Tracking ====================

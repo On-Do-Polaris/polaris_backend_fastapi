@@ -730,6 +730,7 @@ class DatabaseManager:
         self,
         latitude: float,
         longitude: float,
+        target_year: str,
         risk_type: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
@@ -738,6 +739,7 @@ class DatabaseManager:
         Args:
             latitude: Latitude
             longitude: Longitude
+            target_year: Target year (e.g., "2030", "2050")
             risk_type: Optional risk type filter (e.g., 'TYPHOON', 'INLAND_FLOOD')
                       If None, returns all 9 risk types
 
@@ -749,14 +751,15 @@ class DatabaseManager:
                 latitude,
                 longitude,
                 risk_type,
-                hazard_score,
-                hazard_score_100,
-                hazard_level,
-                calculated_at
+                target_year,
+                ssp126_score_100,
+                ssp245_score_100,
+                ssp370_score_100,
+                ssp585_score_100
             FROM hazard_results
-            WHERE latitude = %s AND longitude = %s
+            WHERE latitude = %s AND longitude = %s AND target_year = %s
         """
-        params = [latitude, longitude]
+        params = [latitude, longitude, target_year]
 
         if risk_type:
             query += " AND risk_type = %s"
@@ -768,16 +771,18 @@ class DatabaseManager:
 
     def fetch_exposure_results(
         self,
-        latitude: float,
-        longitude: float,
+        site_id: str,
+        target_year: str,
         risk_type: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Fetch Exposure Score results from ModelOps calculations
+        Note: 'exposure_score' column does not exist in DB. 
+        It is calculated from 'proximity_factor' (0-1) * 100.
 
         Args:
-            latitude: Latitude
-            longitude: Longitude
+            site_id: Site UUID
+            target_year: Target year (e.g., "2030", "2050")
             risk_type: Optional risk type filter
 
         Returns:
@@ -785,15 +790,16 @@ class DatabaseManager:
         """
         query = """
             SELECT
+                site_id,
                 latitude,
                 longitude,
                 risk_type,
-                exposure_score,
-                calculated_at
+                target_year,
+                proximity_factor
             FROM exposure_results
-            WHERE latitude = %s AND longitude = %s
+            WHERE site_id = %s AND target_year = %s
         """
-        params = [latitude, longitude]
+        params = [site_id, target_year]
 
         if risk_type:
             query += " AND risk_type = %s"
@@ -801,20 +807,27 @@ class DatabaseManager:
 
         query += " ORDER BY risk_type"
 
-        return self.execute_query(query, tuple(params))
+        results = self.execute_query(query, tuple(params))
+        
+        # Calculate exposure_score from proximity_factor
+        for result in results:
+            # Assuming proximity_factor is 0.0-1.0 and exposure_score should be 0-100
+            result['exposure_score'] = result.get('proximity_factor', 0.0) * 100.0
+            
+        return results
 
     def fetch_vulnerability_results(
         self,
-        latitude: float,
-        longitude: float,
+        site_id: str,
+        target_year: str,
         risk_type: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Fetch Vulnerability Score results from ModelOps calculations
 
         Args:
-            latitude: Latitude
-            longitude: Longitude
+            site_id: Site UUID
+            target_year: Target year (e.g., "2030", "2050")
             risk_type: Optional risk type filter
 
         Returns:
@@ -822,15 +835,16 @@ class DatabaseManager:
         """
         query = """
             SELECT
+                site_id,
                 latitude,
                 longitude,
                 risk_type,
-                vulnerability_score,
-                calculated_at
+                target_year,
+                vulnerability_score
             FROM vulnerability_results
-            WHERE latitude = %s AND longitude = %s
+            WHERE site_id = %s AND target_year = %s
         """
-        params = [latitude, longitude]
+        params = [site_id, target_year]
 
         if risk_type:
             query += " AND risk_type = %s"
@@ -844,8 +858,8 @@ class DatabaseManager:
         self,
         latitude: float,
         longitude: float,
-        risk_type: Optional[str] = None,
-        scenario: Optional[str] = None
+        target_year: str,
+        risk_type: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Fetch Probability P(H) results from ModelOps calculations
@@ -853,8 +867,8 @@ class DatabaseManager:
         Args:
             latitude: Latitude
             longitude: Longitude
+            target_year: Target year (e.g., "2030", "2050")
             risk_type: Optional risk type filter
-            scenario: Optional scenario filter ('ssp1', 'ssp2', 'ssp3', 'ssp5')
 
         Returns:
             List of probability results with bin probabilities and AAL
@@ -864,88 +878,87 @@ class DatabaseManager:
                 latitude,
                 longitude,
                 risk_type,
-                scenario,
-                bin_probabilities,
-                aal,
-                calculated_at
+                target_year,
+                ssp126_base_aal,
+                ssp245_base_aal,
+                ssp370_base_aal,
+                ssp585_base_aal,
+                damage_rates,
+                ssp126_bin_probs,
+                ssp245_bin_probs,
+                ssp370_bin_probs,
+                ssp585_bin_probs
             FROM probability_results
-            WHERE latitude = %s AND longitude = %s
+            WHERE latitude = %s AND longitude = %s AND target_year = %s
         """
-        params = [latitude, longitude]
+        params = [latitude, longitude, target_year]
 
         if risk_type:
             query += " AND risk_type = %s"
             params.append(risk_type)
 
-        if scenario:
-            query += " AND scenario = %s"
-            params.append(scenario)
-
-        query += " ORDER BY risk_type, scenario"
+        query += " ORDER BY risk_type"
 
         return self.execute_query(query, tuple(params))
 
     def fetch_aal_scaled_results(
         self,
-        latitude: float,
-        longitude: float,
-        risk_type: Optional[str] = None,
-        scenario: Optional[str] = None
+        site_id: str,
+        target_year: str,
+        risk_type: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Fetch final AAL results (scaled by vulnerability) from ModelOps
 
         Args:
-            latitude: Latitude
-            longitude: Longitude
+            site_id: Site UUID
+            target_year: Target year (e.g., "2030", "2050")
             risk_type: Optional risk type filter
-            scenario: Optional scenario filter ('ssp1', 'ssp2', 'ssp3', 'ssp5')
 
         Returns:
             List of AAL results with base and final AAL values
         """
         query = """
             SELECT
+                site_id,
                 latitude,
                 longitude,
                 risk_type,
-                scenario,
-                base_aal,
-                vulnerability_score,
-                final_aal,
-                calculated_at
+                target_year,
+                ssp126_final_aal,
+                ssp245_final_aal,
+                ssp370_final_aal,
+                ssp585_final_aal
             FROM aal_scaled_results
-            WHERE latitude = %s AND longitude = %s
+            WHERE site_id = %s AND target_year = %s
         """
-        params = [latitude, longitude]
+        params = [site_id, target_year]
 
         if risk_type:
             query += " AND risk_type = %s"
             params.append(risk_type)
 
-        if scenario:
-            query += " AND scenario = %s"
-            params.append(scenario)
-
-        query += " ORDER BY risk_type, scenario"
+        query += " ORDER BY risk_type"
 
         return self.execute_query(query, tuple(params))
 
     def fetch_all_modelops_results(
         self,
+        site_id: str,
         latitude: float,
         longitude: float,
-        risk_type: Optional[str] = None,
-        scenario: Optional[str] = None
+        target_year: str,
+        risk_type: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Fetch all ModelOps calculation results for a location
 
         Args:
+            site_id: Site UUID from application DB
             latitude: Latitude
             longitude: Longitude
+            target_year: Target year (e.g., "2030", "2050")
             risk_type: Optional risk type filter
-            scenario: Optional scenario filter ('ssp1', 'ssp2', 'ssp3', 'ssp5')
 
         Returns:
             Dictionary containing all ModelOps results:
@@ -956,11 +969,11 @@ class DatabaseManager:
             - aal_scaled_results: Final AAL (scaled by V)
         """
         return {
-            'hazard_results': self.fetch_hazard_results(latitude, longitude, risk_type),
-            'exposure_results': self.fetch_exposure_results(latitude, longitude, risk_type),
-            'vulnerability_results': self.fetch_vulnerability_results(latitude, longitude, risk_type),
-            'probability_results': self.fetch_probability_results(latitude, longitude, risk_type, scenario),
-            'aal_scaled_results': self.fetch_aal_scaled_results(latitude, longitude, risk_type, scenario)
+            'hazard_results': self.fetch_hazard_results(latitude, longitude, target_year, risk_type),
+            'exposure_results': self.fetch_exposure_results(site_id, target_year, risk_type),
+            'vulnerability_results': self.fetch_vulnerability_results(site_id, target_year, risk_type),
+            'probability_results': self.fetch_probability_results(latitude, longitude, target_year, risk_type),
+            'aal_scaled_results': self.fetch_aal_scaled_results(site_id, target_year, risk_type)
         }
 
     # ==================== Batch Jobs Tracking ====================

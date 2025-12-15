@@ -1,227 +1,236 @@
 """
-Node 2-A: Scenario Analysis
-전체 사업장의 시나리오별 AAL 추이 분석
+Node 2-A: Scenario Analysis (Physical Risk Report)
+사업장별 SSP 시나리오 AAL 데이터 계산
 
-설계 이유:
-- 항목별 순차 처리: v1의 사이트별 병렬에서 변경
-- 포트폴리오 관점: 8개 사업장 전체를 통합 분석
-- 4가지 SSP 시나리오: 다양한 기후 시나리오 추이 분석
-- TableBlock 생성: 시나리오별 AAL 비교표를 JSON으로 생성
+설계 목적:
+- 물리적 리스크 보고서 전용 (TCFD 전체 제외)
+- 4가지 SSP 시나리오별 AAL 계산
+- 시점별 데이터 추출 (2020, 2030, 2040, 2050년대)
+- ❌ 하드코딩 제거: 텍스트 생성은 Node 3에서 처리
+- ❌ 표 생성 제거: Node 3에서 통합 처리
 
-작성일: 2025-12-14 (v2 Refactoring)
+작성일: 2025-12-15 (Physical Risk Report 전용)
+버전: v2.0
 """
 
 import asyncio
 from typing import Dict, Any, List, Optional
-from .schemas import TableBlock, TableData, TableRow
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ScenarioAnalysisNode:
     """
-    Node 2-A: 시나리오 분석 노드
+    Node 2-A: 시나리오 분석 노드 (물리적 리스크 전용)
 
     입력:
-        - sites_data: List[dict] (8개 사업장)
-        - agent_guideline: Optional[dict] (Excel 있을 경우만)
+        - sites_data: List[dict] (사업장 목록)
+        - risk_scores: Dict (ModelOps 리스크 점수)
 
     출력:
-        - scenarios: Dict (SSP1-2.6, SSP2-4.5, SSP3-7.0, SSP5-8.5)
-        - comparison: str (시나리오 간 비교 분석)
+        - site_scenario_data: Dict[int, Dict] (사업장별 시나리오 데이터)
+          {
+              site_id: {
+                  "SSP1-2.6": {
+                      "temperature_change": {"2020": 1.5, "2030": 2.1, "2040": 2.8},
+                      "urban_flood": {...},
+                      ...
+                  },
+                  "SSP2-4.5": {...},
+                  "SSP3-7.0": {...},
+                  "SSP5-8.5": {...}
+              }
+          }
     """
 
-    def __init__(self, llm):
+    def __init__(self, llm=None):
+        """
+        초기화
+
+        :param llm: LLM 클라이언트 (현재는 사용하지 않음, 추후 확장용)
+        """
         self.llm = llm
+        self.logger = logger
 
     async def execute(
         self,
         sites_data: List[Dict],
-        agent_guideline: Optional[Dict] = None
+        risk_scores: Optional[Dict] = None
     ) -> Dict[str, Any]:
         """
         메인 실행 함수
+
+        :param sites_data: 사업장 정보 리스트
+        :param risk_scores: ModelOps 물리적 리스크 점수
+        :return: 사업장별 시나리오 데이터
         """
+        self.logger.info(f"Node 2-A 시작: {len(sites_data)}개 사업장 시나리오 분석")
+
         # 1. 사업장별 시나리오 AAL 계산 (병렬)
-        site_scenario_results = await self._calculate_scenarios_parallel(sites_data)
+        site_scenario_results = await self._calculate_scenarios_parallel(
+            sites_data,
+            risk_scores
+        )
 
-        # 2. 포트폴리오 통합 분석
-        scenarios = self._aggregate_scenarios(site_scenario_results)
-
-        # 3. LLM 기반 시나리오 비교 분석
-        comparison = await self._analyze_scenarios_with_llm(scenarios, agent_guideline)
-
-        # 4. TableBlock 생성 (시나리오별 AAL 비교표)
-        scenario_table = self._create_scenario_table(scenarios)
+        self.logger.info(f"Node 2-A 완료: {len(site_scenario_results)}개 사업장 처리")
 
         return {
-            "scenarios": scenarios,
-            "comparison": comparison,
-            "scenario_table": scenario_table  # JSON TableBlock
+            "site_scenario_data": site_scenario_results,
+            "status": "completed"
         }
 
-    async def _calculate_scenarios_parallel(self, sites_data: List[Dict]) -> List[Dict]:
+    async def _calculate_scenarios_parallel(
+        self,
+        sites_data: List[Dict],
+        risk_scores: Optional[Dict]
+    ) -> Dict[int, Dict]:
         """
-        8개 사업장 시나리오 AAL 병렬 계산 (~15초)
-        """
-        tasks = [self._calculate_site_scenario_aal(site) for site in sites_data]
-        results = await asyncio.gather(*tasks)
-        return results
+        사업장별 시나리오 AAL 병렬 계산
 
-    async def _calculate_site_scenario_aal(self, site: Dict) -> Dict:
+        :param sites_data: 사업장 정보 리스트
+        :param risk_scores: ModelOps 리스크 점수
+        :return: 사업장별 시나리오 데이터
+        """
+        tasks = []
+        site_ids = []
+
+        for site in sites_data:
+            site_id = site["site_id"]
+            site_ids.append(site_id)
+
+            # 해당 사업장의 리스크 점수 추출
+            site_risk_scores = risk_scores.get(str(site_id), {}) if risk_scores else {}
+
+            task = self._calculate_site_scenario_aal(site, site_risk_scores)
+            tasks.append(task)
+
+        # 병렬 실행
+        results_list = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # 결과를 dict로 변환
+        site_scenario_results = {}
+        for site_id, result in zip(site_ids, results_list):
+            if isinstance(result, Exception):
+                self.logger.error(f"사업장 {site_id} 시나리오 계산 실패: {result}")
+                continue
+
+            site_scenario_results[site_id] = result
+
+        return site_scenario_results
+
+    async def _calculate_site_scenario_aal(
+        self,
+        site: Dict,
+        site_risk_scores: Dict
+    ) -> Dict:
         """
         단일 사업장의 시나리오별 AAL 계산
-        """
-        # TODO: AAL 데이터에서 시나리오별 추출
-        return {
-            "site_id": site["site_id"],
-            "ssp1_2.6": {"timeline": [2024, 2030, 2050, 2100], "aal_values": []},
-            "ssp2_4.5": {"timeline": [2024, 2030, 2050, 2100], "aal_values": []},
-            "ssp3_7.0": {"timeline": [2024, 2030, 2050, 2100], "aal_values": []},
-            "ssp5_8.5": {"timeline": [2024, 2030, 2050, 2100], "aal_values": []}
-        }
 
-    def _aggregate_scenarios(self, site_results: List[Dict]) -> Dict:
+        :param site: 사업장 정보
+        :param site_risk_scores: 사업장 리스크 점수
+        :return: 시나리오별 리스크 타입별 AAL
         """
-        포트폴리오 시나리오 집계
-        """
-        # TODO: 사업장별 AAL 합산 → 포트폴리오 AAL
-        return {
-            "ssp1_2.6": {
-                "summary": "",
-                "timeline": [2024, 2030, 2040, 2050, 2100],
-                "aal_values": [],  # TODO
-                "key_points": ""
-            },
-            "ssp2_4.5": {},
-            "ssp3_7.0": {},
-            "ssp5_8.5": {}
-        }
+        site_id = site["site_id"]
 
-    async def _analyze_scenarios_with_llm(
+        # SSP 시나리오 목록
+        ssp_scenarios = ["SSP1-2.6", "SSP2-4.5", "SSP3-7.0", "SSP5-8.5"]
+
+        # 리스크 타입 목록
+        risk_types = [
+            "temperature_change",
+            "sea_level_rise",
+            "urban_flood",
+            "river_flood",
+            "coastal_flood",
+            "drought",
+            "wildfire",
+            "typhoon",
+            "water_stress"
+        ]
+
+        # 시점 목록 (물리적 리스크 보고서: 2100년 제외)
+        time_points = ["2020", "2030", "2040"]
+
+        # 결과 구조 생성
+        scenario_data = {}
+
+        for scenario in ssp_scenarios:
+            scenario_data[scenario] = {}
+
+            for risk_type in risk_types:
+                scenario_data[scenario][risk_type] = {}
+
+                for time_point in time_points:
+                    # ModelOps 데이터에서 AAL 추출
+                    # 형식: site_risk_scores[risk_type][scenario][time_point]
+                    aal_value = self._extract_aal_from_risk_scores(
+                        site_risk_scores,
+                        risk_type,
+                        scenario,
+                        time_point
+                    )
+
+                    scenario_data[scenario][risk_type][time_point] = aal_value
+
+        return scenario_data
+
+    def _extract_aal_from_risk_scores(
         self,
-        scenarios: Dict,
-        agent_guideline: Optional[Dict]
-    ) -> str:
+        site_risk_scores: Dict,
+        risk_type: str,
+        scenario: str,
+        time_point: str
+    ) -> float:
         """
-        LLM 기반 시나리오 비교 분석
+        ModelOps 리스크 점수에서 AAL 추출
+
+        :param site_risk_scores: 사업장 리스크 점수
+        :param risk_type: 리스크 타입
+        :param scenario: SSP 시나리오
+        :param time_point: 시점
+        :return: AAL % (0~100)
         """
-        # 시나리오 요약 정보 추출
-        scenario_summaries = []
-        for scenario_key in ["ssp1_2.6", "ssp2_4.5", "ssp3_7.0", "ssp5_8.5"]:
-            scenario_data = scenarios.get(scenario_key, {})
-            timeline = scenario_data.get("timeline", [])
-            aal_values = scenario_data.get("aal_values", [])
+        try:
+            # ModelOps 데이터 구조에 맞게 추출
+            # 예시: site_risk_scores[risk_type][scenario][time_point]["aal_percent"]
 
-            if timeline and aal_values:
-                scenario_summaries.append(
-                    f"**{scenario_key.upper()}**: {timeline[0]}년 {aal_values[0]:.2f}% → "
-                    f"{timeline[-1]}년 {aal_values[-1]:.2f}% "
-                    f"(증가율: {((aal_values[-1] - aal_values[0]) / aal_values[0] * 100):.1f}%)"
-                )
+            if risk_type in site_risk_scores:
+                risk_data = site_risk_scores[risk_type]
 
-        scenario_summary_text = "\n".join(scenario_summaries)
+                if isinstance(risk_data, dict) and scenario in risk_data:
+                    scenario_data = risk_data[scenario]
 
-        # 추가 가이드라인 (Excel 데이터가 있을 경우)
-        additional_context = ""
-        if agent_guideline:
-            summary = agent_guideline.get("summary", "")
-            if summary:
-                additional_context = f"\n\n**추가 고려 사항:**\n{summary}"
+                    if isinstance(scenario_data, dict) and time_point in scenario_data:
+                        time_data = scenario_data[time_point]
 
-        # LLM 프롬프트
-        prompt = f"""당신은 TCFD 보고서 작성 전문가이며, 기후 시나리오 분석을 담당하고 있습니다.
+                        if isinstance(time_data, dict):
+                            return time_data.get("aal_percent", 0.0)
+                        elif isinstance(time_data, (int, float)):
+                            return float(time_data)
 
-**임무:**
-4가지 SSP 시나리오(SSP1-2.6, SSP2-4.5, SSP3-7.0, SSP5-8.5)별로 포트폴리오 AAL(Annual Average Loss) 추이를 비교 분석하고,
-TCFD Strategy 섹션에 포함될 **시나리오 분석 서술문**을 작성하세요.
+            return 0.0
 
-**시나리오별 AAL 추이:**
-{scenario_summary_text}{additional_context}
+        except Exception as e:
+            self.logger.warning(
+                f"AAL 추출 실패 ({risk_type}, {scenario}, {time_point}): {e}"
+            )
+            return 0.0
 
-**출력 요구사항:**
-1. **각 시나리오별 주요 특징** (3-4문장)
-   - SSP1-2.6 (지속가능 발전): 파리협정 목표 달성 시나리오
-   - SSP2-4.5 (중간 경로): 현재 정책 유지 시나리오
-   - SSP3-7.0 (지역 경쟁): 기후 정책 미흡 시나리오
-   - SSP5-8.5 (화석연료 의존): 최악의 시나리오
 
-2. **시나리오 간 비교 분석** (5-7문장)
-   - 가장 낙관적 시나리오(SSP1-2.6)와 가장 비관적 시나리오(SSP5-8.5) 간 AAL 차이
-   - 중간 시나리오(SSP2-4.5)가 현실적으로 예상되는 경로임을 강조
-   - 시나리오별 AAL 증가율 비교
+# 모듈 레벨 실행 함수 (워크플로우에서 호출)
+async def run_scenario_analysis(
+    sites_data: List[Dict],
+    risk_scores: Optional[Dict] = None,
+    llm=None
+) -> Dict[str, Any]:
+    """
+    Node 2-A 실행 함수
 
-3. **전략적 시사점** (3-5문장)
-   - 기후변화 대응의 시급성
-   - 시나리오 불확실성에 대비한 적응 전략 필요성
-   - SSP2-4.5를 기준 시나리오로 채택하는 이유
-
-**출력 형식:**
-일반 텍스트 (마크다운 불필요, 문단 구분은 줄바꿈 2개)
-
-**톤 & 스타일:**
-- 객관적이고 전문적인 어조
-- 정량적 데이터 기반 서술
-- TCFD 보고서에 적합한 형식적 문체
-"""
-
-        # LLM 호출
-        response = await self.llm.ainvoke(prompt)
-
-        # 응답 텍스트 추출
-        if hasattr(response, 'content'):
-            return response.content
-        elif isinstance(response, str):
-            return response
-        else:
-            return str(response)
-
-    def _create_scenario_table(self, scenarios: Dict) -> Dict:
-        """
-        시나리오별 AAL 비교 TableBlock 생성
-
-        Returns:
-            TableBlock JSON (schemas.py의 TableBlock 형식)
-        """
-        # 테이블 헤더
-        headers = ["시나리오", "2024", "2030", "2040", "2050", "2100", "증가율"]
-
-        # 시나리오 이름 매핑
-        scenario_names = {
-            "ssp1_2.6": "SSP1-2.6 (지속가능)",
-            "ssp2_4.5": "SSP2-4.5 (중간)",
-            "ssp3_7.0": "SSP3-7.0 (지역경쟁)",
-            "ssp5_8.5": "SSP5-8.5 (화석연료)"
-        }
-
-        # 테이블 행 생성
-        rows = []
-        for scenario_key, scenario_name in scenario_names.items():
-            scenario_data = scenarios.get(scenario_key, {})
-            timeline = scenario_data.get("timeline", [2024, 2030, 2040, 2050, 2100])
-            aal_values = scenario_data.get("aal_values", [0, 0, 0, 0, 0])
-
-            # 증가율 계산 (2024 대비 2100)
-            if len(aal_values) >= 2 and aal_values[0] > 0:
-                growth_rate = ((aal_values[-1] - aal_values[0]) / aal_values[0]) * 100
-                growth_str = f"+{growth_rate:.1f}%" if growth_rate > 0 else f"{growth_rate:.1f}%"
-            else:
-                growth_str = "N/A"
-
-            # 행 데이터 생성
-            row_cells = [scenario_name]
-            for aal in aal_values:
-                row_cells.append(f"{aal:.1f}%")
-            row_cells.append(growth_str)
-
-            rows.append({"cells": row_cells})
-
-        # TableBlock 생성
-        table_block = {
-            "type": "table",
-            "title": "시나리오별 포트폴리오 AAL 추이 비교",
-            "data": {
-                "headers": headers,
-                "rows": rows
-            }
-        }
-
-        return table_block
+    :param sites_data: 사업장 정보 리스트
+    :param risk_scores: ModelOps 리스크 점수
+    :param llm: LLM 클라이언트 (선택)
+    :return: 시나리오 분석 결과
+    """
+    node = ScenarioAnalysisNode(llm=llm)
+    return await node.execute(sites_data, risk_scores)

@@ -1,265 +1,265 @@
 """
-Node 2-B: Impact Analysis
-시나리오 분석 결과 기반 영향 분석
+Node 2-B: Impact Analysis (Physical Risk Report)
+사업장별 취약성 및 회복력 분석
 
-설계 이유:
-- 순차 의존성: Node 2-A의 시나리오 분석 결과를 기반으로 수행
-- Top 5 리스크 집중: 9개 전체 리스크 중 AAL 상위 5개만 상세 분석
-- 3가지 영향 차원: 재무/운영/자산 영향 분리 분석
-- 병렬 처리: Top 5 리스크를 동시 분석 (60초)
-- TextBlock x5 생성: P1~P5 영향 분석 텍스트 블록 JSON 생성
+설계 목적:
+- 물리적 리스크 보고서 전용 (TCFD 전체 제외)
+- BuildingCharacteristicsAgent 결과 통합
+- 취약성 요인 (vulnerabilities) 추출
+- 회복력 요인 (resilience) 추출
+- ❌ 하드코딩 제거: 텍스트 생성은 Node 3에서 처리
+- ❌ TextBlock 제거: Node 3에서 통합 처리
 
-작성일: 2025-12-14 (v2 Refactoring)
+작성일: 2025-12-15 (Physical Risk Report 전용)
+버전: v2.0
 """
 
 import asyncio
-from typing import Dict, Any, List
-from .schemas import TextBlock
+from typing import Dict, Any, List, Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ImpactAnalysisNode:
     """
-    Node 2-B: 영향 분석 노드
-
-    의존성: Node 2-A 완료 필수
+    Node 2-B: 영향 분석 노드 (물리적 리스크 전용)
 
     입력:
-        - sites_data: List[dict]
+        - sites_data: List[dict] (사업장 목록)
         - scenario_analysis: Dict (Node 2-A 출력)
-        - risk_insight: Dict (RiskContextBuilder)
+        - building_characteristics: Dict (BuildingCharacteristicsAgent 결과)
 
     출력:
-        - top_5_risks: List[dict]
-        - impact_analyses: List[dict] (재무/운영/자산 영향)
+        - site_impact_data: Dict[int, Dict] (사업장별 영향 분석 데이터)
+          {
+              site_id: {
+                  "high_risk_factors": [...],  # 취약성 요인
+                  "resilience_factors": [...],  # 회복력 요인
+                  "structural_grade": "A1",
+                  "building_age": 15,
+                  "impact_summary": {
+                      "chronic_vulnerability": "high/medium/low",
+                      "acute_vulnerability": "high/medium/low"
+                  }
+              }
+          }
     """
 
-    def __init__(self, llm):
+    def __init__(self, llm=None):
+        """
+        초기화
+
+        :param llm: LLM 클라이언트 (현재는 사용하지 않음, 추후 확장용)
+        """
         self.llm = llm
+        self.logger = logger
 
     async def execute(
         self,
         sites_data: List[Dict],
         scenario_analysis: Dict,
-        risk_insight: Dict
+        building_characteristics: Optional[Dict] = None
     ) -> Dict[str, Any]:
         """
         메인 실행 함수
-        """
-        # 1. Top 5 리스크 식별
-        top_5_risks = self._identify_top_risks(sites_data)
 
-        # 2. Top 5 리스크별 영향 분석 (병렬)
-        impact_analyses = await self._analyze_impacts_parallel(
-            top_5_risks,
+        :param sites_data: 사업장 정보 리스트
+        :param scenario_analysis: Node 2-A 시나리오 분석 결과
+        :param building_characteristics: BuildingCharacteristicsAgent 결과
+        :return: 사업장별 영향 분석 데이터
+        """
+        self.logger.info(f"Node 2-B 시작: {len(sites_data)}개 사업장 영향 분석")
+
+        # 1. 사업장별 영향 분석 (병렬)
+        site_impact_results = await self._analyze_impacts_parallel(
+            sites_data,
             scenario_analysis,
-            risk_insight
+            building_characteristics
         )
 
-        # 3. TextBlock x5 생성 (P1~P5 영향 분석)
-        impact_blocks = self._create_impact_text_blocks(impact_analyses)
+        self.logger.info(f"Node 2-B 완료: {len(site_impact_results)}개 사업장 처리")
 
         return {
-            "top_5_risks": top_5_risks,
-            "impact_analyses": impact_analyses,
-            "impact_blocks": impact_blocks  # List[TextBlock] x5
+            "site_impact_data": site_impact_results,
+            "status": "completed"
         }
-
-    def _identify_top_risks(self, sites_data: List[Dict]) -> List[Dict]:
-        """
-        Top 5 리스크 식별 (AAL 기준)
-        """
-        risk_aal_map = {}
-
-        for site in sites_data:
-            for risk_result in site.get("risk_results", []):
-                risk_type = risk_result.get("risk_type")
-                aal = risk_result.get("final_aal", 0)
-                risk_aal_map[risk_type] = risk_aal_map.get(risk_type, 0) + aal
-
-        # AAL 기준 내림차순 정렬 → Top 5
-        top_5 = sorted(risk_aal_map.items(), key=lambda x: x[1], reverse=True)[:5]
-
-        return [{"risk_type": r[0], "total_aal": r[1]} for r in top_5]
 
     async def _analyze_impacts_parallel(
         self,
-        top_5_risks: List[Dict],
+        sites_data: List[Dict],
         scenario_analysis: Dict,
-        risk_insight: Dict
-    ) -> List[Dict]:
+        building_characteristics: Optional[Dict]
+    ) -> Dict[int, Dict]:
         """
-        Top 5 리스크 병렬 영향 분석 (60초)
-        """
-        tasks = [
-            self._analyze_single_risk_impact(risk, scenario_analysis, risk_insight)
-            for risk in top_5_risks
-        ]
-        impact_analyses = await asyncio.gather(*tasks)
-        return impact_analyses
+        사업장별 영향 분석 병렬 처리
 
-    async def _analyze_single_risk_impact(
+        :param sites_data: 사업장 정보 리스트
+        :param scenario_analysis: Node 2-A 결과
+        :param building_characteristics: BuildingCharacteristicsAgent 결과
+        :return: 사업장별 영향 분석 데이터
+        """
+        tasks = []
+        site_ids = []
+
+        for site in sites_data:
+            site_id = site["site_id"]
+            site_ids.append(site_id)
+
+            # 해당 사업장의 시나리오 데이터 추출
+            site_scenario_data = scenario_analysis.get("site_scenario_data", {}).get(site_id, {})
+
+            # 해당 사업장의 건물 특성 데이터 추출
+            site_bc_data = building_characteristics.get(str(site_id), {}) if building_characteristics else {}
+
+            task = self._analyze_site_impact(
+                site,
+                site_scenario_data,
+                site_bc_data
+            )
+            tasks.append(task)
+
+        # 병렬 실행
+        results_list = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # 결과를 dict로 변환
+        site_impact_results = {}
+        for site_id, result in zip(site_ids, results_list):
+            if isinstance(result, Exception):
+                self.logger.error(f"사업장 {site_id} 영향 분석 실패: {result}")
+                continue
+
+            site_impact_results[site_id] = result
+
+        return site_impact_results
+
+    async def _analyze_site_impact(
         self,
-        risk: Dict,
-        scenario_analysis: Dict,
-        risk_insight: Dict
+        site: Dict,
+        site_scenario_data: Dict,
+        site_bc_data: Dict
     ) -> Dict:
         """
-        단일 리스크 영향 분석
+        단일 사업장의 영향 분석
+
+        :param site: 사업장 정보
+        :param site_scenario_data: 사업장 시나리오 데이터 (Node 2-A)
+        :param site_bc_data: 사업장 건물 특성 데이터 (BC Agent)
+        :return: 영향 분석 데이터
         """
-        risk_type = risk["risk_type"]
-        total_aal = risk["total_aal"]
+        site_id = site["site_id"]
 
-        # 리스크 한글명 매핑
-        risk_name_mapping = {
-            "river_flood": "하천 범람",
-            "typhoon": "태풍",
-            "urban_flood": "도시 침수",
-            "extreme_heat": "극심한 고온",
-            "sea_level_rise": "해수면 상승",
-            "drought": "가뭄",
-            "landslide": "산사태",
-            "wildfire": "산불",
-            "cold_wave": "한파"
+        # 1. BuildingCharacteristicsAgent 결과에서 취약성/회복력 추출
+        vulnerabilities = site_bc_data.get("vulnerabilities", [])
+        resilience = site_bc_data.get("resilience", [])
+        structural_grade = site_bc_data.get("structural_grade", "Unknown")
+
+        # 건물 연식 추출
+        building_data = site_bc_data.get("building_data", {})
+        physical_specs = building_data.get("physical_specs", {})
+        age_info = physical_specs.get("age", {})
+        building_age = age_info.get("years", 0)
+
+        # 2. 취약성 요인 정리 (high/very_high severity만)
+        high_risk_factors = [
+            {
+                "factor": v["factor"],
+                "severity": v["severity"],
+                "description": v["description"]
+            }
+            for v in vulnerabilities
+            if v.get("severity") in ["high", "very_high"]
+        ]
+
+        # 3. 회복력 요인 정리 (high/very_high strength만)
+        resilience_factors = [
+            {
+                "factor": r["factor"],
+                "strength": r["strength"],
+                "description": r["description"]
+            }
+            for r in resilience
+            if r.get("strength") in ["high", "very_high"]
+        ]
+
+        # 4. 시나리오 데이터 기반 취약성 평가 (SSP5-8.5 worst case 기준)
+        impact_summary = self._calculate_impact_summary(site_scenario_data)
+
+        return {
+            "high_risk_factors": high_risk_factors,
+            "resilience_factors": resilience_factors,
+            "structural_grade": structural_grade,
+            "building_age": building_age,
+            "impact_summary": impact_summary
         }
-        risk_name_kr = risk_name_mapping.get(risk_type, risk_type)
 
-        # 시나리오 분석 요약 (SSP2-4.5 기준)
-        scenarios = scenario_analysis.get("scenarios", {})
-        ssp245 = scenarios.get("ssp2_4.5", {})
-        ssp245_summary = ssp245.get("summary", "시나리오 분석 결과 없음")
+    def _calculate_impact_summary(self, site_scenario_data: Dict) -> Dict:
+        """
+        시나리오 데이터 기반 영향 요약 계산
 
-        # RiskContextBuilder에서 제공하는 인사이트 추출
-        risk_specific_insight = risk_insight.get(risk_type, {})
-        vulnerability_factors = risk_specific_insight.get("vulnerability_factors", "정보 없음")
-        historical_events = risk_specific_insight.get("historical_events", "정보 없음")
+        :param site_scenario_data: 사업장 시나리오 데이터
+        :return: 영향 요약
+        """
+        # SSP5-8.5 worst-case 시나리오 사용
+        worst_case = site_scenario_data.get("SSP5-8.5", {})
 
-        # Top 5에서의 순위 (1~5)
-        priority_index = self.top_5_risks.index(risk) + 1 if hasattr(self, 'top_5_risks') else 1
+        # 만성 리스크 (temperature_change, sea_level_rise)
+        chronic_risks = ["temperature_change", "sea_level_rise"]
+        chronic_aal_2040 = []
 
-        # LLM 프롬프트
-        prompt = f"""당신은 TCFD 보고서 작성 전문가이며, 기후 리스크 영향 분석을 담당하고 있습니다.
+        for risk_type in chronic_risks:
+            if risk_type in worst_case:
+                aal_2040 = worst_case[risk_type].get("2040", 0.0)
+                chronic_aal_2040.append(aal_2040)
 
-**임무:**
-{risk_name_kr} 리스크가 기업에 미치는 영향을 **재무적/운영적/자산** 3개 차원에서 분석하고,
-TCFD Strategy 섹션 "주요 리스크별 영향 분석" 파트에 포함될 서술문을 작성하세요.
+        avg_chronic_aal = sum(chronic_aal_2040) / len(chronic_aal_2040) if chronic_aal_2040 else 0.0
 
-**리스크 정보:**
-- 리스크 유형: {risk_name_kr} ({risk_type})
-- 포트폴리오 총 AAL: {total_aal:.4f} (연평균 손실률)
-- SSP2-4.5 시나리오 분석: {ssp245_summary}
+        # 급성 리스크 (나머지 7개)
+        acute_risks = [
+            "urban_flood", "river_flood", "coastal_flood",
+            "drought", "wildfire", "typhoon", "water_stress"
+        ]
+        acute_aal_2040 = []
 
-**취약성 요인:**
-{vulnerability_factors}
+        for risk_type in acute_risks:
+            if risk_type in worst_case:
+                aal_2040 = worst_case[risk_type].get("2040", 0.0)
+                acute_aal_2040.append(aal_2040)
 
-**과거 사건 사례:**
-{historical_events}
+        avg_acute_aal = sum(acute_aal_2040) / len(acute_aal_2040) if acute_aal_2040 else 0.0
 
-**출력 요구사항:**
-
-1. **재무적 영향** (4-6문장)
-   - AAL 기반 연간 예상 손실액 (백만원/억원 단위로 환산)
-   - 보험료 증가, 자산 가치 하락, 복구 비용 등
-   - 정량적 수치와 함께 서술 (예: "연간 약 X억원의 손실 예상")
-
-2. **운영적 영향** (4-6문장)
-   - 사업 중단 가능성 및 기간 (예: "연 X일의 운영 중단 예상")
-   - 생산성 저하, 공급망 차질, 인력 안전 문제
-   - 고객 서비스 영향, 평판 리스크
-
-3. **자산 영향** (4-6문장)
-   - 건물, 설비, 인프라 손상 가능성
-   - 물리적 피해 유형 (침수, 파손, 노후화 가속 등)
-   - 자산 내용연수 단축, 교체 필요성
-
-**출력 형식:**
-JSON 형식으로 반환
-{{
-  "financial_impact": "재무적 영향 서술문 (4-6문장)",
-  "operational_impact": "운영적 영향 서술문 (4-6문장)",
-  "asset_impact": "자산 영향 서술문 (4-6문장)"
-}}
-
-**톤 & 스타일:**
-- 객관적이고 전문적인 어조
-- 정량적 데이터 우선, 정성적 설명 보완
-- TCFD 보고서에 적합한 형식적 문체
-- 과도한 위협 강조 지양, 사실 기반 서술
-"""
-
-        # LLM 호출
-        response = await self.llm.ainvoke(prompt)
-
-        # 응답 파싱 (JSON 형식 기대)
-        import json
-        try:
-            if hasattr(response, 'content'):
-                response_text = response.content
-            elif isinstance(response, str):
-                response_text = response
+        # 취약성 레벨 계산 (AAL % 기준)
+        def get_vulnerability_level(aal: float) -> str:
+            if aal >= 10:
+                return "high"
+            elif aal >= 3:
+                return "medium"
             else:
-                response_text = str(response)
+                return "low"
 
-            # JSON 파싱 시도
-            result = json.loads(response_text)
-
-            return {
-                "risk_type": risk_type,
-                "financial_impact": result.get("financial_impact", "분석 중"),
-                "operational_impact": result.get("operational_impact", "분석 중"),
-                "asset_impact": result.get("asset_impact", "분석 중")
-            }
-        except json.JSONDecodeError:
-            # JSON 파싱 실패 시 전체 텍스트를 financial_impact에 담기
-            return {
-                "risk_type": risk_type,
-                "financial_impact": response_text,
-                "operational_impact": "분석 중 (JSON 파싱 실패)",
-                "asset_impact": "분석 중 (JSON 파싱 실패)"
-            }
-
-    def _create_impact_text_blocks(self, impact_analyses: List[Dict]) -> List[Dict]:
-        """
-        P1~P5 영향 분석 TextBlock 생성
-
-        Returns:
-            List[TextBlock] x5 (각 리스크별 영향 분석 텍스트 블록)
-        """
-        risk_name_mapping = {
-            "river_flood": "하천 범람",
-            "typhoon": "태풍",
-            "urban_flood": "도시 침수",
-            "extreme_heat": "극심한 고온",
-            "sea_level_rise": "해수면 상승",
-            "drought": "가뭄",
-            "landslide": "산사태",
-            "wildfire": "산불",
-            "cold_wave": "한파"
+        return {
+            "chronic_vulnerability": get_vulnerability_level(avg_chronic_aal),
+            "acute_vulnerability": get_vulnerability_level(avg_acute_aal),
+            "chronic_aal_2040": round(avg_chronic_aal, 2),
+            "acute_aal_2040": round(avg_acute_aal, 2)
         }
 
-        impact_blocks = []
 
-        for i, impact in enumerate(impact_analyses, 1):
-            risk_type = impact.get("risk_type", "Unknown")
-            risk_name_kr = risk_name_mapping.get(risk_type, risk_type)
+# 모듈 레벨 실행 함수 (워크플로우에서 호출)
+async def run_impact_analysis(
+    sites_data: List[Dict],
+    scenario_analysis: Dict,
+    building_characteristics: Optional[Dict] = None,
+    llm=None
+) -> Dict[str, Any]:
+    """
+    Node 2-B 실행 함수
 
-            # 영향 분석 내용 조합
-            content = f"""**재무적 영향**
-{impact.get('financial_impact', '분석 중')}
-
-**운영적 영향**
-{impact.get('operational_impact', '분석 중')}
-
-**자산 영향**
-{impact.get('asset_impact', '분석 중')}
-"""
-
-            # TextBlock 생성
-            text_block = {
-                "type": "text",
-                "subheading": f"P{i}. {risk_name_kr} 영향 분석",
-                "content": content
-            }
-
-            impact_blocks.append(text_block)
-
-        return impact_blocks
+    :param sites_data: 사업장 정보 리스트
+    :param scenario_analysis: Node 2-A 결과
+    :param building_characteristics: BuildingCharacteristicsAgent 결과
+    :param llm: LLM 클라이언트 (선택)
+    :return: 영향 분석 결과
+    """
+    node = ImpactAnalysisNode(llm=llm)
+    return await node.execute(sites_data, scenario_analysis, building_characteristics)

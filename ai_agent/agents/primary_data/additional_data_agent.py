@@ -1,18 +1,19 @@
 '''
 파일명: additional_data_agent.py
 작성일: 2025-12-15
-버전: v02 (TCFD Report v2.1 - Multi-Site Support)
+버전: v03 (TCFD Report v2.1 - Parallel Processing)
 파일 개요: 추가 데이터 (Excel) 분석 에이전트 (보고서 생성용 가이드라인 제공)
 
 역할:
     - 사용자가 업로드한 Excel 파일에서 사업장별 추가 정보 추출
     - 추출된 데이터를 분석하여 보고서 생성 에이전트를 위한 가이드라인 생성
     - ⚠️ 조건부 실행: Excel 파일이 제공된 경우에만 실행
-    - 다중 사업장 배치 처리 지원 (site_ids를 List[int]로 받음)
+    - 다중 사업장 병렬 처리 지원 (asyncio.gather)
 
 변경 이력:
     - 2025-12-14: v01 - 초기 생성 (TCFD Report v2 Refactoring)
     - 2025-12-15: v02 - 다중 사업장 배치 처리 확인, TCFD Report v2.1 대응
+    - 2025-12-15: v03 - 병렬 처리 완료 (asyncio.gather, 전체 async 전환)
 '''
 
 from typing import Dict, Any, List, Optional
@@ -20,6 +21,9 @@ import logging
 from datetime import datetime
 import pandas as pd
 import json
+import asyncio
+import os
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +50,9 @@ class AdditionalDataAgent:
         self.llm_client = llm_client
         self.logger.info("AdditionalDataAgent 초기화 완료")
 
-    def analyze(self, excel_file: str, site_ids: List[int]) -> Dict[str, Any]:
+    async def analyze(self, excel_file: str, site_ids: List[int]) -> Dict[str, Any]:
         """
-        Excel 파일 분석 및 가이드라인 생성
+        Excel 파일 분석 및 가이드라인 생성 (병렬 처리)
 
         :param excel_file: Excel 파일 경로
         :param site_ids: 분석 대상 사업장 ID 리스트
@@ -63,20 +67,34 @@ class AdditionalDataAgent:
             # 2. 사업장 ID와 매칭하여 데이터 추출
             site_data = self._extract_site_data(raw_data, site_ids)
 
-            # 3. 각 사업장별 가이드라인 생성 (LLM 활용)
-            site_specific_guidelines = {}
-            for site_id, data in site_data.items():
-                guideline = self._generate_site_guideline(site_id, data)
-                site_specific_guidelines[site_id] = guideline
+            # 3. 각 사업장별 가이드라인 생성 (병렬 처리)
+            tasks = [
+                self._generate_site_guideline(site_id, data)
+                for site_id, data in site_data.items()
+            ]
+
+            self.logger.info(f"🔄 {len(tasks)}개 사업장 병렬 처리 시작")
+            guidelines_list = await asyncio.gather(*tasks)
+
+            # 결과를 dict로 변환
+            site_specific_guidelines = {
+                site_id: guideline
+                for site_id, guideline in zip(site_data.keys(), guidelines_list)
+            }
+            self.logger.info(f"✅ {len(site_specific_guidelines)}개 사업장 병렬 처리 완료")
 
             # 4. 전체 요약 (Optional)
-            summary = self._generate_summary(site_specific_guidelines)
+            summary = await self._generate_summary(site_specific_guidelines)
+
+            # 5. 엑셀 파일 삭제 (분석 완료 후)
+            self._delete_excel_file(excel_file)
 
             result = {
                 "meta": {
                     "analyzed_at": datetime.now().isoformat(),
                     "source_file": excel_file,
-                    "site_count": len(site_specific_guidelines)
+                    "site_count": len(site_specific_guidelines),
+                    "file_deleted": True
                 },
                 "site_specific_guidelines": site_specific_guidelines,
                 "summary": summary,
@@ -88,11 +106,15 @@ class AdditionalDataAgent:
 
         except Exception as e:
             self.logger.error(f"추가 데이터 분석 실패: {e}")
+            # 실패 시에도 엑셀 파일 삭제 시도
+            self._delete_excel_file(excel_file)
+            
             return {
                 "meta": {
                     "analyzed_at": datetime.now().isoformat(),
                     "source_file": excel_file,
-                    "error": str(e)
+                    "error": str(e),
+                    "file_deleted": True
                 },
                 "site_specific_guidelines": {},
                 "summary": "",
@@ -148,9 +170,9 @@ class AdditionalDataAgent:
 
         return site_data
 
-    def _generate_site_guideline(self, site_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _generate_site_guideline(self, site_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        사업장별 가이드라인 생성 (LLM 활용)
+        사업장별 가이드라인 생성 (LLM 활용 - 비동기)
         """
         if not data:
             return {
@@ -164,7 +186,13 @@ class AdditionalDataAgent:
         if self.llm_client:
             try:
                 prompt = self._build_prompt(site_id, data)
-                response = self.llm_client.invoke(prompt)
+
+                # 비동기 LLM 호출
+                if hasattr(self.llm_client, 'ainvoke'):
+                    response = await self.llm_client.ainvoke(prompt)
+                else:
+                    # Fallback to sync invoke
+                    response = self.llm_client.invoke(prompt)
 
                 # 간단한 파싱 (실제로는 더 정교한 파싱 필요)
                 return {
@@ -253,9 +281,9 @@ class AdditionalDataAgent:
 """
         return prompt
 
-    def _generate_summary(self, site_specific_guidelines: Dict[int, Dict[str, Any]]) -> str:
+    async def _generate_summary(self, site_specific_guidelines: Dict[int, Dict[str, Any]]) -> str:
         """
-        전체 사업장 가이드라인 요약
+        전체 사업장 가이드라인 요약 (비동기)
         """
         if not site_specific_guidelines:
             return "추가 데이터 없음"
@@ -268,3 +296,19 @@ class AdditionalDataAgent:
         summary += f"총 {total_insights}개의 핵심 인사이트가 추출되었습니다.\n"
 
         return summary
+
+    def _delete_excel_file(self, file_path: str) -> None:
+        """
+        Excel 파일 삭제 (분석 완료 후 정리)
+        
+        :param file_path: 삭제할 Excel 파일 경로
+        """
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                self.logger.info(f"✅ Excel 파일 삭제 완료: {file_path}")
+            else:
+                self.logger.warning(f"⚠️ Excel 파일이 존재하지 않음: {file_path}")
+        except Exception as e:
+            self.logger.error(f"❌ Excel 파일 삭제 실패: {file_path}, 오류: {e}")
+            # 삭제 실패는 치명적이지 않으므로 예외를 다시 발생시키지 않음

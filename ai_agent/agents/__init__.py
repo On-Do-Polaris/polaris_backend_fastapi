@@ -12,7 +12,7 @@ Phase 2 구조 (v08 - Phase 1 Agents ModelOps 이관)
 """
 # Primary Data Agents (구 data_processing)
 from .primary_data import (
-    DataCollectionAgent,
+    # DataCollectionAgent 삭제 (Node 0에서 DB 직접 조회)
     # VulnerabilityAnalysisAgent 삭제 (ModelOps가 V 계산)
     BuildingCharacteristicsAgent,
     AdditionalDataAgent
@@ -36,8 +36,7 @@ from .report_generation import (
 
 
 __all__ = [
-    # Primary Data (3개)
-    'DataCollectionAgent',
+    # Primary Data (2개)
     'BuildingCharacteristicsAgent',
     'AdditionalDataAgent',
     # Report Generation (7개)

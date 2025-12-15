@@ -1,277 +1,318 @@
 """
-Node 2-C: Mitigation Strategies
-영향 분석 기반 단기/중기/장기 대응 방안 생성
+Node 2-C: Adaptation Recommendations (Physical Risk Report)
+사업장별 적응 권고사항 분류
 
-설계 이유:
-- 순차 의존성: Node 2-B의 영향 분석 결과에 따라 우선순위 결정
-- 3단계 시간축: 단기(1-2년)/중기(3-5년)/장기(5년 이상)
-- P1~P5 구조: SK ESG 2025 보고서 스타일 준수
-- 병렬 처리: Top 5 리스크별 대응 방안 동시 생성 (60초)
-- TextBlock x5 생성: P1~P5 대응 전략 텍스트 블록 JSON 생성
+설계 목적:
+- 물리적 리스크 보고서 전용 (TCFD 전체 제외)
+- 리스크 레벨 기반 적응 권고사항 분류
+- 단기/중기/장기 우선순위 카테고리 제공
+- ❌ 하드코딩 제거: 텍스트 생성은 Node 3에서 처리
+- ❌ TextBlock 제거: Node 3에서 통합 처리
 
-작성일: 2025-12-14 (v2 Refactoring)
+작성일: 2025-12-15 (Physical Risk Report 전용)
+버전: v2.0
 """
 
 import asyncio
-from typing import Dict, Any, List
-from .schemas import TextBlock
+from typing import Dict, Any, List, Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 
-class MitigationStrategiesNode:
+class AdaptationRecommendationsNode:
     """
-    Node 2-C: 대응 방안 생성 노드
-
-    의존성: Node 2-B 완료 필수
+    Node 2-C: 적응 권고사항 노드 (물리적 리스크 전용)
 
     입력:
-        - impact_analyses: List[dict] (Node 2-B 출력)
-        - risk_insight: Dict (RiskContextBuilder)
+        - sites_data: List[dict] (사업장 목록)
+        - scenario_analysis: Dict (Node 2-A 출력)
+        - impact_analysis: Dict (Node 2-B 출력)
 
     출력:
-        - mitigation_strategies: List[dict] (단기/중기/장기 대응)
+        - site_adaptation_data: Dict[int, Dict] (사업장별 적응 권고사항)
+          {
+              site_id: {
+                  "priority_level": "high/medium/low",
+                  "recommended_actions": {
+                      "immediate": [...],  # 즉시 조치 필요
+                      "short_term": [...],  # 1-3년
+                      "long_term": [...]   # 3년 이상
+                  },
+                  "focus_areas": [...]  # 집중 대응 필요 리스크 타입
+              }
+          }
     """
 
-    def __init__(self, llm):
+    def __init__(self, llm=None):
+        """
+        초기화
+
+        :param llm: LLM 클라이언트 (현재는 사용하지 않음, 추후 확장용)
+        """
         self.llm = llm
+        self.logger = logger
 
     async def execute(
         self,
-        impact_analyses: List[Dict],
-        risk_insight: Dict
+        sites_data: List[Dict],
+        scenario_analysis: Dict,
+        impact_analysis: Dict
     ) -> Dict[str, Any]:
         """
         메인 실행 함수
+
+        :param sites_data: 사업장 정보 리스트
+        :param scenario_analysis: Node 2-A 시나리오 분석 결과
+        :param impact_analysis: Node 2-B 영향 분석 결과
+        :return: 사업장별 적응 권고사항
         """
-        # 1. Top 5 리스크별 대응 방안 생성 (병렬)
-        mitigation_strategies = await self._generate_strategies_parallel(
-            impact_analyses,
-            risk_insight
+        self.logger.info(f"Node 2-C 시작: {len(sites_data)}개 사업장 적응 권고사항 분류")
+
+        # 1. 사업장별 적응 권고사항 (병렬)
+        site_adaptation_results = await self._classify_adaptations_parallel(
+            sites_data,
+            scenario_analysis,
+            impact_analysis
         )
 
-        # 2. TextBlock x5 생성 (P1~P5 대응 전략)
-        mitigation_blocks = self._create_mitigation_text_blocks(mitigation_strategies)
+        self.logger.info(f"Node 2-C 완료: {len(site_adaptation_results)}개 사업장 처리")
 
         return {
-            "mitigation_strategies": mitigation_strategies,
-            "mitigation_blocks": mitigation_blocks  # List[TextBlock] x5
+            "site_adaptation_data": site_adaptation_results,
+            "status": "completed"
         }
 
-    async def _generate_strategies_parallel(
+    async def _classify_adaptations_parallel(
         self,
-        impact_analyses: List[Dict],
-        risk_insight: Dict
-    ) -> List[Dict]:
+        sites_data: List[Dict],
+        scenario_analysis: Dict,
+        impact_analysis: Dict
+    ) -> Dict[int, Dict]:
         """
-        Top 5 리스크 병렬 대응 방안 생성 (60초)
-        """
-        tasks = [
-            self._generate_single_risk_strategy(impact, risk_insight)
-            for impact in impact_analyses
-        ]
-        strategies = await asyncio.gather(*tasks)
-        return strategies
+        사업장별 적응 권고사항 병렬 분류
 
-    async def _generate_single_risk_strategy(
+        :param sites_data: 사업장 정보 리스트
+        :param scenario_analysis: Node 2-A 결과
+        :param impact_analysis: Node 2-B 결과
+        :return: 사업장별 적응 권고사항
+        """
+        tasks = []
+        site_ids = []
+
+        for site in sites_data:
+            site_id = site["site_id"]
+            site_ids.append(site_id)
+
+            # 해당 사업장의 시나리오 데이터 추출
+            site_scenario_data = scenario_analysis.get("site_scenario_data", {}).get(site_id, {})
+
+            # 해당 사업장의 영향 분석 데이터 추출
+            site_impact_data = impact_analysis.get("site_impact_data", {}).get(site_id, {})
+
+            task = self._classify_site_adaptation(
+                site,
+                site_scenario_data,
+                site_impact_data
+            )
+            tasks.append(task)
+
+        # 병렬 실행
+        results_list = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # 결과를 dict로 변환
+        site_adaptation_results = {}
+        for site_id, result in zip(site_ids, results_list):
+            if isinstance(result, Exception):
+                self.logger.error(f"사업장 {site_id} 적응 권고사항 분류 실패: {result}")
+                continue
+
+            site_adaptation_results[site_id] = result
+
+        return site_adaptation_results
+
+    async def _classify_site_adaptation(
         self,
-        impact: Dict,
-        risk_insight: Dict
+        site: Dict,
+        site_scenario_data: Dict,
+        site_impact_data: Dict
     ) -> Dict:
         """
-        단일 리스크 대응 방안 생성
+        단일 사업장의 적응 권고사항 분류
+
+        :param site: 사업장 정보
+        :param site_scenario_data: 사업장 시나리오 데이터 (Node 2-A)
+        :param site_impact_data: 사업장 영향 분석 데이터 (Node 2-B)
+        :return: 적응 권고사항 데이터
         """
-        risk_type = impact["risk_type"]
+        site_id = site["site_id"]
 
-        # 리스크 한글명 매핑
-        risk_name_mapping = {
-            "river_flood": "하천 범람",
-            "typhoon": "태풍",
-            "urban_flood": "도시 침수",
-            "extreme_heat": "극심한 고온",
-            "sea_level_rise": "해수면 상승",
-            "drought": "가뭄",
-            "landslide": "산사태",
-            "wildfire": "산불",
-            "cold_wave": "한파"
-        }
-        risk_name_kr = risk_name_mapping.get(risk_type, risk_type)
+        # 1. 우선순위 레벨 결정 (impact_summary 기반)
+        impact_summary = site_impact_data.get("impact_summary", {})
+        chronic_vuln = impact_summary.get("chronic_vulnerability", "low")
+        acute_vuln = impact_summary.get("acute_vulnerability", "low")
 
-        # 영향 분석 결과 요약
-        financial_impact = impact.get("financial_impact", "정보 없음")
-        operational_impact = impact.get("operational_impact", "정보 없음")
-        asset_impact = impact.get("asset_impact", "정보 없음")
+        priority_level = self._determine_priority_level(chronic_vuln, acute_vuln)
 
-        # RiskContextBuilder에서 제공하는 인사이트 추출
-        risk_specific_insight = risk_insight.get(risk_type, {})
-        best_practices = risk_specific_insight.get("best_practices", "정보 없음")
-        adaptation_options = risk_specific_insight.get("adaptation_options", "정보 없음")
+        # 2. 집중 대응 필요 리스크 타입 식별 (AAL > 6% 기준)
+        focus_areas = self._identify_focus_areas(site_scenario_data)
 
-        # LLM 프롬프트
-        prompt = f"""당신은 TCFD 보고서 작성 전문가이며, 기후 리스크 대응 전략 수립을 담당하고 있습니다.
+        # 3. 권고 조치 카테고리 분류
+        recommended_actions = self._categorize_actions(
+            priority_level,
+            focus_areas,
+            site_impact_data
+        )
 
-**임무:**
-{risk_name_kr} 리스크에 대한 **단기/중기/장기** 대응 전략을 수립하고,
-TCFD Strategy 섹션 "주요 리스크별 대응 방안" 파트에 포함될 서술문을 작성하세요.
-
-**리스크 정보:**
-- 리스크 유형: {risk_name_kr} ({risk_type})
-
-**영향 분석 결과:**
-1. **재무적 영향**: {financial_impact[:200]}...
-2. **운영적 영향**: {operational_impact[:200]}...
-3. **자산 영향**: {asset_impact[:200]}...
-
-**산업 모범 사례:**
-{best_practices}
-
-**적응 옵션:**
-{adaptation_options}
-
-**출력 요구사항:**
-
-1. **단기 조치 (1-2년)** - 3-4개 항목
-   - 즉각 실행 가능한 조치 (비상 대응 체계, 모니터링 강화 등)
-   - 예산 부담이 적고 신속히 효과를 볼 수 있는 조치
-   - 각 항목은 1-2문장으로 구체적으로 작성
-
-2. **중기 조치 (3-5년)** - 2-3개 항목
-   - 시설 개선, 인프라 강화, 시스템 구축 등
-   - 투자 및 기획이 필요한 조치
-   - 각 항목은 1-2문장으로 구체적으로 작성
-
-3. **장기 조치 (5년 이상)** - 2-3개 항목
-   - 근본적 체질 개선, 사업장 이전, 대규모 투자 등
-   - 전략적 의사결정이 필요한 조치
-   - 각 항목은 1-2문장으로 구체적으로 작성
-
-4. **우선순위** - "높음", "중간", "낮음" 중 선택
-   - 영향 분석 결과의 심각도 기반 판단
-
-5. **예상 비용** - 범위로 제시 (예: "5-10억원", "10-30억원", "30억원 이상")
-   - 단기/중기/장기 조치 총합 비용
-
-**출력 형식:**
-JSON 형식으로 반환
-{{
-  "short_term": [
-    "단기 조치 1 (1-2문장)",
-    "단기 조치 2 (1-2문장)",
-    "단기 조치 3 (1-2문장)"
-  ],
-  "mid_term": [
-    "중기 조치 1 (1-2문장)",
-    "중기 조치 2 (1-2문장)"
-  ],
-  "long_term": [
-    "장기 조치 1 (1-2문장)",
-    "장기 조치 2 (1-2문장)"
-  ],
-  "priority": "높음/중간/낮음",
-  "estimated_cost": "X-Y억원"
-}}
-
-**톤 & 스타일:**
-- 실행 가능하고 구체적인 조치 제시
-- 업종 특성을 고려한 현실적인 대응 방안
-- TCFD 보고서에 적합한 전문적 어조
-- 과도한 기술 용어 지양, 명확한 액션 아이템 제시
-"""
-
-        # LLM 호출
-        response = await self.llm.ainvoke(prompt)
-
-        # 응답 파싱 (JSON 형식 기대)
-        import json
-        try:
-            if hasattr(response, 'content'):
-                response_text = response.content
-            elif isinstance(response, str):
-                response_text = response
-            else:
-                response_text = str(response)
-
-            # JSON 파싱 시도
-            result = json.loads(response_text)
-
-            return {
-                "risk_type": risk_type,
-                "short_term": result.get("short_term", ["검토 중"]),
-                "mid_term": result.get("mid_term", ["검토 중"]),
-                "long_term": result.get("long_term", ["검토 중"]),
-                "priority": result.get("priority", "중간"),
-                "estimated_cost": result.get("estimated_cost", "산정 중")
-            }
-        except json.JSONDecodeError:
-            # JSON 파싱 실패 시 기본값 반환
-            return {
-                "risk_type": risk_type,
-                "short_term": [response_text[:500]],
-                "mid_term": ["JSON 파싱 실패"],
-                "long_term": ["JSON 파싱 실패"],
-                "priority": "중간",
-                "estimated_cost": "산정 중"
-            }
-
-    def _create_mitigation_text_blocks(self, mitigation_strategies: List[Dict]) -> List[Dict]:
-        """
-        P1~P5 대응 전략 TextBlock 생성
-
-        Returns:
-            List[TextBlock] x5 (각 리스크별 대응 전략 텍스트 블록)
-        """
-        risk_name_mapping = {
-            "river_flood": "하천 범람",
-            "typhoon": "태풍",
-            "urban_flood": "도시 침수",
-            "extreme_heat": "극심한 고온",
-            "sea_level_rise": "해수면 상승",
-            "drought": "가뭄",
-            "landslide": "산사태",
-            "wildfire": "산불",
-            "cold_wave": "한파"
+        return {
+            "priority_level": priority_level,
+            "recommended_actions": recommended_actions,
+            "focus_areas": focus_areas
         }
 
-        mitigation_blocks = []
+    def _determine_priority_level(self, chronic_vuln: str, acute_vuln: str) -> str:
+        """
+        우선순위 레벨 결정
 
-        for i, strategy in enumerate(mitigation_strategies, 1):
-            risk_type = strategy.get("risk_type", "Unknown")
-            risk_name_kr = risk_name_mapping.get(risk_type, risk_type)
+        :param chronic_vuln: 만성 리스크 취약성 (high/medium/low)
+        :param acute_vuln: 급성 리스크 취약성 (high/medium/low)
+        :return: 우선순위 레벨 (high/medium/low)
+        """
+        vuln_score = 0
 
-            # 단기 조치 포맷팅
-            short_term = strategy.get("short_term", [])
-            short_term_str = "\n".join([f"- {item}" for item in short_term]) if short_term else "- 검토 중"
+        if chronic_vuln == "high":
+            vuln_score += 2
+        elif chronic_vuln == "medium":
+            vuln_score += 1
 
-            # 중기 조치 포맷팅
-            mid_term = strategy.get("mid_term", [])
-            mid_term_str = "\n".join([f"- {item}" for item in mid_term]) if mid_term else "- 검토 중"
+        if acute_vuln == "high":
+            vuln_score += 2
+        elif acute_vuln == "medium":
+            vuln_score += 1
 
-            # 장기 조치 포맷팅
-            long_term = strategy.get("long_term", [])
-            long_term_str = "\n".join([f"- {item}" for item in long_term]) if long_term else "- 검토 중"
+        if vuln_score >= 3:
+            return "high"
+        elif vuln_score >= 1:
+            return "medium"
+        else:
+            return "low"
 
-            # 우선순위 및 예상 비용
-            priority = strategy.get("priority", "중간")
-            estimated_cost = strategy.get("estimated_cost", "산정 중")
+    def _identify_focus_areas(self, site_scenario_data: Dict) -> List[str]:
+        """
+        집중 대응 필요 리스크 타입 식별
 
-            # 대응 전략 내용 조합
-            content = f"""**우선순위**: {priority} | **예상 비용**: {estimated_cost}
+        :param site_scenario_data: 사업장 시나리오 데이터
+        :return: 리스크 타입 리스트
+        """
+        focus_areas = []
 
-**단기 조치 (1-2년)**
-{short_term_str}
+        # SSP5-8.5 worst-case 시나리오 기준
+        worst_case = site_scenario_data.get("SSP5-8.5", {})
 
-**중기 조치 (3-5년)**
-{mid_term_str}
+        for risk_type, time_data in worst_case.items():
+            # 2040년 AAL 기준
+            aal_2040 = time_data.get("2040", 0.0)
 
-**장기 조치 (5년 이상)**
-{long_term_str}
-"""
+            # AAL > 6% (medium 이상) 리스크만 포함
+            if aal_2040 > 6.0:
+                focus_areas.append(risk_type)
 
-            # TextBlock 생성
-            text_block = {
-                "type": "text",
-                "subheading": f"P{i}. {risk_name_kr} 대응 전략",
-                "content": content
-            }
+        return sorted(focus_areas)
 
-            mitigation_blocks.append(text_block)
+    def _categorize_actions(
+        self,
+        priority_level: str,
+        focus_areas: List[str],
+        site_impact_data: Dict
+    ) -> Dict[str, List[str]]:
+        """
+        권고 조치 카테고리 분류
 
-        return mitigation_blocks
+        :param priority_level: 우선순위 레벨
+        :param focus_areas: 집중 대응 필요 리스크 타입
+        :param site_impact_data: 사업장 영향 분석 데이터
+        :return: 카테고리별 권고 조치
+        """
+        recommended_actions = {
+            "immediate": [],
+            "short_term": [],
+            "long_term": []
+        }
+
+        # 우선순위에 따른 기본 권고사항
+        if priority_level == "high":
+            recommended_actions["immediate"] = [
+                "emergency_response_plan",
+                "risk_monitoring_system",
+                "insurance_review"
+            ]
+            recommended_actions["short_term"] = [
+                "infrastructure_hardening",
+                "backup_systems",
+                "staff_training"
+            ]
+            recommended_actions["long_term"] = [
+                "facility_relocation_study",
+                "climate_resilient_design",
+                "comprehensive_adaptation_strategy"
+            ]
+
+        elif priority_level == "medium":
+            recommended_actions["immediate"] = [
+                "risk_assessment_update",
+                "insurance_coverage_check"
+            ]
+            recommended_actions["short_term"] = [
+                "selective_infrastructure_upgrade",
+                "monitoring_enhancement"
+            ]
+            recommended_actions["long_term"] = [
+                "strategic_planning",
+                "technology_adoption"
+            ]
+
+        else:  # low
+            recommended_actions["immediate"] = [
+                "routine_monitoring"
+            ]
+            recommended_actions["short_term"] = [
+                "preventive_maintenance"
+            ]
+            recommended_actions["long_term"] = [
+                "periodic_reassessment"
+            ]
+
+        # 집중 대응 영역에 따른 추가 권고사항
+        if "coastal_flood" in focus_areas or "river_flood" in focus_areas or "urban_flood" in focus_areas:
+            if "flood_barriers" not in recommended_actions["short_term"]:
+                recommended_actions["short_term"].append("flood_barriers")
+
+        if "temperature_change" in focus_areas:
+            if "cooling_system_upgrade" not in recommended_actions["short_term"]:
+                recommended_actions["short_term"].append("cooling_system_upgrade")
+
+        if "typhoon" in focus_areas or "wildfire" in focus_areas:
+            if "structural_reinforcement" not in recommended_actions["short_term"]:
+                recommended_actions["short_term"].append("structural_reinforcement")
+
+        return recommended_actions
+
+
+# 모듈 레벨 실행 함수 (워크플로우에서 호출)
+async def run_adaptation_recommendations(
+    sites_data: List[Dict],
+    scenario_analysis: Dict,
+    impact_analysis: Dict,
+    llm=None
+) -> Dict[str, Any]:
+    """
+    Node 2-C 실행 함수
+
+    :param sites_data: 사업장 정보 리스트
+    :param scenario_analysis: Node 2-A 결과
+    :param impact_analysis: Node 2-B 결과
+    :param llm: LLM 클라이언트 (선택)
+    :return: 적응 권고사항 결과
+    """
+    node = AdaptationRecommendationsNode(llm=llm)
+    return await node.execute(sites_data, scenario_analysis, impact_analysis)

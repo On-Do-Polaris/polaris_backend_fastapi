@@ -3,7 +3,7 @@ TCFD Report State 정의
 LangGraph State TypedDict
 
 작성일: 2025-12-15
-버전: v02
+버전: v03 (Physical Risk Report 통합)
 
 State 구조:
     - site_data: 사이트 기본 정보 (Application DB)
@@ -11,9 +11,11 @@ State 구조:
     - building_data: BC Agent 결과 (별도 필드)
     - additional_data: AD Agent 결과 (별도 필드)
     - use_additional_data: Excel 데이터 사용 여부 플래그 (default=False)
+    - sites_risk_assessment: 물리적 리스크 평가 (Physical Risk Report용)
+    - risk_table_status: 리스크 표 생성 상태
 """
 
-from typing import TypedDict, List, Dict, Any, Annotated
+from typing import TypedDict, List, Dict, Any, Optional, Annotated
 
 
 def default_false(current: bool | None, new: bool | None) -> bool:
@@ -120,6 +122,33 @@ class TCFDReportState(TypedDict):
             }
 
         use_additional_data: Excel 추가 데이터 사용 여부 (default=False)
+
+        sites_risk_assessment: 물리적 리스크 평가 (Physical Risk Report용)
+            [
+                {
+                    "site_id": int,
+                    "site_name": str,
+                    "site_type": str,
+                    "address": str,
+                    "location": {"latitude": float, "longitude": float},
+                    "risk_table": {
+                        "SSP1-2.6": {
+                            "chronic_risks": {...},
+                            "acute_risks": {...}
+                        },
+                        "SSP2-4.5": {...},
+                        "SSP3-7.0": {...},
+                        "SSP5-8.5": {...}
+                    },
+                    "vulnerability_summary": {
+                        "high_risk_factors": [...],
+                        "resilience_factors": [...]
+                    }
+                },
+                ...
+            ]
+
+        risk_table_status: 리스크 표 생성 상태 (pending/completed/failed)
     """
 
     # 사이트 기본 정보 (Application DB)
@@ -138,3 +167,7 @@ class TCFDReportState(TypedDict):
 
     # Excel 추가 데이터 사용 여부 플래그 (default=False)
     use_additional_data: Annotated[bool, default_false]
+
+    # ========== Physical Risk Report 전용 필드 (v03) ==========
+    sites_risk_assessment: Optional[List[Dict[str, Any]]]  # 사업장별 리스크 평가 및 표
+    risk_table_status: str  # 리스크 표 생성 상태 (pending/completed/failed)

@@ -1,14 +1,14 @@
 '''
 파일명: building_characteristics_agent.py
 작성일: 2025-12-15
-버전: v05 (TCFD Report v2.1 - Multi-Site Support)
+버전: v06 (TCFD Report v2.1 - Parallel Processing)
 파일 개요: 건축물 대장 기반 물리적 취약성 정밀 분석 에이전트 (보고서 생성용 가이드라인 제공)
 
 역할:
     - BuildingDataFetcher를 통해 실시간 건축물 정보 및 지리 정보 수집
     - 데이터 기반의 물리적 취약성(Vulnerability) 및 회복력(Resilience) 요인 도출
     - LLM을 활용한 **보고서 생성 에이전트를 위한 가이드라인** 생성 (보고서 콘텐츠 직접 생성 X)
-    - 다중 사업장 배치 처리 지원 (analyze_batch 메서드)
+    - 다중 사업장 병렬 처리 지원 (asyncio.gather)
 
 변경 이력:
     - 2025-12-08: v01 - 초기 생성 (vulnerability_analysis_agent.py)
@@ -16,12 +16,14 @@
     - 2025-12-08: v03 - 층별 용도 텍스트 LLM 해석 지시 추가
     - 2025-12-14: v04 - building_characteristics_agent.py로 이동, 프롬프트를 가이드라인 생성용으로 수정
     - 2025-12-15: v05 - 다중 사업장 배치 처리 지원 (analyze_batch), TCFD Report v2.1 대응
+    - 2025-12-15: v06 - 병렬 처리 완료 (asyncio.gather, 전체 async 전환)
 '''
 
 from typing import Dict, Any, List, Optional
 import logging
 from datetime import datetime
 import json # for pretty printing data to LLM
+import asyncio
 
 # BuildingDataFetcher 임포트
 try:
@@ -58,9 +60,9 @@ class BuildingCharacteristicsAgent:
         else:
             self.fetcher = None
 
-    def analyze_batch(self, sites_data: List[Dict[str, Any]]) -> Dict[int, Dict[str, Any]]:
+    async def analyze_batch(self, sites_data: List[Dict[str, Any]]) -> Dict[int, Dict[str, Any]]:
         """
-        다중 사업장 배치 분석 수행 (TCFD Report v2.1)
+        다중 사업장 배치 분석 수행 (TCFD Report v2.1) - 병렬 처리
 
         :param sites_data: 사업장 정보 리스트
             각 Dict 구조: {
@@ -81,9 +83,11 @@ class BuildingCharacteristicsAgent:
                 ...
             }
         """
-        self.logger.info(f"다중 사업장 건물 특성 분석 시작: {len(sites_data)}개 사업장")
+        self.logger.info(f"🔄 다중 사업장 건물 특성 분석 시작: {len(sites_data)}개 사업장 (병렬 처리)")
 
-        results = {}
+        # 병렬 처리를 위한 태스크 생성
+        tasks = []
+        site_ids = []
 
         for site_data in sites_data:
             site_id = site_data.get("site_id")
@@ -96,20 +100,25 @@ class BuildingCharacteristicsAgent:
             # risk_results를 risk_scores 형식으로 변환 (Optional)
             risk_scores = self._convert_risk_results_to_scores(site_data.get("risk_results", []))
 
-            try:
-                # 단일 사업장 분석 실행
-                analysis_result = self._analyze_single_site(lat, lon, address, risk_scores)
-                results[site_id] = analysis_result
+            # 각 사업장별로 async 태스크 생성
+            task = self._analyze_single_site_async(site_id, lat, lon, address, risk_scores)
+            tasks.append(task)
+            site_ids.append(site_id)
 
-                self.logger.info(f"  - 사업장 {site_id} 분석 완료: {analysis_result.get('structural_grade', 'Unknown')}")
+        # 병렬 실행
+        self.logger.info(f"⚡ {len(tasks)}개 사업장 병렬 분석 시작...")
+        results_list = await asyncio.gather(*tasks, return_exceptions=True)
 
-            except Exception as e:
-                self.logger.error(f"  - 사업장 {site_id} 분석 실패: {e}")
+        # 결과를 dict로 변환
+        results = {}
+        for site_id, result in zip(site_ids, results_list):
+            if isinstance(result, Exception):
+                self.logger.error(f"  - 사업장 {site_id} 분석 실패: {result}")
                 results[site_id] = {
                     "meta": {
                         "analyzed_at": datetime.now().isoformat(),
-                        "location": {"lat": lat, "lon": lon},
-                        "error": str(e)
+                        "location": {},
+                        "error": str(result)
                     },
                     "building_data": {},
                     "structural_grade": "Unknown",
@@ -117,9 +126,47 @@ class BuildingCharacteristicsAgent:
                     "resilience": [],
                     "agent_guidelines": "분석 실패로 가이드라인을 생성할 수 없습니다."
                 }
+            else:
+                results[site_id] = result
+                self.logger.info(f"  ✓ 사업장 {site_id} 분석 완료: {result.get('structural_grade', 'Unknown')}")
 
-        self.logger.info(f"다중 사업장 건물 특성 분석 완료: {len(results)}개 사업장")
+        self.logger.info(f"✅ 다중 사업장 건물 특성 분석 완료: {len(results)}개 사업장")
         return results
+
+    async def _analyze_single_site_async(
+        self,
+        site_id: int,
+        lat: float,
+        lon: float,
+        address: str = None,
+        risk_scores: Dict[str, Any] = None
+    ) -> Dict[str, Any]:
+        """
+        단일 사업장 비동기 분석 (병렬 처리용)
+
+        :param site_id: 사업장 ID
+        :param lat: 위도
+        :param lon: 경도
+        :param address: 주소
+        :param risk_scores: 리스크 점수
+        :return: 분석 결과
+        """
+        try:
+            return await self._analyze_single_site(lat, lon, address, risk_scores)
+        except Exception as e:
+            self.logger.error(f"사업장 {site_id} 분석 중 오류: {e}")
+            return {
+                "meta": {
+                    "analyzed_at": datetime.now().isoformat(),
+                    "location": {"lat": lat, "lon": lon},
+                    "error": str(e)
+                },
+                "building_data": {},
+                "structural_grade": "Unknown",
+                "vulnerabilities": [],
+                "resilience": [],
+                "agent_guidelines": "분석 실패로 가이드라인을 생성할 수 없습니다."
+            }
 
     def _convert_risk_results_to_scores(self, risk_results: List[Dict]) -> Dict[str, Any]:
         """
@@ -147,17 +194,17 @@ class BuildingCharacteristicsAgent:
                 }
         return risk_scores
 
-    def analyze(self, lat: float, lon: float, address: str = None, risk_scores: Dict[str, Any] = None) -> Dict[str, Any]:
+    async def analyze(self, lat: float, lon: float, address: str = None, risk_scores: Dict[str, Any] = None) -> Dict[str, Any]:
         """
-        단일 사업장 분석 (하위 호환성 유지)
+        단일 사업장 분석 (하위 호환성 유지) - 비동기
 
         ⚠️ 새로운 코드에서는 analyze_batch() 사용을 권장합니다.
         """
-        return self._analyze_single_site(lat, lon, address, risk_scores)
+        return await self._analyze_single_site(lat, lon, address, risk_scores)
 
-    def _analyze_single_site(self, lat: float, lon: float, address: str = None, risk_scores: Dict[str, Any] = None) -> Dict[str, Any]:
+    async def _analyze_single_site(self, lat: float, lon: float, address: str = None, risk_scores: Dict[str, Any] = None) -> Dict[str, Any]:
         """
-        위치 기반 건물 특성 분석 수행
+        위치 기반 건물 특성 분석 수행 (비동기)
 
         :param lat: 위도
         :param lon: 경도
@@ -177,8 +224,8 @@ class BuildingCharacteristicsAgent:
         # 3. 구조적 등급 평가
         structural_grade = self._evaluate_structural_grade(building_data)
 
-        # 4. LLM 가이드라인 생성 (보고서 에이전트용)
-        guidelines = self._generate_llm_guidelines(
+        # 4. LLM 가이드라인 생성 (보고서 에이전트용) - 비동기
+        guidelines = await self._generate_llm_guidelines(
             building_data,
             vulnerabilities,
             resilience,
@@ -430,7 +477,7 @@ class BuildingCharacteristicsAgent:
         else:
             return "E (Very Poor)"
 
-    def _generate_llm_guidelines(
+    async def _generate_llm_guidelines(
         self,
         data: Dict[str, Any],
         vulnerabilities: List[Dict],
@@ -438,13 +485,20 @@ class BuildingCharacteristicsAgent:
         grade: str,
         risk_scores: Dict = None
     ) -> str:
-        """LLM을 활용한 보고서 생성 가이드라인 생성"""
+        """LLM을 활용한 보고서 생성 가이드라인 생성 (비동기)"""
 
         # LLM 사용
         if self.llm_client:
             try:
                 prompt = self._build_prompt(data, vulnerabilities, resilience, grade, risk_scores)
-                response = self.llm_client.invoke(prompt)
+
+                # 비동기 LLM 호출
+                if hasattr(self.llm_client, 'ainvoke'):
+                    response = await self.llm_client.ainvoke(prompt)
+                else:
+                    # Fallback to sync invoke
+                    response = self.llm_client.invoke(prompt)
+
                 return response
             except Exception as e:
                 self.logger.error(f"LLM 가이드라인 생성 실패: {e}")

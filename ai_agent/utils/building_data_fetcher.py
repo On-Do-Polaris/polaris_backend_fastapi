@@ -16,7 +16,7 @@ from geopy.distance import geodesic
 import logging
 import urllib.parse
 import json
-from datetime import datetime # 추가됨
+from datetime import datetime  # 추가됨
 
 # 통계 기반 Fallback 상수 import
 from ..common.fallback_constants import (
@@ -49,21 +49,26 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+
 class BuildingDataFetcher:
     """건축물 정보 자동 조회 클래스 (TCFD Enhanced)"""
 
     def __init__(self):
         self.logger = logger
         self.building_api_key: Optional[str] = os.getenv("PUBLICDATA_API_KEY")
-        self.vworld_api_key: Optional[str] = os.getenv("VWORLD_API_KEY") # V-World API 키 다시 추가
-        self.road_search_api_key: Optional[str] = os.getenv("ROADSEARCH_API_KEY") # juso.go.kr 도로명주소 검색 API 키
-        self.coord_search_api_key: Optional[str] = os.getenv("COORDINATESEARCH_API_KEY") # juso.go.kr 주소 좌표 변환 API 키
+        self.vworld_api_key: Optional[str] = os.getenv(
+            "VWORLD_API_KEY")  # V-World API 키 다시 추가
+        self.road_search_api_key: Optional[str] = os.getenv(
+            "ROADSEARCH_API_KEY")  # juso.go.kr 도로명주소 검색 API 키
+        self.coord_search_api_key: Optional[str] = os.getenv(
+            "COORDINATESEARCH_API_KEY")  # juso.go.kr 주소 좌표 변환 API 키
         self.building_base_url: str = "https://apis.data.go.kr/1613000/BldRgstHubService"
 
         # 하천 차수 추출기 초기화
         if STREAM_ORDER_AVAILABLE:
             try:
-                self.stream_extractor: Optional[StreamOrderExtractor] = StreamOrderExtractor()
+                self.stream_extractor: Optional[StreamOrderExtractor] = StreamOrderExtractor(
+                )
             except Exception as e:
                 self.logger.warning(f"StreamOrderExtractor 초기화 실패: {e}")
         else:
@@ -72,36 +77,39 @@ class BuildingDataFetcher:
         # 재난안전데이터 API 초기화
         if DISASTER_API_AVAILABLE:
             try:
-                self.disaster_fetcher: Optional[DisasterAPIFetcher] = DisasterAPIFetcher()
+                self.disaster_fetcher: Optional[DisasterAPIFetcher] = DisasterAPIFetcher(
+                )
             except Exception as e:
                 self.logger.warning(f"DisasterAPIFetcher 초기화 실패: {e}")
         else:
             self.disaster_fetcher = None
 
-    def get_building_code_from_coords(self, lat: float, lon: float) -> Optional[Dict[str, Any]]:
+    def get_building_code_from_coords(
+        self, lat: float, lon: float) -> Optional[Dict[str, Any]]:
         """
         위/경도 → 시군구코드, 법정동코드, 번/지 변환
-        
+
         우선순위:
         1. VWorld Geocoder API (Reverse Geocoding) - 좌표→주소
         2. juso.go.kr 좌표 변환 API (좌표 API 키 정상일 때)
-        
+
         Note: 좌표 API 키 문제 해결 시 순서를 바꿀 수 있음
         """
         # 1차 시도: VWorld Reverse Geocoding (현재 작동 중)
         result = self._get_address_from_vworld(lat, lon)
         if result:
             return result
-        
+
         # 2차 시도: juso.go.kr 좌표 변환 API (나중에 API 키 교체 시 사용)
         # TODO: COORDINATESEARCH_API_KEY 정상화 후 활성화
         # result = self._get_address_from_juso_coords(lat, lon)
         # if result:
         #     return result
-        
+
         return None
 
-    def _get_address_from_vworld(self, lat: float, lon: float) -> Optional[Dict[str, Any]]:
+    def _get_address_from_vworld(
+        self, lat: float, lon: float) -> Optional[Dict[str, Any]]:
         """
         VWorld Reverse Geocoding API로 좌표 → 주소 변환
         """
@@ -157,7 +165,7 @@ class BuildingDataFetcher:
                     elif level5:
                         bun = level5
                         ji = ''
-                
+
                 # bun과 ji에서 숫자만 추출 (건축물대장 API 형식에 맞춤)
                 bun_cleaned = ''.join(filter(str.isdigit, bun))
                 ji_cleaned = ''.join(filter(str.isdigit, ji))
@@ -170,8 +178,10 @@ class BuildingDataFetcher:
                     'dong_code': structure.get('level4LC', ''),
                     'bun': bun_cleaned,
                     'ji': ji_cleaned,
-                    'jibun_addr': parcel_result.get('text', ''),  # 통일: full_address → jibun_addr
-                    'road_addr': road_result.get('text', '') if road_result else '',  # 통일: road_address → road_addr
+                    # 통일: full_address → jibun_addr
+                    'jibun_addr': parcel_result.get('text', ''),
+                    # 통일: road_address → road_addr
+                    'road_addr': road_result.get('text', '') if road_result else '',
                     'zipcode': parcel_result.get('zipcode', ''),
                 }
 
@@ -181,16 +191,17 @@ class BuildingDataFetcher:
             self.logger.warning(f"VWorld 주소 조회 실패: {e}")
             return None
 
-    def _get_address_from_juso_coords(self, lat: float, lon: float) -> Optional[Dict[str, Any]]:
+    def _get_address_from_juso_coords(
+        self, lat: float, lon: float) -> Optional[Dict[str, Any]]:
         """
         juso.go.kr 좌표 변환 API로 좌표 → 주소 변환
-        
+
         Note: COORDINATESEARCH_API_KEY가 정상일 때 사용
         현재는 "승인되지 않은 KEY" 오류로 비활성화
         """
         if not self.coord_search_api_key:
             return None
-        
+
         # TODO: 좌표로 건물 정보를 얻는 로직 구현
         # 현재는 도로명 주소 검색 API만 사용 가능
         return None
@@ -198,17 +209,17 @@ class BuildingDataFetcher:
     def search_address(self, address: str) -> Optional[Dict[str, Any]]:
         """
         도로명주소 검색 API로 주소 정보 조회
-        
+
         Args:
             address: 검색할 주소 (도로명주소 또는 지번주소)
-        
+
         Returns:
             주소 정보 딕셔너리 (법정동코드, 건물관리번호, 지번 등)
         """
         if not self.road_search_api_key:
             self.logger.warning("ROADSEARCH_API_KEY가 설정되지 않았습니다.")
             return None
-        
+
         url = "https://business.juso.go.kr/addrlink/addrLinkApi.do"
         params = {
             "confmKey": self.road_search_api_key,
@@ -217,31 +228,31 @@ class BuildingDataFetcher:
             "keyword": address,
             "resultType": "json"
         }
-        
+
         try:
             response = requests.get(url, params=params, timeout=10)
-            
+
             if response.status_code != 200:
                 self.logger.warning(f"도로명주소 검색 실패: HTTP {response.status_code}")
                 return None
-            
+
             data = response.json()
-            
+
             if "results" not in data or "juso" not in data["results"]:
                 self.logger.warning("도로명주소 검색 결과 없음")
                 return None
-            
+
             juso_list = data["results"]["juso"]
             if not juso_list:
                 self.logger.warning(f"주소 '{address}'에 대한 검색 결과가 없습니다.")
                 return None
-            
+
             # 첫 번째 결과 사용
             juso = juso_list[0]
-            
+
             # 법정동코드에서 시군구/법정동 추출
             adm_cd = juso.get('admCd', '')  # 10자리 법정동코드
-            
+
             return {
                 'road_addr': juso.get('roadAddr', ''),
                 'jibun_addr': juso.get('jibunAddr', ''),
@@ -257,7 +268,7 @@ class BuildingDataFetcher:
                 'udrt_yn': juso.get('udrtYn', ''),  # 지하여부
                 'mt_yn': juso.get('mtYn', ''),  # 산여부
             }
-        
+
         except Exception as e:
             self.logger.error(f"도로명주소 검색 중 오류: {e}")
             return None
@@ -270,19 +281,24 @@ class BuildingDataFetcher:
         if dong_code and len(dong_code) == 10:
             sigungu_cd = dong_code[:5]
             bjdong_cd = dong_code[-5:]
-        elif dong_code and len(dong_code) == 5: # 시군구 코드만 넘어오는 경우
+        elif dong_code and len(dong_code) == 5:  # 시군구 코드만 넘어오는 경우
             sigungu_cd = dong_code
-            bjdong_cd = '00000' # 법정동 코드는 00000으로 처리
+            bjdong_cd = '00000'  # 법정동 코드는 00000으로 처리
 
         return {
             'sigungu_cd': sigungu_cd,
             'bjdong_cd': bjdong_cd
         }
 
-    def _fetch_api(self, endpoint: str, params: Dict[str, Any], fetch_all_pages: bool = False) -> Optional[List[Dict[str, Any]]]:
+    def _fetch_api(self,
+    endpoint: str,
+    params: Dict[str,
+    Any],
+    fetch_all_pages: bool = False) -> Optional[List[Dict[str,
+     Any]]]:
         """
         공통 API 호출 메서드 (페이지네이션 지원)
-        
+
         Args:
             endpoint: API 엔드포인트 (예: getBrTitleInfo)
             params: 요청 파라미터
@@ -303,96 +319,58 @@ class BuildingDataFetcher:
             # 1차 호출
             response = requests.get(url, params=base_params, timeout=10)
             data = response.json()
-            
-                        # ============================================================
-            
-                        # 🔍 DEBUG: 건축물 대장 API 원본 응답 출력 및 저장
-            
-                        # ============================================================
-            
-                        self.logger.debug(f"API 엔드포인트: {endpoint}")
-            
-                        self.logger.debug(f"요청 파라미터: {json.dumps(base_params, indent=2, ensure_ascii=False)}")
-            
-                        self.logger.debug(f"응답 상태: {response.status_code}")
-            
-                        # 전역 변수에 저장 (test_building_api_raw.py에서 사용)
-            
-                        try:
-            
-                            import __main__
-            
-                            if hasattr(__main__, 'api_responses'):
-            
-                                __main__.api_responses[endpoint] = {
-            
-                                    "request_params": base_params,
-            
-                                    "response_status": response.status_code,
-            
-                                    "response_data": data
-            
-                                }
-            
-                        except:
-            
-                            pass
-            
-                        # ============================================================
-            
-                        
-            
-                        items_list = self._parse_response_items(data)
-            
-                        if items_list:
-            
-                            all_items.extend(items_list)
-            
-                        
-            
-                        # 페이지네이션 처리
-            
-                        if fetch_all_pages:
-            
-                            total_count = self._get_total_count(data)
-            
-                            if total_count > 100:
-            
-                                total_pages = math.ceil(total_count / 100)
-            
-                                # 과도한 호출 방지를 위해 최대 10페이지(1000건)까지만 조회
-            
-                                max_pages = min(total_pages, 10) 
-            
-                                
-            
-                                for page in range(2, max_pages + 1):
-            
-                                    base_params['pageNo'] = page
-            
-                                    resp = requests.get(url, params=base_params, timeout=10)
-            
-                                    page_items = self._parse_response_items(resp.json())
-            
-                                    if page_items:
-            
-                                        all_items.extend(page_items)
-            
-                                    else:
-            
-                                        break
-            
-                        
-            
-                        return all_items
-            
-            
-            
-                    except Exception as e:
-            
-                        self.logger.error(f"API Error ({endpoint}): {e}")
-            
-                        return None
+
+            # ============================================================
+            # 🔍 DEBUG: 건축물 대장 API 원본 응답 출력 및 저장
+            # ============================================================
+
+            self.logger.debug(f"API 엔드포인트: {endpoint}")
+            self.logger.debug(
+                f"요청 파라미터: {json.dumps(base_params, indent=2, ensure_ascii=False)}")
+            self.logger.debug(f"응답 상태: {response.status_code}")
+
+            # 전역 변수에 저장 (test_building_api_raw.py에서 사용)
+            try:
+                import __main__
+
+                if hasattr(__main__, 'api_responses'):
+                    __main__.api_responses[endpoint] = {
+                        "request_params": base_params,
+                        "response_status": response.status_code,
+                        "response_data": data
+                    }
+            except:
+                pass
+
+            # ============================================================
+
+            items_list = self._parse_response_items(data)
+
+            if items_list:
+                all_items.extend(items_list)
+
+            # 페이지네이션 처리
+            if fetch_all_pages:
+                total_count = self._get_total_count(data)
+                if total_count > 100:
+                    total_pages = math.ceil(total_count / 100)
+                    # 과도한 호출 방지를 위해 최대 10페이지(1000건)까지만 조회
+                    max_pages = min(total_pages, 10)
+
+                    for page in range(2, max_pages + 1):
+                        base_params['pageNo'] = page
+                        resp = requests.get(url, params=base_params, timeout=10)
+                        page_items = self._parse_response_items(resp.json())
+                        if page_items:
+                            all_items.extend(page_items)
+                        else:
+                            break
+
+            return all_items
+
+        except Exception as e:
+            self.logger.error(f"API Error ({endpoint}): {e}")
+            return None
 
     def _parse_response_items(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """API 응답에서 item 리스트 추출"""

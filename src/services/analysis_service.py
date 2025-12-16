@@ -590,9 +590,23 @@ class AnalysisService:
             """
             result = self.db.execute_query(query, (str(user_id),))
 
+            # --- [수정된 부분 시작] ---
+            # 조회된 결과가 없으면 가상의 완료 상태(done)를 반환
             if not result or len(result) == 0:
-                self.logger.warning(f"No jobs found for user {user_id}")
-                return None
+                self.logger.info(f"No jobs found for user {user_id}, returning default DONE status")
+                return AnalysisJobStatus(
+                    jobId=uuid4(),          # 임시 ID 생성
+                    siteId=uuid4(),         # 임시 ID 생성
+                    status="done",          # 요청하신 대로 'done' 설정
+                    progress=100,           # 완료되었으므로 100
+                    currentNode="done",     # 완료 상태 표시
+                    currentHazard=None,
+                    startedAt=datetime.now(),
+                    completedAt=datetime.now(),
+                    estimatedCompletionTime=None,
+                    error=None
+                )
+            # --- [수정된 부분 끝] ---
 
             job = result[0]
             input_params = job.get('input_params', {})

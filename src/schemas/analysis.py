@@ -108,7 +108,7 @@ class ScoreDetail(BaseModel):
 
 class ShortTermScore(BaseModel):
     """단기 리스크 점수 (분기별)"""
-    point1: ScoreDetail = Field(..., description="year20W26")
+    point1: ScoreDetail = Field(..., description="year2026")
 
     class Config:
         populate_by_name = True
@@ -117,7 +117,7 @@ class ShortTermScore(BaseModel):
 class MidTermScore(BaseModel):
     """중기 리스크 점수 (연도별)"""
     point1: ScoreDetail = Field(..., description="year2026")
-    point2: ScoreDetail = Field(..., description="year20W7")
+    point2: ScoreDetail = Field(..., description="year2027")
     point3: ScoreDetail = Field(..., description="year2028")
     point4: ScoreDetail = Field(..., description="year2029")
     point5: ScoreDetail = Field(..., description="year2030")

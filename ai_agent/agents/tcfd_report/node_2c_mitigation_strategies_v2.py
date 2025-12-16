@@ -87,6 +87,8 @@ class MitigationStrategiesNode:
         self,
         impact_analyses: List[Dict],
         report_template: Dict[str, Any],
+        building_data: Optional[Dict[int, Dict]] = None,
+        additional_data: Optional[Dict[str, Any]] = None,
         company_context: Optional[Dict] = None
     ) -> Dict[str, Any]:
         """
@@ -95,6 +97,10 @@ class MitigationStrategiesNode:
         Args:
             impact_analyses: Node 2-B 영향 분석 결과
             report_template: Node 1 보고서 템플릿
+            building_data: BC Agent 결과 (site_id -> building analysis)
+                          agent_guidelines 내 mitigation_recommendations 활용
+            additional_data: AD Agent 결과 (Excel 추가 데이터)
+                            site_specific_guidelines 활용
             company_context: 회사 컨텍스트 (optional)
 
         Returns:
@@ -107,11 +113,25 @@ class MitigationStrategiesNode:
         print("🔄 Node 2-C: Mitigation Strategies v2 실행 시작")
         print("="*80)
 
+        # building_data 정보 출력
+        if building_data:
+            print(f"📊 Building Data 활용: {len(building_data)}개 사업장")
+        else:
+            print("⚠️  Building Data 없음 - 기본 분석 진행")
+
+        # additional_data 정보 출력
+        if additional_data and additional_data.get("site_specific_guidelines"):
+            print(f"📋 Additional Data 활용: {len(additional_data.get('site_specific_guidelines', {}))}개 사업장")
+        else:
+            print("⚠️  Additional Data 없음")
+
         # Step 1: LLM 기반 대응 전략 생성 (병렬)
         print("\n[1/3] LLM 기반 대응 전략 생성 중 (병렬 처리)...")
         mitigation_strategies = await self._generate_strategies_parallel(
             impact_analyses,
             report_template,
+            building_data,
+            additional_data,
             company_context
         )
         print(f"✅ 대응 전략 생성 완료")
@@ -143,6 +163,8 @@ class MitigationStrategiesNode:
         self,
         impact_analyses: List[Dict],
         report_template: Dict,
+        building_data: Optional[Dict[int, Dict]],
+        additional_data: Optional[Dict[str, Any]],
         company_context: Optional[Dict]
     ) -> List[Dict]:
         """
@@ -151,13 +173,17 @@ class MitigationStrategiesNode:
         Args:
             impact_analyses: 영향 분석 결과
             report_template: Node 1 템플릿
+            building_data: BC Agent 결과
+            additional_data: AD Agent 결과 (Excel 추가 데이터)
             company_context: 회사 컨텍스트
 
         Returns:
             List[Dict]: 5개 리스크별 대응 전략
         """
         tasks = [
-            self._generate_single_risk_strategy(impact, report_template, company_context)
+            self._generate_single_risk_strategy(
+                impact, report_template, building_data, additional_data, company_context
+            )
             for impact in impact_analyses
         ]
         strategies = await asyncio.gather(*tasks)
@@ -167,14 +193,18 @@ class MitigationStrategiesNode:
         self,
         impact: Dict,
         report_template: Dict,
+        building_data: Optional[Dict[int, Dict]],
+        additional_data: Optional[Dict[str, Any]],
         company_context: Optional[Dict]
     ) -> Dict:
         """
-        단일 리스크 대응 전략 생성 (EXHAUSTIVE 프롬프트)
+        단일 리스크 대응 전략 생성 (EXHAUSTIVE 프롬프트 + Building Data + Additional Data)
 
         Args:
             impact: 영향 분석 결과 (Node 2-B 출력)
             report_template: Node 1 템플릿
+            building_data: BC Agent 결과 (site_id -> building analysis)
+            additional_data: AD Agent 결과 (Excel 추가 데이터)
             company_context: 회사 컨텍스트
 
         Returns:
@@ -200,6 +230,13 @@ class MitigationStrategiesNode:
 
         # 영향 분석 요약
         impact_summary = self._format_impact_summary(impact)
+
+        # 건물 특성 기반 대응 전략 가이드 추출
+        building_mitigation_guide = self._extract_building_mitigation_guide(building_data, risk_type)
+
+        # 영향받는 사업장 목록 추출 (additional_data 컨텍스트용)
+        affected_sites = impact.get("affected_sites", [])
+        additional_context = self._extract_additional_data_context(additional_data, affected_sites)
 
         # EXHAUSTIVE 프롬프트 작성
         prompt = f"""
@@ -261,6 +298,12 @@ Your task is to develop **actionable mitigation strategies** for **{risk_name_kr
 
 **Impact Analysis Summary:**
 {impact_summary}
+
+**Building-Specific Mitigation Recommendations:**
+{building_mitigation_guide}
+
+**Additional Site-Specific Context (from Excel data):**
+{additional_context}
 
 **Company Context:**
 {self._format_company_context(company_context)}
@@ -327,9 +370,10 @@ Now, generate the mitigation strategy as a JSON object:
         try:
             response = await self.llm.ainvoke(prompt)
 
-            # JSON 파싱
-            if response.strip().startswith("{"):
-                parsed = json.loads(response)
+            # JSON 파싱 (마크다운 코드 블록 처리)
+            json_str = self._extract_json_from_response(response)
+            if json_str:
+                parsed = json.loads(json_str)
                 return {
                     "risk_type": risk_type,
                     "rank": rank,
@@ -357,20 +401,32 @@ Now, generate the mitigation strategy as a JSON object:
         lines = []
 
         lines.append("**재무적 영향:**")
-        financial = impact.get("financial_impact", "N/A")
+        financial = self._ensure_string(impact.get("financial_impact", "N/A"))
         lines.append(financial[:200] + "..." if len(financial) > 200 else financial)
         lines.append("")
 
         lines.append("**운영적 영향:**")
-        operational = impact.get("operational_impact", "N/A")
+        operational = self._ensure_string(impact.get("operational_impact", "N/A"))
         lines.append(operational[:200] + "..." if len(operational) > 200 else operational)
         lines.append("")
 
         lines.append("**자산 영향:**")
-        asset = impact.get("asset_impact", "N/A")
+        asset = self._ensure_string(impact.get("asset_impact", "N/A"))
         lines.append(asset[:200] + "..." if len(asset) > 200 else asset)
 
         return "\n".join(lines)
+
+    def _ensure_string(self, value: Any) -> str:
+        """
+        값을 문자열로 변환 (dict/list인 경우 JSON 문자열로)
+        """
+        if value is None:
+            return "N/A"
+        if isinstance(value, str):
+            return value
+        if isinstance(value, (dict, list)):
+            return json.dumps(value, ensure_ascii=False, indent=2)
+        return str(value)
 
     def _format_company_context(self, company_context: Optional[Dict]) -> str:
         """회사 컨텍스트 포맷팅"""
@@ -389,6 +445,155 @@ Now, generate the mitigation strategy as a JSON object:
             formatted.append(f"{i}. {para}")
 
         return "\n".join(formatted)
+
+    def _extract_json_from_response(self, response: str) -> Optional[str]:
+        """
+        LLM 응답에서 JSON 문자열 추출 (마크다운 코드 블록 처리)
+
+        Args:
+            response: LLM 응답 문자열
+
+        Returns:
+            Optional[str]: 추출된 JSON 문자열 또는 None
+        """
+        import re
+
+        # 1. 마크다운 코드 블록에서 JSON 추출 (```json ... ``` 또는 ``` ... ```)
+        json_block_pattern = r'```(?:json)?\s*([\s\S]*?)\s*```'
+        matches = re.findall(json_block_pattern, response)
+
+        if matches:
+            # 첫 번째 코드 블록 내용 확인
+            for match in matches:
+                content = match.strip()
+                if content.startswith('{') and content.endswith('}'):
+                    return content
+
+        # 2. 코드 블록 없이 직접 JSON인 경우
+        response_stripped = response.strip()
+        if response_stripped.startswith('{') and response_stripped.endswith('}'):
+            return response_stripped
+
+        # 3. 응답 내에서 { ... } 패턴 찾기
+        json_pattern = r'\{[\s\S]*\}'
+        match = re.search(json_pattern, response)
+        if match:
+            return match.group(0)
+
+        return None
+
+    def _extract_building_mitigation_guide(
+        self,
+        building_data: Optional[Dict[int, Dict]],
+        risk_type: str
+    ) -> str:
+        """건물 특성 기반 대응 전략 가이드 추출 (BC Agent agent_guidelines 활용)"""
+        if not building_data:
+            return "건물 특성 기반 가이드 없음 (기본 분석 수행)"
+
+        guides = []
+
+        for site_id, bd in building_data.items():
+            agent_guidelines = bd.get("agent_guidelines", {})
+
+            if not agent_guidelines:
+                continue
+
+            # mitigation_recommendations 섹션 추출 (BC Agent v08 형식: 딕셔너리 배열)
+            mitigation_recs = agent_guidelines.get("mitigation_recommendations", {})
+            if mitigation_recs:
+                site_name = bd.get("site_name", f"Site {site_id}")
+                guide_parts = [f"**{site_name}** (구조등급: {bd.get('structural_grade', 'N/A')}):"]
+
+                # 단기 권장사항 (딕셔너리 배열 또는 문자열 배열 호환)
+                short_term = mitigation_recs.get("short_term", [])
+                if short_term:
+                    actions = [
+                        item.get("action", item) if isinstance(item, dict) else item
+                        for item in short_term[:3]
+                    ]
+                    guide_parts.append(f"  - 단기 권장: {', '.join(actions)}")
+
+                # 중기 권장사항
+                mid_term = mitigation_recs.get("mid_term", [])
+                if mid_term:
+                    actions = [
+                        item.get("action", item) if isinstance(item, dict) else item
+                        for item in mid_term[:3]
+                    ]
+                    guide_parts.append(f"  - 중기 권장: {', '.join(actions)}")
+
+                # 장기 권장사항
+                long_term = mitigation_recs.get("long_term", [])
+                if long_term:
+                    actions = [
+                        item.get("action", item) if isinstance(item, dict) else item
+                        for item in long_term[:3]
+                    ]
+                    guide_parts.append(f"  - 장기 권장: {', '.join(actions)}")
+
+                guides.append("\n".join(guide_parts))
+
+        if not guides:
+            return "건물 특성 기반 가이드 없음 (기본 분석 수행)"
+
+        return "\n\n".join(guides[:5])  # 최대 5개 사업장
+
+    def _extract_additional_data_context(
+        self,
+        additional_data: Optional[Dict[str, Any]],
+        affected_sites: List[Dict]
+    ) -> str:
+        """
+        Excel 추가 데이터에서 사업장별 컨텍스트 추출 (AD Agent site_specific_guidelines 활용)
+
+        Args:
+            additional_data: AD Agent 결과
+            affected_sites: 영향받는 사업장 목록 (site_id, site_name 포함)
+
+        Returns:
+            str: LLM 프롬프트에 삽입할 추가 컨텍스트 텍스트
+        """
+        if not additional_data:
+            return "추가 데이터 없음"
+
+        # AD Agent 출력에서 site_specific_guidelines 추출
+        site_guidelines = additional_data.get("site_specific_guidelines", {})
+
+        if not site_guidelines:
+            return "추가 데이터 없음"
+
+        context_parts = []
+
+        # 영향받는 사업장들에 대해서만 가이드라인 추출
+        for site_info in affected_sites:
+            site_id = site_info.get("site_id")
+            site_name = site_info.get("site_name", f"Site {site_id}")
+
+            # site_id를 키로 조회 (int 또는 str 모두 처리)
+            guideline = site_guidelines.get(site_id) or site_guidelines.get(str(site_id))
+
+            if guideline:
+                guideline_text = guideline.get("guideline", "")
+                key_insights = guideline.get("key_insights", [])
+
+                site_context = f"**{site_name}**:\n"
+                if guideline_text:
+                    # 가이드라인 텍스트가 너무 길면 축약
+                    if len(guideline_text) > 500:
+                        site_context += f"{guideline_text[:500]}...\n"
+                    else:
+                        site_context += f"{guideline_text}\n"
+
+                if key_insights:
+                    site_context += f"핵심 인사이트: {', '.join(key_insights[:3])}\n"
+
+                context_parts.append(site_context)
+
+        if not context_parts:
+            return "영향받는 사업장에 대한 추가 데이터 없음"
+
+        return "\n".join(context_parts)
 
     def _parse_text_strategy(self, response: str, risk_type: str, rank: int, total_aal: float) -> Dict:
         """텍스트 응답을 구조화된 전략으로 파싱"""
@@ -464,16 +669,16 @@ Now, generate the mitigation strategy as a JSON object:
             content_parts = []
 
             # 우선순위 및 근거
-            priority = strategy.get("priority", "중간")
-            priority_justification = strategy.get("priority_justification", "")
+            priority = self._ensure_string(strategy.get("priority", "중간"))
+            priority_justification = self._ensure_string(strategy.get("priority_justification", ""))
             content_parts.append(f"**우선순위:** {priority}")
             if priority_justification:
-                content_parts.append(f"{priority_justification}")
+                content_parts.append(priority_justification)
             content_parts.append("")
 
             # 예상 비용 및 효과
-            estimated_cost = strategy.get("estimated_cost", "산정 중")
-            expected_benefit = strategy.get("expected_benefit", "산정 중")
+            estimated_cost = self._ensure_string(strategy.get("estimated_cost", "산정 중"))
+            expected_benefit = self._ensure_string(strategy.get("expected_benefit", "산정 중"))
             content_parts.append(f"**예상 비용:** {estimated_cost}")
             content_parts.append(f"**예상 효과:** {expected_benefit}")
             content_parts.append("")
@@ -483,7 +688,7 @@ Now, generate the mitigation strategy as a JSON object:
             short_term = strategy.get("short_term", [])
             if short_term:
                 for action in short_term:
-                    content_parts.append(f"- {action}")
+                    content_parts.append(f"- {self._ensure_string(action)}")
             else:
                 content_parts.append("- 검토 중")
             content_parts.append("")
@@ -493,7 +698,7 @@ Now, generate the mitigation strategy as a JSON object:
             mid_term = strategy.get("mid_term", [])
             if mid_term:
                 for action in mid_term:
-                    content_parts.append(f"- {action}")
+                    content_parts.append(f"- {self._ensure_string(action)}")
             else:
                 content_parts.append("- 검토 중")
             content_parts.append("")
@@ -503,13 +708,13 @@ Now, generate the mitigation strategy as a JSON object:
             long_term = strategy.get("long_term", [])
             if long_term:
                 for action in long_term:
-                    content_parts.append(f"- {action}")
+                    content_parts.append(f"- {self._ensure_string(action)}")
             else:
                 content_parts.append("- 검토 중")
             content_parts.append("")
 
             # 실행 고려사항
-            impl_considerations = strategy.get("implementation_considerations", "")
+            impl_considerations = self._ensure_string(strategy.get("implementation_considerations", ""))
             if impl_considerations:
                 content_parts.append("### 실행 시 고려사항")
                 content_parts.append(impl_considerations)

@@ -377,7 +377,11 @@ class DataPreprocessingNode:
         building_data: Dict[int, Dict[str, Any]] = {}
 
         try:
-            bc_agent = BuildingCharacteristicsAgent(llm_client=self.llm_client)
+            # DB URL 전달 (building_aggregate_cache 테이블 접근용)
+            bc_agent = BuildingCharacteristicsAgent(
+                llm_client=self.llm_client,
+                db_url=self.dw_db_url
+            )
 
             for i in range(0, len(site_data), self.bc_chunk_size):
                 chunk = site_data[i:i + self.bc_chunk_size]

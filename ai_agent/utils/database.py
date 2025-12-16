@@ -890,7 +890,6 @@ class DatabaseManager:
                 ssp245_aal,
                 ssp370_aal,
                 ssp585_aal,
-                damage_rates,
                 ssp126_bin_probs,
                 ssp245_bin_probs,
                 ssp370_bin_probs,
@@ -1074,3 +1073,256 @@ class DatabaseManager:
         params.append(limit)
 
         return self.execute_query(query, tuple(params))
+
+    # ==================== Building Aggregate Cache Queries ====================
+
+    def fetch_building_aggregate_cache(
+        self,
+        sigungu_cd: str,
+        bjdong_cd: str,
+        bun: str,
+        ji: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Fetch cached building aggregate data by address codes
+
+        Args:
+            sigungu_cd: 시군구 코드 (5자리)
+            bjdong_cd: 법정동 코드 (5자리)
+            bun: 번 (4자리)
+            ji: 지 (4자리)
+
+        Returns:
+            Building aggregate data or None if not found
+        """
+        query = """
+            SELECT
+                cache_id,
+                sigungu_cd,
+                bjdong_cd,
+                bun,
+                ji,
+                jibun_address,
+                road_address,
+                building_count,
+                structure_types,
+                purpose_types,
+                max_ground_floors,
+                max_underground_floors,
+                min_underground_floors,
+                buildings_with_seismic,
+                buildings_without_seismic,
+                oldest_approval_date,
+                newest_approval_date,
+                oldest_building_age_years,
+                total_floor_area_sqm,
+                total_building_area_sqm,
+                floor_details,
+                floor_purpose_types,
+                cached_at,
+                updated_at,
+                data_quality_score
+            FROM building_aggregate_cache
+            WHERE sigungu_cd = %s
+              AND bjdong_cd = %s
+              AND bun = %s
+              AND ji = %s
+            ORDER BY cached_at DESC
+            LIMIT 1
+        """
+        results = self.execute_query(query, (sigungu_cd, bjdong_cd, bun, ji))
+        return results[0] if results else None
+
+    def save_building_aggregate_cache(
+        self,
+        sigungu_cd: str,
+        bjdong_cd: str,
+        bun: str,
+        ji: str,
+        building_data: Dict[str, Any]
+    ) -> bool:
+        """
+        Save or update building aggregate data to cache
+
+        Args:
+            sigungu_cd: 시군구 코드
+            bjdong_cd: 법정동 코드
+            bun: 번
+            ji: 지
+            building_data: Building data from BuildingDataFetcher
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            import json
+            from psycopg2.extras import Json
+
+            # building_data에서 필요한 값 추출
+            physical_specs = building_data.get('physical_specs', {})
+            meta = building_data.get('meta', {})
+            floor_details = building_data.get('floor_details', [])
+
+            # 구조 유형 추출
+            structure = physical_specs.get('structure', '')
+            structure_types = {structure: 1} if structure else {}
+
+            # 용도 유형 추출
+            main_purpose = physical_specs.get('main_purpose', '')
+            purpose_types = {main_purpose: 1} if main_purpose else {}
+
+            # 층수 정보
+            floors = physical_specs.get('floors', {})
+            max_ground_floors = floors.get('ground', 0)
+            max_underground_floors = floors.get('max_underground', 0)
+            min_underground_floors = floors.get('min_underground', 0)
+
+            # 내진 설계 정보
+            seismic = physical_specs.get('seismic', {})
+            buildings_with_seismic = seismic.get('buildings_with_design', 0)
+            buildings_without_seismic = seismic.get('buildings_without_design', 0)
+
+            # 연식 정보
+            age_info = physical_specs.get('age', {})
+            oldest_building_age = age_info.get('years', 0)
+
+            # 면적 정보
+            area = physical_specs.get('area', {})
+            total_floor_area = area.get('total_floor_area', 0)
+            total_building_area = area.get('building_area', 0)
+
+            # 층별 용도 유형 집계
+            floor_purpose_types = {}
+            for floor in floor_details:
+                usage = floor.get('usage_main', '')
+                if usage:
+                    floor_purpose_types[usage] = floor_purpose_types.get(usage, 0) + 1
+
+            # UPSERT 쿼리 (존재하면 업데이트, 없으면 삽입)
+            query = """
+                INSERT INTO building_aggregate_cache (
+                    sigungu_cd, bjdong_cd, bun, ji,
+                    jibun_address, road_address,
+                    building_count,
+                    structure_types, purpose_types,
+                    max_ground_floors, max_underground_floors, min_underground_floors,
+                    buildings_with_seismic, buildings_without_seismic,
+                    oldest_building_age_years,
+                    total_floor_area_sqm, total_building_area_sqm,
+                    floor_details, floor_purpose_types,
+                    cached_at, updated_at
+                ) VALUES (
+                    %s, %s, %s, %s,
+                    %s, %s,
+                    %s,
+                    %s, %s,
+                    %s, %s, %s,
+                    %s, %s,
+                    %s,
+                    %s, %s,
+                    %s, %s,
+                    NOW(), NOW()
+                )
+                ON CONFLICT (sigungu_cd, bjdong_cd, bun, ji)
+                DO UPDATE SET
+                    jibun_address = EXCLUDED.jibun_address,
+                    road_address = EXCLUDED.road_address,
+                    building_count = EXCLUDED.building_count,
+                    structure_types = EXCLUDED.structure_types,
+                    purpose_types = EXCLUDED.purpose_types,
+                    max_ground_floors = EXCLUDED.max_ground_floors,
+                    max_underground_floors = EXCLUDED.max_underground_floors,
+                    min_underground_floors = EXCLUDED.min_underground_floors,
+                    buildings_with_seismic = EXCLUDED.buildings_with_seismic,
+                    buildings_without_seismic = EXCLUDED.buildings_without_seismic,
+                    oldest_building_age_years = EXCLUDED.oldest_building_age_years,
+                    total_floor_area_sqm = EXCLUDED.total_floor_area_sqm,
+                    total_building_area_sqm = EXCLUDED.total_building_area_sqm,
+                    floor_details = EXCLUDED.floor_details,
+                    floor_purpose_types = EXCLUDED.floor_purpose_types,
+                    updated_at = NOW(),
+                    api_call_count = building_aggregate_cache.api_call_count + 1
+            """
+
+            params = (
+                sigungu_cd, bjdong_cd, bun, ji,
+                meta.get('jibun_address', ''),
+                meta.get('road_address', '') or meta.get('address', ''),
+                1,  # building_count (단일 건물 기준)
+                Json(structure_types),
+                Json(purpose_types),
+                max_ground_floors,
+                max_underground_floors,
+                min_underground_floors,
+                buildings_with_seismic,
+                buildings_without_seismic,
+                oldest_building_age,
+                total_floor_area,
+                total_building_area,
+                Json(floor_details),
+                Json(floor_purpose_types)
+            )
+
+            self.execute_update(query, params)
+            self.logger.info(f"Building cache saved: {sigungu_cd}-{bjdong_cd}-{bun}-{ji}")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to save building cache: {e}")
+            return False
+
+    def convert_cache_to_building_data(
+        self,
+        cache_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Convert building_aggregate_cache format to BuildingDataFetcher format
+
+        Args:
+            cache_data: Data from building_aggregate_cache table
+
+        Returns:
+            Building data in BuildingDataFetcher format
+        """
+        if not cache_data:
+            return {}
+
+        # 구조 유형 추출 (가장 많은 것)
+        structure_types = cache_data.get('structure_types', {})
+        main_structure = max(structure_types.keys(), key=lambda k: structure_types[k]) if structure_types else ''
+
+        # 용도 유형 추출
+        purpose_types = cache_data.get('purpose_types', {})
+        main_purpose = max(purpose_types.keys(), key=lambda k: purpose_types[k]) if purpose_types else ''
+
+        return {
+            'meta': {
+                'jibun_address': cache_data.get('jibun_address', ''),
+                'road_address': cache_data.get('road_address', ''),
+                'address': cache_data.get('road_address') or cache_data.get('jibun_address', ''),
+                'data_source': 'building_aggregate_cache'
+            },
+            'physical_specs': {
+                'structure': main_structure,
+                'main_purpose': main_purpose,
+                'floors': {
+                    'ground': cache_data.get('max_ground_floors', 0),
+                    'max_underground': cache_data.get('max_underground_floors', 0),
+                    'min_underground': cache_data.get('min_underground_floors', 0)
+                },
+                'seismic': {
+                    'applied': 'Y' if cache_data.get('buildings_with_seismic', 0) > 0 else 'N',
+                    'buildings_with_design': cache_data.get('buildings_with_seismic', 0),
+                    'buildings_without_design': cache_data.get('buildings_without_seismic', 0)
+                },
+                'age': {
+                    'years': cache_data.get('oldest_building_age_years', 0)
+                },
+                'area': {
+                    'total_floor_area': float(cache_data.get('total_floor_area_sqm', 0) or 0),
+                    'building_area': float(cache_data.get('total_building_area_sqm', 0) or 0)
+                }
+            },
+            'floor_details': cache_data.get('floor_details', []),
+            'transition_specs': {}
+        }

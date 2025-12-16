@@ -222,21 +222,40 @@ class AdditionalDataAgent:
 
         return insights[:5]  # 최대 5개만 반환
 
-    def _generate_fallback_guideline(self, site_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+    def _generate_fallback_guideline(self, site_id: int, data: Any) -> Dict[str, Any]:
         """LLM 실패 시 기본 가이드라인 생성"""
         guideline = f"## 사업장 {site_id} 추가 정보\n\n"
+        key_insights = []
 
         if data:
-            for key, value in data.items():
-                if value and str(value).strip():
-                    guideline += f"- {key}: {value}\n"
+            # data가 list인 경우 (site_id 컬럼 없는 Excel에서 전체 데이터)
+            if isinstance(data, list):
+                if len(data) > 0:
+                    # 첫 번째 행의 컬럼들 표시
+                    first_row = data[0]
+                    columns = list(first_row.keys()) if isinstance(first_row, dict) else []
+                    guideline += f"- 데이터 컬럼: {', '.join(columns)}\n"
+                    guideline += f"- 총 레코드 수: {len(data)}행\n"
+
+                    # 시계열 데이터 요약
+                    if columns:
+                        key_insights.append(f"시계열 데이터 {len(data)}개 레코드")
+                        for col in columns[:3]:  # 최대 3개 컬럼만 표시
+                            key_insights.append(f"{col} 데이터 포함")
+            # data가 dict인 경우 (기존 로직)
+            elif isinstance(data, dict):
+                for key, value in data.items():
+                    if value and str(value).strip():
+                        guideline += f"- {key}: {value}\n"
+            else:
+                guideline += f"- 데이터 타입: {type(data).__name__}\n"
         else:
             guideline += "- 추가 데이터 없음\n"
 
         return {
             "site_id": site_id,
             "guideline": guideline,
-            "key_insights": []
+            "key_insights": key_insights
         }
 
     def _build_prompt(self, site_id: int, data: Dict[str, Any]) -> str:

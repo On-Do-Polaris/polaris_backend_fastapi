@@ -31,6 +31,8 @@ from ..common.fallback_constants import (
 BASE_DIR = Path(__file__).parent.parent
 load_dotenv(BASE_DIR / ".env")
 
+logger = logging.getLogger(__name__)
+
 # 하천 차수 추출 모듈
 try:
     from .stream_order_simple import StreamOrderExtractor
@@ -46,8 +48,6 @@ try:
 except ImportError:
     DISASTER_API_AVAILABLE = False
     logger.warning("disaster_api_fetcher 모듈 import 실패 - 재난 데이터는 기본값 사용")
-
-logger = logging.getLogger(__name__)
 
 
 class BuildingDataFetcher:

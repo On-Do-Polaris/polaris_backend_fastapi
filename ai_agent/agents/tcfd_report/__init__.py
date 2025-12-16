@@ -11,16 +11,10 @@ TCFD Report Generation Agents v2.1
 - 구 Node 9 → 신 Node 6 (Finalizer)
 """
 
-from .node_0_data_preprocessing import DataPreprocessingNode
-from .node_1_template_loading import TemplateLoadingNode
-from .node_2a_scenario_analysis import ScenarioAnalysisNode
-from .node_2b_impact_analysis import ImpactAnalysisNode
-from .node_2c_mitigation_strategies import MitigationStrategiesNode
-from .node_3_strategy_section import StrategySectionNode
-from .node_4_validator import ValidatorRefinerNode as ValidatorNode
-from .node_5_composer import ComposerNode
-from .node_6_finalizer import FinalizerNode
-from .workflow import create_tcfd_workflow, TCFDReportState
+# Lazy import를 위해 개별 노드 import는 주석 처리
+# 필요 시 직접 import 사용: from ai_agent.agents.tcfd_report.node_0_data_preprocessing import DataPreprocessingNode
+
+from .state import TCFDReportState
 from .schemas import (
     TextBlock,
     TableBlock,
@@ -33,18 +27,7 @@ from .schemas import (
 )
 
 __all__ = [
-    # Nodes (7개)
-    "DataPreprocessingNode",
-    "TemplateLoadingNode",
-    "ScenarioAnalysisNode",
-    "ImpactAnalysisNode",
-    "MitigationStrategiesNode",
-    "StrategySectionNode",
-    "ValidatorNode",
-    "ComposerNode",
-    "FinalizerNode",
-    # Workflow
-    "create_tcfd_workflow",
+    # State
     "TCFDReportState",
     # Schemas
     "TextBlock",

@@ -86,6 +86,8 @@ class ImpactAnalysisNode:
         sites_data: List[Dict],
         scenario_analysis: Dict,
         report_template: Dict[str, Any],
+        building_data: Optional[Dict[int, Dict]] = None,
+        additional_data: Optional[Dict[str, Any]] = None,
         sites_metadata: Optional[List[Dict]] = None
     ) -> Dict[str, Any]:
         """
@@ -95,6 +97,10 @@ class ImpactAnalysisNode:
             sites_data: 8개 사업장 리스크 데이터
             scenario_analysis: Node 2-A 시나리오 분석 결과
             report_template: Node 1 보고서 템플릿
+            building_data: BC Agent 결과 (site_id -> building analysis)
+                          agent_guidelines 내 impact_analysis_guide 활용
+            additional_data: AD Agent 결과 (Excel 추가 데이터)
+                            site_specific_guidelines 활용
             sites_metadata: 사업장 메타데이터 (optional)
 
         Returns:
@@ -107,6 +113,18 @@ class ImpactAnalysisNode:
         print("🔄 Node 2-B: Impact Analysis v2 실행 시작")
         print("="*80)
 
+        # building_data 정보 출력
+        if building_data:
+            print(f"📊 Building Data 활용: {len(building_data)}개 사업장")
+        else:
+            print("⚠️  Building Data 없음 - 기본 분석 진행")
+
+        # additional_data 정보 출력
+        if additional_data and additional_data.get("site_specific_guidelines"):
+            print(f"📋 Additional Data 활용: {len(additional_data.get('site_specific_guidelines', {}))}개 사업장")
+        else:
+            print("⚠️  Additional Data 없음")
+
         # Step 1: Top 5 리스크 식별
         print("\n[1/4] Top 5 리스크 식별 중...")
         top_5_risks = self._identify_top_risks(sites_data)
@@ -117,7 +135,9 @@ class ImpactAnalysisNode:
 
         # Step 2: 사업장별 리스크 상세 데이터 추출
         print("\n[2/4] 사업장별 리스크 데이터 추출 중...")
-        top_5_detailed = self._extract_risk_details(top_5_risks, sites_data, sites_metadata)
+        top_5_detailed = self._extract_risk_details(
+            top_5_risks, sites_data, sites_metadata, building_data
+        )
         print(f"✅ 상세 데이터 추출 완료")
 
         # Step 3: LLM 기반 영향 분석 (병렬)
@@ -125,7 +145,9 @@ class ImpactAnalysisNode:
         impact_analyses = await self._analyze_impacts_parallel(
             top_5_detailed,
             scenario_analysis,
-            report_template
+            report_template,
+            building_data,
+            additional_data
         )
         print(f"✅ 영향 분석 완료")
 
@@ -184,7 +206,8 @@ class ImpactAnalysisNode:
         self,
         top_5_risks: List[Dict],
         sites_data: List[Dict],
-        sites_metadata: Optional[List[Dict]]
+        sites_metadata: Optional[List[Dict]],
+        building_data: Optional[Dict[int, Dict]] = None
     ) -> List[Dict]:
         """
         Top 5 리스크의 사업장별 상세 데이터 추출
@@ -193,9 +216,10 @@ class ImpactAnalysisNode:
             top_5_risks: Top 5 리스크 정보
             sites_data: 사업장 데이터
             sites_metadata: 사업장 메타데이터
+            building_data: BC Agent 결과 (site_id -> building analysis)
 
         Returns:
-            List[Dict]: Top 5 리스크별 상세 정보
+            List[Dict]: Top 5 리스크별 상세 정보 (building_data 포함)
         """
         detailed_risks = []
 
@@ -215,12 +239,24 @@ class ImpactAnalysisNode:
                         aal = risk_result.get("final_aal", 0)
 
                         if aal > 0:
-                            affected_sites.append({
+                            site_info = {
                                 "site_id": site_id,
                                 "site_name": site_name,
                                 "aal": round(aal, 2),
                                 "risk_details": risk_result
-                            })
+                            }
+
+                            # building_data에서 해당 사업장 건물 특성 추가
+                            if building_data and site_id in building_data:
+                                bd = building_data[site_id]
+                                site_info["building_characteristics"] = {
+                                    "structural_grade": bd.get("structural_grade", "N/A"),
+                                    "vulnerabilities": bd.get("vulnerabilities", []),
+                                    "resilience": bd.get("resilience", []),
+                                    "agent_guidelines": bd.get("agent_guidelines", {})
+                                }
+
+                            affected_sites.append(site_info)
 
             # 상세 정보 구성
             detailed_risks.append({
@@ -237,21 +273,25 @@ class ImpactAnalysisNode:
         self,
         top_5_detailed: List[Dict],
         scenario_analysis: Dict,
-        report_template: Dict
+        report_template: Dict,
+        building_data: Optional[Dict[int, Dict]] = None,
+        additional_data: Optional[Dict[str, Any]] = None
     ) -> List[Dict]:
         """
         Top 5 리스크 병렬 영향 분석 (~30초)
 
         Args:
-            top_5_detailed: Top 5 리스크 상세 정보
+            top_5_detailed: Top 5 리스크 상세 정보 (building_characteristics 포함)
             scenario_analysis: Node 2-A 시나리오 분석 결과
             report_template: Node 1 템플릿
+            building_data: BC Agent 결과 (site_id -> building analysis)
+            additional_data: AD Agent 결과 (Excel 추가 데이터)
 
         Returns:
             List[Dict]: 5개 리스크별 영향 분석 결과
         """
         tasks = [
-            self._analyze_single_risk_impact(risk, scenario_analysis, report_template)
+            self._analyze_single_risk_impact(risk, scenario_analysis, report_template, building_data, additional_data)
             for risk in top_5_detailed
         ]
         impact_analyses = await asyncio.gather(*tasks)
@@ -261,15 +301,19 @@ class ImpactAnalysisNode:
         self,
         risk: Dict,
         scenario_analysis: Dict,
-        report_template: Dict
+        report_template: Dict,
+        building_data: Optional[Dict[int, Dict]] = None,
+        additional_data: Optional[Dict[str, Any]] = None
     ) -> Dict:
         """
-        단일 리스크 영향 분석 (EXHAUSTIVE 프롬프트)
+        단일 리스크 영향 분석 (EXHAUSTIVE 프롬프트 + Building Data + Additional Data)
 
         Args:
-            risk: 리스크 상세 정보
+            risk: 리스크 상세 정보 (building_characteristics 포함)
             scenario_analysis: 시나리오 분석 결과
             report_template: Node 1 템플릿
+            building_data: BC Agent 결과 (site_id -> building analysis)
+            additional_data: AD Agent 결과 (Excel 추가 데이터)
 
         Returns:
             Dict: {
@@ -295,8 +339,14 @@ class ImpactAnalysisNode:
         scenarios = scenario_analysis.get("scenarios", {})
         scenario_summary = self._format_scenarios_brief(scenarios)
 
-        # 사업장 정보 포맷팅
-        sites_info = self._format_affected_sites(affected_sites)
+        # 사업장 정보 포맷팅 (건물 특성 포함)
+        sites_info = self._format_affected_sites_with_building(affected_sites)
+
+        # 건물 특성 기반 영향 분석 가이드 추출
+        building_impact_guide = self._extract_building_impact_guide(affected_sites, risk_type)
+
+        # 추가 데이터(Excel) 기반 컨텍스트 추출
+        additional_context = self._extract_additional_data_context(additional_data, affected_sites)
 
         # EXHAUSTIVE 프롬프트 작성
         prompt = f"""
@@ -314,6 +364,7 @@ on the company's operations, assets, and financial performance.
    - Consider insurance coverage and deductibles
    - Project impact on earnings (EBITDA, net income)
    - Assess impact on asset valuation
+   - **Use building structural grades to refine damage estimates**
 
 2. OPERATIONAL IMPACT (운영적 영향)
    - Identify critical operations at risk
@@ -321,6 +372,7 @@ on the company's operations, assets, and financial performance.
    - Assess supply chain disruptions
    - Evaluate impact on service delivery
    - Consider cascading effects on other sites
+   - **Account for building vulnerabilities in downtime estimates**
 
 3. ASSET IMPACT (자산 영향)
    - Assess physical damage to buildings and equipment
@@ -328,6 +380,7 @@ on the company's operations, assets, and financial performance.
    - Evaluate long-term asset degradation
    - Consider replacement vs. retrofit costs
    - Assess impact on asset lifespan
+   - **Use building-specific vulnerability data for precise assessment**
 
 4. SCENARIO-SPECIFIC ANALYSIS
    - How does this risk evolve across SSP scenarios?
@@ -350,8 +403,14 @@ Risk Information:
 - Total AAL: {total_aal}%
 - Number of Affected Sites: {risk["num_affected_sites"]}
 
-Affected Sites:
+Affected Sites (with Building Characteristics):
 {sites_info}
+
+Building-Specific Impact Analysis Guide:
+{building_impact_guide}
+
+Additional Site-Specific Context (from Excel data):
+{additional_context}
 
 Scenario Analysis Context:
 {scenario_summary}
@@ -376,23 +435,27 @@ Generate a comprehensive impact analysis in Korean with 3 sections:
 - Estimated financial exposure in KRW (billion won)
 - Impact on key financial metrics (revenue, EBITDA, etc.)
 - Insurance considerations
+- Reference building structural grades where relevant
 - 2-3 paragraphs
 
 2. 운영적 영향 (Operational Impact)
 - Critical operations at risk
 - Estimated downtime or service disruption
 - Supply chain and interdependency effects
+- Consider building vulnerabilities in operational risk
 - 2-3 paragraphs
 
 3. 자산 영향 (Asset Impact)
-- Physical damage assessment
-- Infrastructure vulnerabilities
+- Physical damage assessment based on building characteristics
+- Infrastructure vulnerabilities (cite specific building vulnerabilities)
 - Long-term asset degradation
+- Building resilience factors that may mitigate impacts
 - 2-3 paragraphs
 
 Summary (1 paragraph)
 - Overall assessment of risk severity
 - Key numbers: AAL, estimated loss, affected sites
+- Building-specific factors affecting overall risk
 - Urgency level: immediate action needed or manageable?
 
 Formatting:
@@ -400,6 +463,7 @@ Formatting:
 - Bold key metrics (AAL, costs, downtime)
 - Use bullet points for lists
 - Cite specific numbers from input data
+- Reference building grades (e.g., "B등급 건물의 경우...")
 
 Length: 600-900 words total (comprehensive but concise)
 
@@ -410,8 +474,9 @@ Before submitting, verify:
 - [ ] All 3 impact dimensions are analyzed with equal depth
 - [ ] Financial impact includes specific KRW estimates
 - [ ] Operational impact cites affected sites and operations
-- [ ] Asset impact describes physical vulnerabilities
-- [ ] Summary synthesizes key findings
+- [ ] Asset impact describes physical vulnerabilities from building data
+- [ ] Building structural grades are referenced where relevant
+- [ ] Summary synthesizes key findings including building factors
 - [ ] Tone matches the reference template style
 - [ ] Output is ready for direct inclusion in TCFD Strategy section
 </QUALITY_CHECKLIST>
@@ -424,9 +489,10 @@ Now, generate the impact analysis as a JSON object with keys:
         try:
             response = await self.llm.ainvoke(prompt)
 
-            # JSON 파싱 시도
-            if response.strip().startswith("{"):
-                parsed = json.loads(response)
+            # JSON 파싱 시도 (마크다운 코드 블록 처리)
+            json_str = self._extract_json_from_response(response)
+            if json_str:
+                parsed = json.loads(json_str)
                 return {
                     "risk_type": risk_type,
                     "rank": risk["rank"],
@@ -470,6 +536,150 @@ Now, generate the impact analysis as a JSON object with keys:
 
         return "\n".join(lines)
 
+    def _format_affected_sites_with_building(self, affected_sites: List[Dict]) -> str:
+        """건물 특성을 포함한 사업장 정보 포맷팅"""
+        if not affected_sites:
+            return "No sites affected"
+
+        lines = []
+        for site in affected_sites[:5]:  # 최대 5개만 표시
+            site_name = site.get("site_name", "Unknown")
+            aal = site.get("aal", 0)
+
+            # 기본 정보
+            site_line = f"- **{site_name}**: AAL {aal}%"
+
+            # 건물 특성 정보 추가
+            bc = site.get("building_characteristics", {})
+            if bc:
+                grade = bc.get("structural_grade", "N/A")
+                vulnerabilities = bc.get("vulnerabilities", [])
+                resilience = bc.get("resilience", [])
+
+                site_line += f"\n  - 구조등급: {grade}"
+
+                if vulnerabilities:
+                    vuln_str = ", ".join(v.get("category", str(v)) if isinstance(v, dict) else str(v)
+                                        for v in vulnerabilities[:3])
+                    site_line += f"\n  - 취약점: {vuln_str}"
+
+                if resilience:
+                    res_str = ", ".join(r.get("factor", str(r)) if isinstance(r, dict) else str(r)
+                                       for r in resilience[:3])
+                    site_line += f"\n  - 복원력: {res_str}"
+
+            lines.append(site_line)
+
+        if len(affected_sites) > 5:
+            lines.append(f"- ... (총 {len(affected_sites)}개 사업장)")
+
+        return "\n".join(lines)
+
+    def _extract_building_impact_guide(self, affected_sites: List[Dict], risk_type: str) -> str:
+        """건물 특성 기반 영향 분석 가이드 추출 (BC Agent agent_guidelines 활용)"""
+        guides = []
+
+        for site in affected_sites[:5]:  # 최대 5개 사업장
+            bc = site.get("building_characteristics", {})
+            agent_guidelines = bc.get("agent_guidelines", {})
+
+            if not agent_guidelines:
+                continue
+
+            site_name = site.get("site_name", "Unknown")
+
+            # impact_analysis_guide 섹션 추출 (BC Agent v08 형식)
+            impact_guide = agent_guidelines.get("impact_analysis_guide", {})
+            if impact_guide:
+                guide_parts = [f"**{site_name}**:"]
+
+                # 재무적 영향 가이드 (financial_impact)
+                financial = impact_guide.get("financial_impact", {})
+                if financial:
+                    exposure = financial.get("estimated_exposure", "N/A")
+                    cost_drivers = financial.get("key_cost_drivers", [])
+                    narrative = financial.get("narrative", "")
+                    guide_parts.append(f"  - 재무 노출: {exposure}")
+                    if cost_drivers:
+                        guide_parts.append(f"    비용 요인: {', '.join(cost_drivers[:3])}")
+                    if narrative:
+                        guide_parts.append(f"    분석: {narrative[:100]}...")
+
+                # 운영적 영향 가이드 (operational_impact)
+                operational = impact_guide.get("operational_impact", {})
+                if operational:
+                    downtime = operational.get("estimated_downtime", "N/A")
+                    critical_systems = operational.get("critical_systems_at_risk", [])
+                    narrative = operational.get("narrative", "")
+                    guide_parts.append(f"  - 운영: 예상 다운타임 {downtime}")
+                    if critical_systems:
+                        guide_parts.append(f"    위험 시스템: {', '.join(critical_systems[:3])}")
+                    if narrative:
+                        guide_parts.append(f"    분석: {narrative[:100]}...")
+
+                # 자산 영향 가이드 (asset_impact)
+                asset = impact_guide.get("asset_impact", {})
+                if asset:
+                    vulnerable = asset.get("vulnerable_assets", [])
+                    damage_potential = asset.get("damage_potential", "N/A")
+                    narrative = asset.get("narrative", "")
+                    if vulnerable:
+                        guide_parts.append(f"  - 자산: 취약 자산 - {', '.join(vulnerable[:3])}")
+                    guide_parts.append(f"    손상 가능성: {damage_potential}")
+                    if narrative:
+                        guide_parts.append(f"    분석: {narrative[:100]}...")
+
+                guides.append("\n".join(guide_parts))
+
+        if not guides:
+            return "건물 특성 기반 가이드 없음 (기본 분석 수행)"
+
+        return "\n\n".join(guides)
+
+    def _extract_additional_data_context(
+        self,
+        additional_data: Optional[Dict[str, Any]],
+        affected_sites: List[Dict]
+    ) -> str:
+        """Excel 추가 데이터에서 사업장별 컨텍스트 추출 (AD Agent site_specific_guidelines 활용)"""
+        if not additional_data:
+            return "추가 데이터 없음"
+
+        site_guidelines = additional_data.get("site_specific_guidelines", {})
+        if not site_guidelines:
+            return "추가 데이터 없음"
+
+        contexts = []
+
+        # 영향받는 사업장들에 대한 추가 데이터 추출
+        for site in affected_sites[:5]:  # 최대 5개 사업장
+            site_id = site.get("site_id")
+            site_name = site.get("site_name", "Unknown")
+
+            if site_id in site_guidelines:
+                guideline = site_guidelines[site_id]
+                guideline_text = guideline.get("guideline", "")
+                key_insights = guideline.get("key_insights", [])
+
+                if guideline_text or key_insights:
+                    context_parts = [f"**{site_name}**:"]
+
+                    # 핵심 인사이트 추출
+                    if key_insights:
+                        context_parts.append(f"  - 핵심 인사이트: {', '.join(key_insights[:3])}")
+
+                    # 가이드라인 요약 (처음 200자)
+                    if guideline_text and len(guideline_text) > 50:
+                        summary = guideline_text[:200] + "..." if len(guideline_text) > 200 else guideline_text
+                        context_parts.append(f"  - 요약: {summary}")
+
+                    contexts.append("\n".join(context_parts))
+
+        if not contexts:
+            return "해당 사업장에 대한 추가 데이터 없음"
+
+        return "\n\n".join(contexts)
+
     def _format_sample_paragraphs(self, paragraphs: List[str]) -> str:
         """샘플 문단 포맷팅"""
         if not paragraphs:
@@ -480,6 +690,60 @@ Now, generate the impact analysis as a JSON object with keys:
             formatted.append(f"{i}. {para}")
 
         return "\n".join(formatted)
+
+    def _ensure_string(self, value: Any) -> str:
+        """
+        값을 문자열로 변환 (dict/list인 경우 JSON 문자열로)
+
+        Args:
+            value: 변환할 값
+
+        Returns:
+            str: 문자열 값
+        """
+        if value is None:
+            return "분석 중"
+        if isinstance(value, str):
+            return value
+        if isinstance(value, (dict, list)):
+            return json.dumps(value, ensure_ascii=False, indent=2)
+        return str(value)
+
+    def _extract_json_from_response(self, response: str) -> Optional[str]:
+        """
+        LLM 응답에서 JSON 문자열 추출 (마크다운 코드 블록 처리)
+
+        Args:
+            response: LLM 응답 문자열
+
+        Returns:
+            Optional[str]: 추출된 JSON 문자열 또는 None
+        """
+        import re
+
+        # 1. 마크다운 코드 블록에서 JSON 추출 (```json ... ``` 또는 ``` ... ```)
+        json_block_pattern = r'```(?:json)?\s*([\s\S]*?)\s*```'
+        matches = re.findall(json_block_pattern, response)
+
+        if matches:
+            # 첫 번째 코드 블록 내용 확인
+            for match in matches:
+                content = match.strip()
+                if content.startswith('{') and content.endswith('}'):
+                    return content
+
+        # 2. 코드 블록 없이 직접 JSON인 경우
+        response_stripped = response.strip()
+        if response_stripped.startswith('{') and response_stripped.endswith('}'):
+            return response_stripped
+
+        # 3. 응답 내에서 { ... } 패턴 찾기
+        json_pattern = r'\{[\s\S]*\}'
+        match = re.search(json_pattern, response)
+        if match:
+            return match.group(0)
+
+        return None
 
     def _parse_text_response(self, response: str, risk_type: str, rank: int, total_aal: float) -> Dict:
         """텍스트 응답을 섹션별로 분리 (간단한 파싱)"""
@@ -519,7 +783,7 @@ Now, generate the impact analysis as a JSON object with keys:
             "rank": risk["rank"],
             "total_aal": total_aal,
             "financial_impact": f"{risk_name_kr} 리스크로 인한 재무적 영향은 AAL {total_aal}%로 산정되었습니다.",
-            "operational_impact": f"{risk["num_affected_sites"]}개 사업장의 운영에 영향을 미칠 것으로 예상됩니다.",
+            "operational_impact": f"{risk['num_affected_sites']}개 사업장의 운영에 영향을 미칠 것으로 예상됩니다.",
             "asset_impact": "자산 손상 및 설비 피해가 예상됩니다.",
             "summary": f"{risk_name_kr}는 Top {risk['rank']} 리스크로 식별되었습니다."
         }
@@ -549,24 +813,25 @@ Now, generate the impact analysis as a JSON object with keys:
             # 영향 분석 내용 조합
             content_parts = []
 
-            # 요약
-            if impact.get("summary"):
-                content_parts.append(impact["summary"])
+            # 요약 (dict/list인 경우 문자열로 변환)
+            summary = impact.get("summary")
+            if summary:
+                content_parts.append(self._ensure_string(summary))
                 content_parts.append("")
 
             # 재무적 영향
             content_parts.append("### 재무적 영향")
-            content_parts.append(impact.get("financial_impact", "분석 중"))
+            content_parts.append(self._ensure_string(impact.get("financial_impact", "분석 중")))
             content_parts.append("")
 
             # 운영적 영향
             content_parts.append("### 운영적 영향")
-            content_parts.append(impact.get("operational_impact", "분석 중"))
+            content_parts.append(self._ensure_string(impact.get("operational_impact", "분석 중")))
             content_parts.append("")
 
             # 자산 영향
             content_parts.append("### 자산 영향")
-            content_parts.append(impact.get("asset_impact", "분석 중"))
+            content_parts.append(self._ensure_string(impact.get("asset_impact", "분석 중")))
 
             content = "\n".join(content_parts)
 

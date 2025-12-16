@@ -1,37 +1,716 @@
-# Polaris Backend FastAPI Project Understanding
+# TCFD 보고서 생성 시스템 - 현재 상황 인식 문서
 
-## Overview
+**작성일:** 2025-12-15 (업데이트)
+**버전:** v2.1 (7-Node Refactoring)
+**목적:** 새로운 세션에서 빠르게 시스템 현황을 파악하여 TCFD 보고서 생성 에이전트 개발에 활용
 
-The Polaris backend is a well-structured FastAPI application designed to serve as an interface to a complex AI analysis engine, specifically for physical risk assessment. It follows a standard layered architecture, separating concerns into distinct modules for routes, services, schemas, and core functionalities.
+---
 
-## Core Architecture
+## 목차
 
-The application adheres to a typical web service pattern:
+1. [시스템 개요](#시스템-개요)
+2. [아키텍처 구조](#아키텍처-구조)
+3. [활용 가능한 데이터](#활용-가능한-데이터)
+4. [다음 단계](#다음-단계)
 
-- **`main.py`**: The application's main entry point, responsible for initializing the FastAPI app, including API routers, and managing the lifecycle of singleton services.
-- **`src/core/`**: Contains cross-cutting concerns such as:
-  - `config.py`: Defines application settings using Pydantic's `BaseSettings`, including database URLs, API keys, and a `USE_MOCK_DATA` flag for development.
-  - `auth.py`: Implements API key-based security for endpoint protection.
-  - `logging_config.py`: Configures the application's logging.
-  - `errors.py`: Defines custom error handling.
-  - `middleware.py`: Handles global middleware for requests.
-- **`src/schemas/`**: Defines Pydantic models for request and response data validation and serialization across various API domains (e.g., `analysis`, `reports`).
-- **`src/routes/`**: Defines API endpoints using FastAPI's APIRouter. These act as "thin controllers," primarily handling request parsing, authentication, and delegating business logic to the corresponding services.
-- **`src/services/`**: Contains the core business logic for different domains. Services orchestrate operations, interact with data sources, and integrate with external components like the AI analysis engine.
+---
 
-## AI Agent Integration
+## 시스템 개요
 
-A key component of this backend is its integration with an AI analysis engine, managed by the `ai_agent` module.
+### 목표
+**기업 ESG 보고서의 TCFD(기후변화 관련 재무정보 공개) 섹션을 생성하는 AI Agent 시스템**
 
-- The `ai_agent` module is a self-contained Python package, integrated directly into the FastAPI application rather than being a separate microservice.
-- The `AnalysisService` (`src/services/analysis_service.py`) acts as the primary bridge, importing and invoking the `SKAXPhysicalRiskAnalyzer` class from the `ai_agent` package to perform complex AI-driven risk analysis.
-- The `ai_agent` module itself appears to have a sophisticated internal structure, with `workflow/` and `agents/` subdirectories, suggesting a graph-based workflow orchestrating various specialized AI agents for different parts of the analysis. Further investigation is needed to fully understand its internal mechanics.
+### 핵심 요구사항
+1. **TCFD 권고안 준수**: 4개 핵심 영역 (Governance, Strategy, Risk Management, Metrics & Targets)
+2. **기존 보고서 스타일 참조**: 기업별 보고서 스타일/톤 반영
+3. **데이터 기반 분석**: Physical Risk Score (H×E×V), AAL (Annual Average Loss)
+4. **LLM 활용**: GPT-4.1 사용
+5. **출력**: JSON (프론트엔드에서 PDF 생성), JSONB DB 저장
 
-## Key Features
+### 현재 상태 (2025-12-15)
+- ✅ **7-Node 구조 완료**: Node 0 ~ Node 6 (10개 → 7개로 통합)
+- ✅ **JSON 블록 생성**: TableBlock, HeatmapTableBlock, LineChartBlock, TextBlock 구현
+- ✅ **스키마 정의**: schemas.py (Pydantic 모델 394줄)
+- ✅ **문서 완료**: 최종 JSON 구조 문서 ([tcfd_report_final_structure.md](../tcfd_report_final_structure.md))
+- 🚧 **진행 중 (50%)**: Node 0 DB 쿼리, LLM 프롬프트, workflow.py 업데이트
+- 📌 **참조 문서**: [tcfd_report_refactoring_plan.md](../planning/tcfd_report_refactoring_plan.md)
 
-- **API Key Authentication**: Endpoints are secured using API keys defined in `src/core/auth.py`.
-- **Configuration Management**: Centralized configuration via `src/core/config.py`, supporting environment-specific settings.
-- **Mock Data Mode**: A `USE_MOCK_DATA` flag allows developers to run the application with mock data, facilitating development and testing without requiring a full data pipeline.
-- **In-memory Caching**: Services utilize in-memory caching to optimize performance.
+---
 
-This document provides a high-level understanding of the Polaris backend. For deeper insights into specific components, refer to the individual module documentation and source code.
+## 아키텍처 구조
+
+### 전체 구조
+
+```
+
+   Spring Boot Frontend
+   (사용자 인터페이스, 사업장 관리)
+            │
+            │
+            ▼
+
+        ┌         ┐
+
+  FastAPI Backend          ModelOps Backend
+  (AI Agent 및 보고서 생성)  (H×E×V 계산 엔진)
+  Port: 8000               Port: 8001
+
+
+                  │
+                   ▼
+
+          PostgreSQL (GCP)
+          - application DB
+          - datawarehouse DB
+
+                   │
+                   ▼
+
+          Qdrant Vector DB
+          (RAG - 기존 보고서)
+
+```
+
+### 데이터베이스 구조
+
+#### Application DB (10개 테이블)
+- **사용자 관련** (5개): users, refresh_tokens, google_oauth_tokens, verification_codes, password_reset_tokens
+- **사업장** (1개): sites (latitude, longitude, road_address, type)
+- **분석 작업** (1개): analysis_jobs (job_id, status, progress, current_node)
+- **보고서** (1개): reports (report_content JSONB, markdown_url, pdf_url)
+- **기준 데이터** (2개): industries (16개), hazard_types (9개)
+
+#### Datawarehouse DB (55개 테이블)
+**핵심 테이블:**
+- **Location** (3개): location_admin (5,259개), location_grid (451,351개), sea_level_grid (80개)
+- **기후 데이터** (25개): 온도/강수/바람 기후 변수, SSP 시나리오 4개 (ssp1, ssp2, ssp3, ssp5)
+- **ModelOps 계산 결과** (5개):
+  - `hazard_results`: 위험요인 Hazard 점수
+  - `probability_results`: 발생 확률 및 base_aal
+  - `exposure_results`: Site별 Exposure 점수
+  - `vulnerability_results`: Site별 Vulnerability 점수
+  - `aal_scaled_results`: Site별 최종 AAL (final_aal = base_aal × F_vuln × (1-IR))
+- **API 연동** (11개): 건물대장, WAMIS, 재난연보, 긴급재난문자, 통계청 등
+- **사용자 데이터** (2개): site_additional_data (JSONB), batch_jobs
+
+### 9가지 Physical Risks
+
+| 리스크 | 영문 | 핵심 지표 | 데이터 테이블 |
+|--------|------|----------|--------------|
+| 극심한 고온 | extreme_heat | WSDI | wsdi_data |
+| 극심한 저온 | extreme_cold | CSDI | csdi_data |
+| 가뭄 | drought | SPEI-12 | spei12_data |
+| 하천 범람 | river_flood | RX5DAY | rx5day_data |
+| 도시 침수 | urban_flood | RX1DAY | rx1day_data |
+| 해수면 상승 | sea_level_rise | 해수면 높이 (cm) | sea_level_data |
+| 태풍 | typhoon | 빈도, 강도 평균 | api_typhoon_besttrack |
+| 산불 | wildfire | FWI | ta_data, rn_data, ws_data, rhm_data |
+| 물 스트레스 | water_stress | 물 수요-공급 격차 | water_stress_rankings |
+
+---
+
+## 활용 가능한 데이터
+
+### 1. 물리적 리스크 분석 (기본 계산)
+
+#### 가. Physical Risk Score (H × E × V)
+```python
+{
+    "extreme_heat": {
+        "hazard": 85.3,           # 0-100 (DB: hazard_results)
+        "exposure": 72.1,         # 0-100 (DB: exposure_results)
+        "vulnerability": 65.8,    # 0-100 (DB: vulnerability_results)
+        "integrated_risk": 40.5,  # H×E×V/10000
+        "scenarios": {
+            "ssp1_2.6": {...},
+            "ssp2_4.5": {...},
+            "ssp3_7.0": {...},
+            "ssp5_8.5": {...}
+        }
+    },
+    # ... 나머지 8개 리스크
+}
+```
+
+**출처:** ModelOps Backend (`/api/v1/site-assessment/calculate`)
+
+#### 나. AAL (Annual Average Loss)
+```python
+{
+    "extreme_heat": {
+        "base_aal": 2.5,         # % (DB: probability_results)
+        "final_aal": 0.774,      # % (DB: aal_scaled_results)
+        "timeline": {
+            "years": [2024, 2025, ..., 2100],
+            "ssp1_2.6": [...],
+            "ssp2_4.5": [...],
+            "ssp3_7.0": [...],
+            "ssp5_8.5": [...]
+        }
+    },
+    # ... 나머지 8개 리스크
+}
+```
+
+**출처:** ModelOps Backend
+
+---
+
+### 2. 리스크 인사이트 지식베이스 (Knowledge)
+
+#### 가. risk_insight.py (1,395줄) - **핵심 자료**
+**위치:** `polaris_backend_fastapi/ai_agent/utils/knowledge/risk_insight.py`
+
+**9가지 리스크별 2가지 데이터 메타데이터** (AAL, Risk Score) 각각 상세 메타데이터:
+
+```python
+risk_insight = {
+    "극심한 고온": {
+        "risk_id": "extreme_heat",
+        "aal_data": {
+            "WSDI": {
+                "full_name": "Warm Spell Duration Index",
+                "definition": "연속 며칠 동안 일최고기온이 90분위 값을 초과...",
+                "unit": "일/년 (days)",
+                "data_source": "KMA 기상청",
+                "calculation_method": "발생 빈도 bin 분류 (Q80, Q90, Q95, Q99)",
+                "bin_descriptions": {
+                    "bin_0 (< Q80)": "낮음 - 손실액 0.1%",
+                    "bin_1 (Q80-Q90)": "약간 높음 - 손실액 0.5%",
+                    "bin_2 (Q90-Q95)": "높음 - 손실액 1.5%",
+                    "bin_3 (Q95-Q99)": "매우 높음 - 손실액 2.8%",
+                    "bin_4 (≥ Q99)": "극심함 - 손실액 3.5%"
+                },
+                "impacts_on": {
+                    "financial_risk": "냉방비 증가로 OPEX 상승 ...",
+                    "operational_risk": "고온으로 인한 작업 중단 발생...",
+                    "reputation_risk": "기후 대응 역량 부족으로 ESG 평가 하락..."
+                },
+                "used_in": [
+                    "Impact Analysis: 재무 영향 추정 기반 정보 제공",
+                    "Strategy Generation: 단기 냉방비 절감 방안...",
+                    "Report Generation: TCFD 물리적 리스크 섹션..."
+                ]
+            }
+        },
+        "risk_score_data": {
+            "HCI": {
+                "data_name": "열지수 복합지수",
+                "mapped_variables": ["TXx", "TR25", "WSDIx", "SU25"],
+                "scientific_evidence": "IPCC AR6 WGI & 기상청 SSP 시나리오...",
+                "threshold_interpretation": {
+                    "High (> 0.8)": "극단적 폭염. 24시간 냉방 가동...",
+                    "Moderate (0.2 ~ 0.4)": "보통 폭염 주의..."
+                },
+                "financial_impact_type": {
+                    "Category": "OPEX (운영비) 및 사업 중단 리스크",
+                    "Mechanism": "냉방 부하 증가로 인한 전력 비용 상승 ...",
+                    "Sensitivity": "HCI 값이 높을수록 비용 증가 폭 3~5% 상승"
+                },
+                "mitigation_keyword": {
+                    "Engineering": "고온 대비 냉각탑 점검, 단열 성능 개선",
+                    "Operational": "피크 전력 사용 시간대 관리"
+                }
+            },
+            # ... UHI_Intensity, Building_Vulnerability 등
+        }
+    },
+    # ... 나머지 8개 리스크
+}
+```
+
+**각 리스크별 포함 정보:**
+- **정의** (definition): 과학적 정의
+- **과학적 근거** (scientific_evidence): IPCC AR6, 기상청 SSP 등
+- **단위** (unit): 측정 단위
+- **데이터 출처** (data_source): 출처
+- **Bin 분류** (bin_descriptions): 5단계 위험도 분류 + 손실액
+- **영향 분야** (impacts_on): financial/operational/reputation risk
+- **Agent별 사용처** (used_in): Impact Analysis, Strategy Generation, Report Generation
+- **완화 키워드** (mitigation_keyword): Engineering, Operational, Nature-based 대응 방안
+- **임계값 해석** (threshold_interpretation): High/Moderate 기준
+- **재무 영향 유형** (financial_impact_type): Category, Mechanism, Sensitivity
+
+#### 나. risk_context_builder.py (450줄)
+**위치:** `polaris_backend_fastapi/ai_agent/utils/knowledge/risk_context_builder.py`
+
+**Agent별로 필요한 맥락만 선택적으로 추출하는 헬퍼 클래스**
+
+```python
+from ai_agent.utils.knowledge.risk_context_builder import RiskContextBuilder
+
+builder = RiskContextBuilder()
+
+# Impact Analysis Agent용 컨텍스트
+impact_context = builder.get_impact_context(["extreme_heat", "drought"])
+# 포함: AAL 데이터, Risk Score, 임계값 해석, 영향 분야
+
+# Strategy Generation Agent용 컨텍스트
+strategy_context = builder.get_strategy_context(["extreme_heat"])
+# 포함: 리스크 정의, 과학적 근거, 완화 키워드, 데이터 출처
+
+# Report Composer Agent용 컨텍스트
+report_context = builder.get_report_context(["extreme_heat"])
+# 포함: 전체 데이터, 단위, Bin 분류, 사용 용도
+
+# Validation Agent용 컨텍스트
+validation_context = builder.get_validation_context(["extreme_heat"])
+# 포함: 데이터 출처, 영향 분야, 임계값 기준
+
+# LLM 프롬프트 포맷팅
+formatted = builder.format_for_prompt(impact_context, format_type="json")
+# 또는 format_type="markdown"
+```
+
+---
+
+### 3. RAG 데이터 (기존 보고서 참조)
+
+#### 가. Qdrant Vector Store
+**위치:** `polaris_backend_fastapi/ai_agent/utils/rag_helpers.py`
+
+**컬렉션:** `esg_tcfd_reports` (기존 ESG/TCFD 보고서 PDF 임베딩)
+
+**포함 내용:**
+- 기존 기업 ESG/TCFD 보고서 PDF (삼성, 구글, 애플 등)
+- TCFD 권고안 (4개 핵심 영역별 가이드라인)
+- 물리적 리스크 관련 설명 예시 근거
+- AAL 산출 방법론 및 과학적 출처
+
+```python
+from ai_agent.utils.rag_helpers import RAGEngine
+
+rag = RAGEngine(source="benchmark")  # 또는 "qdrant"
+docs = rag.query("TCFD 물리적 리스크 전략 예시", top_k=20)
+citations = rag.get_citations(docs)
+
+# 반환 형식:
+# [
+#   {
+#     "id": "doc_1",
+#     "text": "Sample reference text - ESG/TCFD benchmark example",
+#     "source": "Company A 2024 ESG Report",
+#     "score": 0.85,
+#     "metadata": {
+#       "company_name": "Company A",
+#       "report_year": 2024,
+#       "report_type": "ESG",
+#       "section_type": "governance"
+#     }
+#   },
+#   ...
+# ]
+```
+
+**환경 변수:**
+```env
+QDRANT_URL=http://localhost:6333
+QDRANT_API_KEY=your-api-key
+QDRANT_COLLECTION=esg_tcfd_reports
+RAG_MOCK_MODE=false  # true 시 Mock 데이터 사용
+```
+
+---
+
+### 4. LLM 기반 분석 (기존 에이전트)
+
+#### 가. Vulnerability Analysis Agent 출력
+**위치:** `polaris_backend_fastapi/ai_agent/agents/data_processing/vulnerability_analysis_agent.py`
+
+**건물대장 관련 API 데이터 기반 LLM 분석:**
+
+```python
+result = {
+    "meta": {
+        "analyzed_at": "2025-12-14T10:30:00",
+        "location": {"lat": 37.5665, "lon": 126.9780},
+        "data_source": "Architectural HUB API (TCFD Enhanced)"
+    },
+    "building_data": {
+        "physical_specs": {
+            "age": {"years": 25, "approval_date": "1999-05-10"},
+            "structure": "철근콘크리트",
+            "floors": {"ground": 10, "underground": 2},
+            "seismic": {
+                "applied": "Y",
+                "ability": "VII-0.179g",
+                "buildings_with_design": 3,
+                "buildings_without_design": 0
+            }
+        },
+        "floor_details": [
+            {
+                "floor_no": -2,
+                "type": "Underground",
+                "area": 850.5,
+                "usage_main": "기계실",
+                "usage_etc": "전기실, 발전기실",
+                "is_potentially_critical": true
+            },
+            # ... 총 12개 층 정보
+        ],
+        "transition_specs": {
+            "energy_grade": "1+등급",
+            "green_grade": "우수"
+        },
+        "geo_risks": {
+            "river": {"distance_m": 250.0, "name": "한강"},
+            "coast_distance_m": 15000.0
+        }
+    },
+    "structural_grade": "B (Good)",  # A~E 등급
+    "vulnerabilities": [
+        {
+            "category": "Flood/Operational",
+            "factor": "지하 중요 시설 의심",
+            "severity": "High",
+            "description": "지하층에 전기실/기계실 등 중요 시설이 위치할 가능성이 높으며 홍수 시 침수로 가동 중단 우려가 큼"
+        },
+        {
+            "category": "Flood",
+            "factor": "하천 인접",
+            "severity": "High",
+            "description": "하천으로부터 250m 거리로 홍수 범람 시 침수 가능성 높음"
+        }
+    ],
+    "resilience": [
+        {
+            "category": "Seismic",
+            "factor": "내진 설계 적용",
+            "strength": "Very High",
+            "description": "내진 설계가 적용된 철근콘크리트 구조로 구조 등급 양호함"
+        },
+        {
+            "category": "Transition",
+            "factor": "에너지효율 등급",
+            "strength": "High",
+            "description": "에너지효율 '1+등급' 취득, 전력 소비 리스크 및 탄소 배출량이 낮은 편"
+        }
+    ],
+    "analysis_report": "## 건물 물리적 취약성 종합 분석\n\n### 1. 취약성 요인 분석\n본 건물은 1999년도에 준공된 철근콘크리트 구조로 총 10층, 지하 2층 건축물입니다. 내진 설계가 적용되어 지진 등급은 양호하나, 지하층에 기계실, 전기실, 발전기실 등 핵심 설비가 위치하고 하천으로부터 250m 거리로 홍수 시 침수 리스크가 높은 것으로 판단됩니다...\n\n### 2. 구조 등급 및 내진성 평가\n...\n\n### 3. 홍수 및 침수 리스크 분석\n지하 2층에 '기계실', '전기실', '발전기실' 등 핵심 설비가 위치한 건물 특성상 침수 시 심각한 사업 연속성 위험 우려가 있습니다...\n\n### 4. 전환 리스크 및 회복력 요인 분석\n에너지효율 1+등급 및 우수 녹색건축 등급을 보유하여 전환 리스크에 대응 가능한 회복력이 높습니다...\n\n### 5. 권고 사항\n1. 지하 중요 시설의 침수 방지 조치 및 백업 계획 수립\n2. 홍수 시나리오 기반 BCP(Business Continuity Plan) 수립\n3. 하천 범람 조기 경보 시스템 연계 고려\n..."
+}
+```
+
+**사용 용도:**
+- `vulnerabilities`, `resilience`: TCFD Risk Management 섹션에 사용
+- `structural_grade`: Metrics & Targets 섹션에 사용
+- `analysis_report`: Strategy 섹션의 LLM 생성 근거로 사용
+- `floor_details`의 `usage_etc`: 홍수 리스크 추가 분석 사용
+
+#### 나. Building Characteristics Agent 출력
+**위치:** `polaris_backend_fastapi/ai_agent/agents/data_processing/building_characteristics_agent.py`
+
+**LLM 기반 요약 정보 (건물 특성):**
+
+```python
+{
+    "building_info": {
+        "main_building": {
+            "structure_type": "철근콘크리트",
+            "total_area": 8500.5,
+            "building_age": 25,
+            "floors": 10
+        }
+    },
+    "qualitative_analysis": "본 건물은 내진 설계 기반 철근콘크리트 구조로, 전반적 기후 회복력은 양호합니다. 다만, 지하층 중요 시설 위치로 홍수 리스크 관련 취약성이 존재합니다..."
+}
+```
+
+---
+
+### 5. 사업장 정보 (DB + API)
+
+#### 가. 기본 정보 (sites 테이블)
+```python
+{
+    "site_id": 123,
+    "name": "서울 본사",
+    "latitude": 37.5665,
+    "longitude": 126.9780,
+    "road_address": "서울시 종로구 세종대로 110",
+    "jibun_address": "서울시 종로구 세종로1가 31",
+    "type": "office",  # industries.type (16개 중 1개)
+    "grid_id": 45123,
+    "admin_code": "11010"
+}
+```
+
+#### 나. 건물 메타 정보 (건물HUB API)
+**출처:** `polaris_backend_fastapi/ai_agent/utils/building_data_fetcher.py`
+
+**참조 문서:** `polaris_backend_fastapi/docs/03_api_documentation/references/OpenAPI스펙_건물HUB_건물대장_1.0/건물HUB API - TCFD 보고서 생성에 사용 가능한 필드.md`
+
+**핵심 필드:**
+- `totArea`: 연면적 (건물 규모)
+- `archArea`: 건축면적
+- `mainPurpsCd`: 주용도코드 (오피스 건물 분류용)
+- `strctCd`: 구조코드 (철골/콘크리트 판별)
+- `grndFlrCnt` / `ugrndFlrCnt`: 지상/지하층수 (홍수 취약성)
+- `rserthqkAblty`: 내진능력 (내진 리스크)
+- `flrNo` / `area` / `etcPurps`: 층별 정보 (홍수 시 중요 시설 판별)
+
+#### 다. 사용자 제공 추가 데이터 (site_additional_data 테이블)
+```python
+{
+    "category": "building",  # building/asset/power/insurance/custom
+    "data": {
+        "renovation_year": 2023,
+        "solar_panel_capacity": "200kW",
+        "LEED_certification": "Gold",
+        "emergency_power": true
+    }
+}
+```
+
+**출처:** `polaris_backend_fastapi/ai_agent/utils/additional_data_helper.py`
+- LLM 기반 관련성 판단
+- Agent별 맞춤 가이드 데이터 추출
+
+---
+
+### 6. 기존 보고서 스타일 정보 (Report Profile)
+
+#### report_profile (기존 보고서 톤 추출)
+**위치:** `polaris_backend_fastapi/ai_agent/agents/report_generation/report_analysis_agent_1.py`
+
+```python
+{
+    "tone": {
+        "style": "formal",
+        "tense": "present",
+        "vocabulary_level": "professional",
+        "sentence_structure": "clear and concise"
+    },
+    "section_structure": {
+        "main_sections": [
+            "executive_summary",
+            "governance",
+            "strategy",
+            "risk_management",
+            "metrics_and_targets"
+        ]
+    },
+    "tcfd_structure": {
+        "governance": "Climate governance structure and processes",
+        "strategy": "Climate-related risks and opportunities",
+        "risk_management": "Risk identification, assessment and management",
+        "metrics_targets": "Key metrics and targets for climate performance"
+    },
+    "scenario_templates": {
+        "ssp1_2.6": "Low emissions scenario",
+        "ssp2_4.5": "Moderate emissions scenario",
+        "ssp3_7.0": "High emissions scenario",
+        "ssp5_8.5": "Very high emissions scenario"
+    },
+    "hazard_template_blocks": {
+        "extreme_heat": "극심한 고온으로 인한 영향: {description}. 대응 방안: {impact}.",
+        "extreme_cold": "극심한 저온으로 인한 영향: {description}. 대응 방안: {impact}.",
+        # ... 9개 리스크별 템플릿
+    },
+    "benchmark_KPIs": {
+        "carbon": ["scope1", "scope2", "scope3"],
+        "energy": ["total_consumption", "renewable_percentage"],
+        "water": ["withdrawal", "consumption", "recycling_rate"]
+    },
+    "reusable_paragraphs": {
+        "disclaimer": "본 분석은 기후 시나리오에 기반한 예측이며, 실제 결과와 차이가 있을 수 있습니다.",
+        "methodology": "TCFD 권고안에 기반한 물리적 리스크 분석 방법을 사용하였습니다.",
+        "data_sources": "기후 데이터는 CMIP6 및 한국 기상청 데이터를 사용하였습니다."
+    }
+}
+```
+
+---
+
+### 7. 프롬프트 템플릿 (기존 에이전트)
+
+#### 가. Executive Summary 프롬프트
+**위치:** `polaris_backend_fastapi/ai_agent/agents/report_generation/prompts/executive_summary_prompt.txt`
+
+**특징:**
+- TCFD/ESG 전문가 Role 설정
+- 4-6문장, Markdown 형식
+- Top 3 risks, Total financial loss 요약
+
+```xml
+<ROLE>
+You are an expert report writer specializing in TCFD and ESG disclosures for investors and regulatory bodies.
+</ROLE>
+
+<CONTEXT>
+<TOP_RISKS_SUMMARY>{top_risks}</TOP_RISKS_SUMMARY>
+<TOTAL_FINANCIAL_LOSS_SUMMARY>{total_loss}</TOTAL_FINANCIAL_LOSS_SUMMARY>
+<OVERALL_STRATEGY_SUMMARY>{overall_strategy}</OVERALL_STRATEGY_SUMMARY>
+</CONTEXT>
+
+<OUTPUT_FORMAT>
+- 4 to 6 sentences
+- Markdown formatted
+- DO NOT include section title/heading
+</OUTPUT_FORMAT>
+```
+
+#### 나. Section Generation 프롬프트
+**위치:** `polaris_backend_fastapi/ai_agent/agents/report_generation/prompts/section_generation_prompt.txt`
+
+**특징:**
+- 2-4 단락 생성
+- Citation 플레이스홀더 사용 `[[ref-id]]`
+
+```xml
+<ROLE>
+You are an expert report writer specializing in TCFD and ESG disclosures.
+</ROLE>
+
+<CONTEXT>
+<SECTION_DETAILS>
+Section Title: {section_title}
+Section Purpose: {section_description}
+</SECTION_DETAILS>
+
+<IMPACT_ANALYSIS_SUMMARY>{impact_summary}</IMPACT_ANALYSIS_SUMMARY>
+<STRATEGIES_DETAILS>{strategies}</STRATEGIES_DETAILS>
+</CONTEXT>
+
+<OUTPUT_FORMAT>
+- 2 to 4 paragraphs
+- Citation placeholders: [[ref-id]]
+- DO NOT include section title
+</OUTPUT_FORMAT>
+```
+
+---
+
+### 8. 외부 연동 데이터 (API 데이터)
+
+#### 가. 긴급재난문자 (api_emergency_messages)
+```python
+{
+    "hazard_type": "typhoon",
+    "date": "2023-08-10",
+    "description": "6호 태풍 카눈 접근 중...",
+    "distance_km": 12.5
+}
+```
+
+#### 나. 재난연보 (api_disaster_yearbook)
+- 과거 재해 발생 이력 및 피해액
+
+---
+
+### 9. TCFD 4개 핵심 영역별 데이터 매핑
+
+| TCFD 영역 | 활용 가능한 데이터 | 출처 |
+|-----------|-------------------|------|
+| **Governance** (지배구조) | - 기업 정보 (users, sites)<br>- 보고서 생성 이력 (reports) | Application DB |
+| **Strategy** (전략) | - 9가지 리스크별 시나리오 분석 (SSP1~5)<br>- AAL 타임라인 (2024~2100)<br>- 완화 키워드 (mitigation_keyword)<br>- LLM 요약 분석 (analysis_report) | risk_insight, ModelOps 계산 결과, vulnerability_analysis_agent |
+| **Risk Management** (리스크 관리) | - H × E × V 점수<br>- 확률 분포 (bin_probs)<br>- 임계값 해석 (threshold_interpretation)<br>- 취약성/회복력 요인 (vulnerabilities, resilience) | risk_insight, probability_results, vulnerability_analysis_agent |
+| **Metrics & Targets** (지표 및 목표) | - AAL (%, 금액)<br>- Physical Risk Score (0-100)<br>- 건물 구조 등급<br>- 내진능력<br>- 구조 등급 평가 (A~E) | AAL 결과, 건물HUB API, vulnerability_analysis_agent |
+
+---
+
+## 다음 단계
+
+### 1. TCFD 보고서 생성 에이전트 Node 구조 설계
+**참조할 기존 구조:**
+- 기존 보고서 에이전트 (7개 노드):
+  1. report_analysis_agent_1.py (보고서 스타일 추출)
+  2. impact_analysis_agent_2.py (영향 분석)
+  3. strategy_generation_agent_3.py (전략 생성)
+  4. report_composer_agent_4.py (보고서 조합)
+  5. validation_agent_5.py (검증)
+  6. refiner_agent_6.py (정제)
+  7. finalizer_node_7.py (최종화)
+
+**새로운 설계 고려사항:**
+- TCFD 4개 영역 (Governance, Strategy, Risk Management, Metrics & Targets)
+- 기존 보고서 스타일 참조 (RAG)
+- 데이터/요약 데이터 분리
+- 병렬 vs 순차 실행 전략
+
+### 2. 프롬프트 엔지니어링
+- TCFD 권고안 기반 프롬프트
+- risk_insight.py의 메타데이터 활용
+- RiskContextBuilder로 선택적 컨텍스트 추출
+
+### 3. 우선순위
+1. Node별 역할과 책임 정의
+2. 프롬프트 설계 및 테스트
+3. LangGraph 워크플로우 구현
+4. 검증 및 반복개선
+
+---
+
+## 핵심 파일 경로 요약
+
+### 리스크 인사이트
+- `ai_agent/utils/knowledge/risk_insight.py` (1,395줄)
+- `ai_agent/utils/knowledge/risk_context_builder.py` (450줄)
+
+### RAG
+- `ai_agent/utils/rag_helpers.py` (RAGEngine)
+- `ai_agent/utils/qdrant_vector_store.py` (QdrantVectorStore)
+
+### LLM 기반 Agent
+- `ai_agent/agents/data_processing/vulnerability_analysis_agent.py` (512줄)
+- `ai_agent/agents/data_processing/building_characteristics_agent.py`
+
+### 데이터 로더
+- `ai_agent/utils/building_data_fetcher.py` (건물대장 관련 API)
+- `ai_agent/utils/additional_data_helper.py` (사용자 제공 추가 데이터)
+
+### 기존 보고서 에이전트 (참조용)
+- `ai_agent/agents/report_generation/report_analysis_agent_1.py`
+- `ai_agent/agents/report_generation/impact_analysis_agent_2.py`
+- `ai_agent/agents/report_generation/strategy_generation_agent_3.py`
+- `ai_agent/agents/report_generation/report_composer_agent_4.py`
+- `ai_agent/agents/report_generation/validation_agent_5.py`
+- `ai_agent/agents/report_generation/refiner_agent_6.py`
+- `ai_agent/agents/report_generation/finalizer_node_7.py`
+
+### 프롬프트
+- `ai_agent/agents/report_generation/prompts/executive_summary_prompt.txt`
+- `ai_agent/agents/report_generation/prompts/section_generation_prompt.txt`
+
+### LangGraph Workflow
+- `ai_agent/workflow/state.py` (SuperAgentState 정의)
+- `ai_agent/workflow/graph.py`
+- `ai_agent/workflow/nodes.py`
+
+### 문서
+- `docs/for_better_understanding/Application.dbml`
+- `docs/for_better_understanding/Datawarehouse.dbml`
+- `docs/for_better_understanding/erd.md`
+- `docs/03_api_documentation/references/OpenAPI스펙_건물HUB_건물대장_1.0/건물HUB API - TCFD 보고서 생성에 사용 가능한 필드.md`
+- `docs/planning/tcfd_data_fetcher_enhancement_plan.md`
+
+---
+
+## 환경 설정
+
+### 필요 환경 변수
+```env
+# OpenAI
+OPENAI_API_KEY=your-openai-api-key
+
+# Qdrant (RAG)
+QDRANT_URL=http://localhost:6333
+QDRANT_API_KEY=your-qdrant-api-key
+QDRANT_COLLECTION=esg_tcfd_reports
+RAG_MOCK_MODE=false
+
+# LangSmith (추적용)
+LANGSMITH_API_KEY=your-langsmith-api-key
+LANGSMITH_PROJECT=skax-physical-risk-dev
+
+# ModelOps
+MODELOPS_API_URL=http://localhost:8001
+
+# 건물대장 관련 API
+PUBLICDATA_API_KEY=your-api-key
+VWORLD_API_KEY=your-api-key
+```
+
+---
+
+**이 문서를 통해 새로운 세션에서 즉시 TCFD 보고서 생성 에이전트 개발에 착수할 수 있습니다.**

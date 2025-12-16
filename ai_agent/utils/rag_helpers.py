@@ -3,11 +3,15 @@
 RAG Helper
 - LangGraph 에이전트용 RAG(Query & Citation) 유틸리티
 - Qdrant / Tavily / 기타 vector DB 지원
+- 기존 컬렉션 검색 지원 (1024 차원, named vector)
+
+수정 이력:
+- 2025-12-16: 기존 컬렉션 검색 지원 추가 (ExistingCollectionSearcher)
 """
 
 import os
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger("RAGHelper")
 if not logger.handlers:
@@ -21,12 +25,25 @@ logger.setLevel(logging.INFO)
 # RAG Engine
 # ============================================================
 class RAGEngine:
-    def __init__(self, source: str = "qdrant"):
+    """
+    RAG 검색 엔진
+
+    지원하는 source 타입:
+    - "qdrant": 기본 QdrantVectorStore (384 차원, 새 컬렉션용)
+    - "benchmark": qdrant와 동일
+    - "existing": 기존 컬렉션 검색 (1024 차원, SK 보고서 등)
+    - "tcfd_report": SK TCFD 보고서 전용 검색
+    - "risk_rag": 물리적 리스크 RAG 컬렉션 검색
+    """
+
+    def __init__(self, source: str = "existing", collection_names: Optional[List[str]] = None):
         """
         Args:
-            source: "qdrant", "tavily" 등 선택
+            source: "qdrant", "existing", "tcfd_report", "risk_rag" 등 선택
+            collection_names: 검색할 컬렉션 이름 리스트 (existing 모드에서만 사용)
         """
         self.source = source
+        self.collection_names = collection_names
         self.client = self._init_client(source)
         logger.info(f"[RAGEngine] Initialized with source={source}")
 
@@ -39,22 +56,35 @@ class RAGEngine:
             logger.info("[RAGEngine] Running in Mock mode (RAG_MOCK_MODE=true)")
             return None
 
+        qdrant_url = os.getenv('QDRANT_URL', 'http://localhost:6333')
+        qdrant_api_key = os.getenv('QDRANT_API_KEY')
+
         try:
-            if source in ["qdrant", "benchmark"]:
-                # QdrantVectorStore 초기화
+            # 기존 컬렉션 검색 모드 (1024 차원, named vector)
+            if source in ["existing", "tcfd_report", "risk_rag", "benchmark"]:
+                from .qdrant_vector_store import ExistingCollectionSearcher
+
+                logger.info(f"[RAGEngine] Initializing ExistingCollectionSearcher: {qdrant_url}")
+                client = ExistingCollectionSearcher(
+                    url=qdrant_url,
+                    api_key=qdrant_api_key
+                )
+                logger.info("[RAGEngine] ExistingCollectionSearcher initialized successfully")
+                return client
+
+            elif source == "qdrant":
+                # 기본 QdrantVectorStore (384 차원, 새 컬렉션용)
                 from .qdrant_vector_store import QdrantVectorStore
 
-                qdrant_url = os.getenv('QDRANT_URL', 'http://localhost:6333')
-                qdrant_api_key = os.getenv('QDRANT_API_KEY')
                 collection_name = os.getenv('QDRANT_COLLECTION', 'esg_tcfd_reports')
 
-                logger.info(f"[RAGEngine] Initializing Qdrant client: {qdrant_url}")
+                logger.info(f"[RAGEngine] Initializing QdrantVectorStore: {qdrant_url}")
                 client = QdrantVectorStore(
                     url=qdrant_url,
                     api_key=qdrant_api_key,
                     collection_name=collection_name
                 )
-                logger.info("[RAGEngine] Qdrant client initialized successfully")
+                logger.info("[RAGEngine] QdrantVectorStore initialized successfully")
                 return client
 
             elif source == "tavily":
@@ -82,13 +112,34 @@ class RAGEngine:
             return self._get_mock_results(top_k)
 
         try:
-            logger.info(f"[RAGEngine] Querying '{self.source}' for: {query_text}")
+            logger.info(f"[RAGEngine] Querying '{self.source}' for: {query_text[:50]}...")
 
-            # Qdrant 검색 실행
-            results = self.client.search(
-                query_text=query_text,
-                top_k=top_k
-            )
+            # source 타입에 따라 검색 방식 결정
+            if self.source == "tcfd_report":
+                # SK TCFD 보고서 전용 검색
+                results = self.client.search_tcfd_report(
+                    query_text=query_text,
+                    top_k=top_k
+                )
+            elif self.source == "risk_rag":
+                # 물리적 리스크 RAG 컬렉션 검색
+                results = self.client.search_risk_rag(
+                    query_text=query_text,
+                    top_k=top_k
+                )
+            elif self.source in ["existing", "benchmark"]:
+                # 기존 컬렉션 검색 (collection_names 지정 가능)
+                results = self.client.search(
+                    query_text=query_text,
+                    collection_names=self.collection_names,
+                    top_k=top_k
+                )
+            else:
+                # 기본 QdrantVectorStore 검색
+                results = self.client.search(
+                    query_text=query_text,
+                    top_k=top_k
+                )
 
             logger.info(f"[RAGEngine] Found {len(results)} results")
             return results

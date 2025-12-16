@@ -1,14 +1,14 @@
 # SKALA Physical Risk AI - 통합 ERD
 
-> 최종 수정일: 2025-12-12
-> 버전: v14 (Application DB 10개 테이블 - google_oauth_tokens, verification_codes 추가)
+> 최종 수정일: 2025-12-14
+> 버전: v16 (코드 매핑 테이블 추가: sido_code_mapping, sigungu_code_mapping)
 
 **컬럼 사용 상태 범례:**
 | 기호 | 의미 |
 |------|------|
-| ✅ | 실제 코드에서 사용됨 |
-| ⚠️ | DEPRECATED 또는 NOT_USED (사용되지 않음) |
-| 🔧 | 제한적 사용 (디버깅, 툴팁 등)
+| [O] | 실제 코드에서 사용됨 |
+| [!] | DEPRECATED 또는 NOT_USED (사용되지 않음) |
+| [제한] | 제한적 사용 (디버깅, 툴팁 등)
 
 ---
 
@@ -30,44 +30,52 @@ SKALA Physical Risk AI 시스템은 **GCP Cloud SQL**의 **단일 PostgreSQL 인
 | 카테고리 | 테이블 수 | 데이터 소스 | 설명 |
 |----------|----------|-------------|------|
 | Location | 3개 | **Local ETL** | 위치 참조 (행정구역, 격자) |
-| Climate Data | 17개 | **Local ETL** | 기후 데이터 (SSP 시나리오별) |
+| Climate Data (Grid) | 17개 | **Local ETL** | 기후 데이터 - 격자 레벨 (SSP 시나리오별) |
+| Climate Data (SGG261) | 8개 | **Local ETL** | 기후 데이터 - 시군구 일별 (**NEW**) |
 | Raw Raster | 3개 | **Local ETL** | DEM, 가뭄, 토지피복도 래스터 |
 | Reference Data | 3개 | **Local ETL** | 기상관측소, 물스트레스 순위 |
 | Site Additional | 2개 | **Local ETL / API** | 사업장 추가 데이터 + 배치 작업 |
-| Site Risk | 3개 | **서비스 생성** | Site별 리스크 결과 + 후보지 |
+| Site Risk | 1개 | **서비스 생성** | 후보지 (site_risk_results, site_risk_summary 삭제됨) |
 | ModelOPS | 5개 | **서비스 생성** | H × E × V 계산 결과 |
-| API Cache | 11개 | **OpenAPI ETL** | 외부 API 캐시 |
-| **합계** | **47개** | | |
+| API Cache | 13개 | **OpenAPI ETL** | 외부 API 캐시 |
+| Code Mapping | 2개 | **OpenAPI ETL** | 행정동-SGIS 코드 변환 |
+| **합계** | **57개** | | |
 
 ### 1.1.1 데이터 소스별 테이블 분류
 
-#### Local ETL (28개 테이블) - 로컬 파일 적재
+#### Local ETL (36개 테이블) - 로컬 파일 적재
 ```
-Location (3개):        location_admin, location_grid, sea_level_grid
-Climate Data (17개):   tamax_data, tamin_data, ta_data, rn_data, ws_data,
-                       rhm_data, si_data, spei12_data, csdi_data, wsdi_data,
-                       rx1day_data, rx5day_data, cdd_data, rain80_data,
-                       sdii_data, ta_yearly_data, sea_level_data
-Raw Raster (3개):      raw_dem, raw_drought, raw_landcover
-Reference Data (3개):  weather_stations, grid_station_mappings, water_stress_rankings
-Site Additional (2개): site_additional_data, batch_jobs
+Location (3개):           location_admin, location_grid, sea_level_grid
+Climate Data Grid (17개): tamax_data, tamin_data, ta_data, rn_data, ws_data,
+                          rhm_data, si_data, spei12_data, csdi_data, wsdi_data,
+                          rx1day_data, rx5day_data, cdd_data, rain80_data,
+                          sdii_data, ta_yearly_data, sea_level_data
+Climate Data SGG261 (8개): location_sgg261, ta_daily_sgg261, tamax_daily_sgg261,
+                          tamin_daily_sgg261, rn_daily_sgg261, rhm_daily_sgg261,
+                          ws_daily_sgg261, si_daily_sgg261  [NEW]
+Raw Raster (3개):         raw_dem, raw_drought, raw_landcover
+Reference Data (3개):     weather_stations, grid_station_mappings, water_stress_rankings
+Site Additional (2개):    site_additional_data, batch_jobs
 ```
 
-#### OpenAPI ETL (11개 테이블) - 외부 API 적재
+#### OpenAPI ETL (15개 테이블) - 외부 API 적재
 ```
-API Cache (11개):      building_aggregate_cache, api_wamis, api_wamis_stations,
-                       api_river_info, api_emergency_messages,
+API Cache (13개):      building_aggregate_cache, api_wamis, api_wamis_stations,
+                       api_wamis_flow, api_river_info, api_emergency_messages,
                        api_typhoon_info, api_typhoon_track, api_typhoon_td,
                        api_typhoon_besttrack, api_disaster_yearbook,
-                       api_vworld_geocode
+                       api_vworld_geocode, api_sgis_population
+Code Mapping (2개):    sido_code_mapping, sigungu_code_mapping [NEW]
 ```
 
-#### 서비스 생성 (8개 테이블) - ModelOPS/FastAPI 계산 결과
+#### 서비스 생성 (6개 테이블) - ModelOPS/FastAPI 계산 결과
 ```
 ModelOPS (5개):        probability_results, hazard_results, exposure_results,
                        vulnerability_results, aal_scaled_results
-Site Risk (3개):       site_risk_results, site_risk_summary, candidate_sites
+Site Risk (1개):       candidate_sites
 ```
+> **Note:** site_risk_results, site_risk_summary 테이블 삭제됨 (2025-12-13)
+> H, E, V, AAL 결과는 ModelOPS 테이블들에서 직접 관리
 
 ---
 
@@ -123,8 +131,19 @@ LIMIT 1;
 | population_2050 | INTEGER | 2050년 인구 | 미래 Exposure 계산 |
 | population_change_2020_2050 | INTEGER | 2020-2050 순증감 (명) | 보고서용 |
 | population_change_rate_percent | NUMERIC(5,2) | 2020-2050 증감률 (%) | 보고서용 |
+| population_current | INTEGER | SGIS API 최신 인구 (읍면동별, level=3) | Exposure 계산 |
+| population_current_year | INTEGER | 최신 인구 기준 연도 (예: 2024) | 데이터 기준 연도 |
 
-**예상 데이터 규모:** 5,259 rows (5,007 읍면동 + 252 시군구)
+**예상 데이터 규모:** 5,024 rows (17 시도 level=1 + 5,007 읍면동 level=3)
+
+**인구 데이터 구조:**
+```
+location_admin
+├── level=1 (시도 17개): population_2020~2050 (장래인구추계)
+└── level=3 (읍면동 5,007개): population_current (현재인구 - SGIS API)
+
+※ 읍면동 미래 인구 계산: 시도_미래 × (읍면동_현재 / 시도_현재)
+```
 
 **보고서 활용 예시:**
 ```
@@ -256,33 +275,81 @@ LIMIT 1;
 3. SSP 시나리오별 컬럼에서 해당 시나리오 값 추출
 4. ModelOPS Agent가 P(H), Hazard Score 계산
 
-#### 일별 데이터 (행정구역 레벨)
+#### 월별 극한기온 데이터 (격자 레벨)
 
 | 테이블 | 설명 | 사용처 | PK | 예상 Rows |
 |--------|------|--------|-----|-----------|
-| tamax_data | 일 최고기온 (°C) | 폭염(extreme_heat) Hazard 계산 | (time, admin_id) | ~7.63M |
-| tamin_data | 일 최저기온 (°C) | 한파(extreme_cold) Hazard 계산 | (time, admin_id) | ~7.63M |
+| tamax_data | 월 최고기온 (°C) | 폭염(extreme_heat) Hazard 계산 | (observation_date, grid_id) | ~108M |
+| tamin_data | 월 최저기온 (°C) | 한파(extreme_cold) Hazard 계산 | (observation_date, grid_id) | ~108M |
 
 **tamax_data 상세:**
 - **사용 Agent**: ExtremeHeatProbabilityAgent, ExtremeHeatHazardAgent
-- **계산 로직**: 일 최고기온 35°C 이상 연속 일수로 폭염 발생 확률 계산
+- **계산 로직**: 월 최고기온 기반 폭염 발생 확률 계산
 - **쿼리 예시**:
 ```sql
-SELECT time, ssp2 as temp_max
+SELECT observation_date, ssp2 as temp_max
 FROM tamax_data
-WHERE admin_id = 123 AND time BETWEEN '2050-06-01' AND '2050-08-31'
-  AND ssp2 >= 35
-ORDER BY time;
+WHERE grid_id = 12345 AND observation_date BETWEEN '2050-01-01' AND '2050-12-01'
+ORDER BY observation_date;
 ```
 
 **tamin_data 상세:**
 - **사용 Agent**: ExtremeColdProbabilityAgent, ExtremeColdHazardAgent
-- **계산 로직**: 일 최저기온 -12°C 이하 연속 일수로 한파 발생 확률 계산
+- **계산 로직**: 월 최저기온 기반 한파 발생 확률 계산
 
 **컬럼 구조:**
-- `time` (DATE): 관측일 (2021-01-01 ~ 2100-12-31)
-- `admin_id` (INTEGER FK): location_admin 참조 (시군구 레벨)
+- `grid_id` (INTEGER FK): location_grid 참조 (격자 레벨)
+- `observation_date` (DATE): 관측 월 (YYYY-MM-01, 매월 1일)
 - `ssp1~ssp5` (REAL): 각 시나리오별 기온값 (°C)
+
+---
+
+#### 일별 기후 데이터 (SGG261 시군구 레벨) - **NEW**
+
+261개 시군구 단위의 일별 기후 데이터입니다. 10년 단위 파티셔닝 적용.
+
+| 테이블 | 설명 | 파티션 | PK | 예상 Rows |
+|--------|------|--------|-----|-----------|
+| location_sgg261 | 261개 시군구 매핑 | - | sgg261_id | 261 |
+| ta_daily_sgg261 | 일 평균기온 (°C) | 8개 | (observation_date, admin_code) | ~30M |
+| tamax_daily_sgg261 | 일 최고기온 (°C) | 8개 | (observation_date, admin_code) | ~30M |
+| tamin_daily_sgg261 | 일 최저기온 (°C) | 8개 | (observation_date, admin_code) | ~30M |
+| rn_daily_sgg261 | 일 강수량 (mm) | 8개 | (observation_date, admin_code) | ~30M |
+| rhm_daily_sgg261 | 일 상대습도 (%) | 8개 | (observation_date, admin_code) | ~30M |
+| ws_daily_sgg261 | 일 풍속 (m/s) | 8개 | (observation_date, admin_code) | ~30M |
+| si_daily_sgg261 | 일 일사량 (MJ/m²) | 8개 | (observation_date, admin_code) | ~30M |
+
+**location_sgg261 (시군구 매핑):**
+| 컬럼명 | 타입 | 설명 |
+|--------|------|------|
+| sgg261_id | SERIAL PK | 시군구 ID |
+| admin_code | VARCHAR(10) UK | 10자리 행정코드 (예: 1101000000) |
+| sido_name | VARCHAR(50) | 시도명 (예: 서울특별시) |
+| sigungu_name | VARCHAR(50) | 시군구명 (예: 종로구) |
+| full_name | VARCHAR(100) | sido_name + sigungu_name (GENERATED) |
+
+**일별 기후 테이블 컬럼 구조:**
+- `admin_code` (VARCHAR(10) FK): location_sgg261 참조
+- `observation_date` (DATE): 관측일 (2021-01-01 ~ 2100-12-31)
+- `ssp1~ssp5` (REAL): 각 시나리오별 값
+
+**쿼리 예시:**
+```sql
+-- 서울 종로구의 2050년 여름철 일 최고기온 조회
+SELECT observation_date, ssp2 as temp_max
+FROM tamax_daily_sgg261
+WHERE admin_code = '1101000000'
+  AND observation_date BETWEEN '2050-06-01' AND '2050-08-31'
+  AND ssp2 >= 35
+ORDER BY observation_date;
+
+-- 시군구명으로 조회 (JOIN)
+SELECT d.observation_date, d.ssp2 as temp_max, l.full_name
+FROM tamax_daily_sgg261 d
+JOIN location_sgg261 l ON d.admin_code = l.admin_code
+WHERE l.sigungu_name = '종로구'
+  AND d.observation_date >= '2050-01-01';
+```
 
 ---
 
@@ -472,7 +539,7 @@ ORDER BY year;
 
 ModelOPS가 **H × E × V = Risk** 공식에 따라 계산한 결과를 저장합니다.
 
-> ⚠️ **변경 이력 (2025-12-03)**: probability_results 테이블 컬럼 수정 (probability → aal, bin_probabilities), 3개 테이블 추가 (exposure_results, vulnerability_results, aal_scaled_results)
+> [!] **변경 이력 (2025-12-03)**: probability_results 테이블 컬럼 수정 (probability → aal, bin_probabilities), 3개 테이블 추가 (exposure_results, vulnerability_results, aal_scaled_results)
 
 **코드 위치 (공통):**
 - **ModelOPS 저장**: `modelops/database/connection.py` (라인 1000-1500)
@@ -582,14 +649,14 @@ LIMIT 10;
 
 | 컬럼명 | 타입 | 설명 | 역할 | 실제 사용 |
 |--------|------|------|------|----------|
-| latitude | DECIMAL(9,6) PK | 격자 위도 | 위치 식별, location_grid와 조인 | ✅ 모든 조회 |
-| longitude | DECIMAL(9,6) PK | 격자 경도 | 위치 식별 | ✅ 모든 조회 |
-| risk_type | VARCHAR(50) PK | 위험 유형 (9가지) | **핵심** - hazard_types.code와 매핑 | ✅ 리스크별 필터링 |
-| aal | REAL | 연간 평균 손실률 (0.0~1.0) | AAL 계산 기초값, aal_scaled_results.base_aal로 전달 | ✅ ModelOPS `_calculate_aal()` |
-| bin_probabilities | JSONB | bin별 발생확률 배열 | 손실 확률 분포 (리스크 시각화용) | ✅ ModelOPS `base_probability_agent.py` AAL 계산 |
-| bin_data | JSONB | 히스토그램 상세 | 하위 호환성 유지 (deprecated) | ⚠️ **DEPRECATED** - 저장만 하고 조회 안 함 |
-| calculation_details | JSONB | 계산 상세정보 | 모델 버전, 파라미터, 입력 데이터 범위 등 | ✅ 디버깅/감사 추적 |
-| calculated_at | TIMESTAMP | 계산 시점 | 데이터 신선도 확인, 갱신 여부 판단 | ✅ 캐시 무효화 판단 |
+| latitude | DECIMAL(9,6) PK | 격자 위도 | 위치 식별, location_grid와 조인 | [O] 모든 조회 |
+| longitude | DECIMAL(9,6) PK | 격자 경도 | 위치 식별 | [O] 모든 조회 |
+| risk_type | VARCHAR(50) PK | 위험 유형 (9가지) | **핵심** - hazard_types.code와 매핑 | [O] 리스크별 필터링 |
+| aal | REAL | 연간 평균 손실률 (0.0~1.0) | AAL 계산 기초값, aal_scaled_results.base_aal로 전달 | [O] ModelOPS `_calculate_aal()` |
+| bin_probabilities | JSONB | bin별 발생확률 배열 | 손실 확률 분포 (리스크 시각화용) | [O] ModelOPS `base_probability_agent.py` AAL 계산 |
+| bin_data | JSONB | 히스토그램 상세 | 하위 호환성 유지 (deprecated) | [!] **DEPRECATED** - 저장만 하고 조회 안 함 |
+| calculation_details | JSONB | 계산 상세정보 | 모델 버전, 파라미터, 입력 데이터 범위 등 | [O] 디버깅/감사 추적 |
+| calculated_at | TIMESTAMP | 계산 시점 | 데이터 신선도 확인, 갱신 여부 판단 | [O] 캐시 무효화 판단 |
 
 > **bin_probabilities 사용 코드** (`modelops/agents/base_probability_agent.py`):
 > ```python
@@ -609,7 +676,7 @@ Table hazard_results {
   latitude decimal(9,6) [not null, note: '격자 위도']
   longitude decimal(9,6) [not null, note: '격자 경도']
   risk_type varchar(50) [not null, note: '위험 유형 (9가지)']
-  target_year integer [not null, note: '목표 연도 (2021~2100)']
+  target_year varchar(10) [not null, note: '목표 연도 (예: 2030, 2050)']
 
   ssp126_score_100 real [note: 'SSP1-2.6 위험도 (0~100)']
   ssp245_score_100 real [note: 'SSP2-4.5 위험도 (0~100)']
@@ -639,7 +706,7 @@ Table probability_results {
   latitude decimal(9,6) [not null, note: '격자 위도']
   longitude decimal(9,6) [not null, note: '격자 경도']
   risk_type varchar(50) [not null, note: '위험 유형 (9가지)']
-  target_year integer [not null, note: '목표 연도 (2021~2100)']
+  target_year varchar(10) [not null, note: '목표 연도 (예: 2030, 2050)']
 
   ssp126_aal base [note: 'SSP1-2.6 연간 평균 손실률 (0.0~1.0)']
   ssp245_aal base [note: 'SSP2-4.5 연간 평균 손실률 (0.0~1.0)']
@@ -675,7 +742,7 @@ Table exposure_results {
   latitude decimal(9,6) [not null, note: '격자 위도']
   longitude decimal(9,6) [not null, note: '격자 경도']
   risk_type varchar(50) [not null, note: '위험 유형 (9가지)']
-  target_year integer [not null, note: '목표 연도 (2021~2100)']
+  target_year varchar(10) [not null, note: '목표 연도 (예: 2030, 2050)']
   exposure_score real [not null, note: '노출도 점수 (0.0~100.0)']
 
   Note: '''
@@ -704,7 +771,7 @@ Table vulnerability_results {
   latitude decimal(9,6) [not null, note: '격자 위도']
   longitude decimal(9,6) [not null, note: '격자 경도']
   risk_type varchar(50) [not null, note: '위험 유형 (9가지)']
-  target_year integer [not null, note: '목표 연도 (2021~2100)']
+  target_year varchar(10) [not null, note: '목표 연도 (예: 2030, 2050)']
   vulnerability_score real [not null, note: '취약성 점수 (0~100)']
 
   Note: '''
@@ -735,7 +802,7 @@ Table aal_scaled_results {
   latitude decimal(9,6) [not null, note: '격자 위도']
   longitude decimal(9,6) [not null, note: '격자 경도']
   risk_type varchar(50) [not null, note: '위험 유형 (9가지)']
-  target_year integer [not null, note: '목표 연도 (2021~2100)']
+  target_year varchar(10) [not null, note: '목표 연도 (예: 2030, 2050)']
 
   ssp126_final_aal real [note: 'SSP1-2.6 최종 AAL']
   ssp245_final_aal real [note: 'SSP2-4.5 최종 AAL']
@@ -1070,7 +1137,7 @@ LIMIT 10;
 
 사업장 추가 데이터 및 배치 작업 상태를 저장합니다.
 
-> ⚠️ **변경 이력 (2025-12-03)**: 기존 `site_dc_power_usage`, `site_campus_energy_usage` 테이블이 `site_additional_data`로 통합되었습니다.
+> [!] **변경 이력 (2025-12-03)**: 기존 `site_dc_power_usage`, `site_campus_energy_usage` 테이블이 `site_additional_data`로 통합되었습니다.
 
 **코드 위치 (공통):**
 - **FastAPI**: `fastapi/ai_agent/utils/database.py` (라인 1200-1300)
@@ -1154,16 +1221,13 @@ WHERE data_category = 'insurance';
 | data_category | VARCHAR(50) | 데이터 카테고리 | building/asset/power/insurance/custom |
 | raw_text | TEXT | 원본 텍스트 | PDF 추출 텍스트 (OCR 결과) |
 | structured_data | JSONB | 정형화된 데이터 | **핵심** - 구조화된 JSON |
-| file_name | VARCHAR(255) | 업로드 파일명 | 파일 추적 |
-| file_s3_key | VARCHAR(500) | S3 저장 키 | 원본 파일 위치 |
-| file_size | BIGINT | 파일 크기 (bytes) | 파일 정보 |
-| file_mime_type | VARCHAR(100) | MIME 타입 | application/pdf, image/png 등 |
+| file_content | JSONB | 파일 내용 | CSV/Excel → JSON 변환 저장 |
 | metadata | JSONB | 추가 메타데이터 | 확장 정보 |
 | uploaded_by | UUID | 업로드 사용자 ID | 추적 (users.id) |
 | uploaded_at | TIMESTAMP | 업로드 시점 | 추적 |
 | expires_at | TIMESTAMP | 만료 시점 | 임시 데이터 관리 |
 
-**UNIQUE 제약조건:** (site_id, data_category, file_name)
+**UNIQUE 제약조건:** (site_id, data_category)
 
 ---
 
@@ -1250,6 +1314,7 @@ LIMIT 10;
 | api_typhoon_besttrack | 기상청 베스트트랙 | 정밀 태풍 분석 | `09_load_typhoon_besttrack.py` |
 | api_disaster_yearbook | 행정안전부 재해연보 | 과거 피해 통계 | `15_load_disaster_yearbook.py` |
 | api_vworld_geocode | VWorld 역지오코딩 | 좌표 → 주소 변환 | `03_load_geocode.py` |
+| api_sgis_population | SGIS 인구통계 | 읍면동 단위 현재 인구 | `17_load_sgis_population.py` |
 
 #### 주요 테이블 상세
 
@@ -1274,6 +1339,17 @@ LIMIT 10;
 - 리포트: 위치 정보 표시
 
 **주요 컬럼:** `latitude`, `longitude`, `road_address` (도로명 주소), `jibun_address` (지번 주소), `sido`, `sigungu`, `dong`
+
+**api_sgis_population - SGIS 인구통계 캐시**
+
+**필요 이유:** SGIS(통계지리정보서비스) API 호출 결과 캐싱 - 읍면동 단위 현재 인구 데이터 100% 저장
+
+**사용처:**
+- ModelOPS ExposureAgent: 인구 기반 노출도(E) 계산
+- location_admin 테이블과 이름 매칭으로 population_current 필드 업데이트
+- 리포트: 현재 인구 정보 표시
+
+**주요 컬럼:** `sgis_code` (SGIS 8자리 행정구역코드), `admin_name` (읍면동명), `sido_name`, `sigungu_name`, `population` (인구수), `year` (기준연도)
 
 **api_typhoon_* 테이블들 - 태풍 정보 캐시**
 
@@ -1343,12 +1419,12 @@ WHERE pnu = '1168010100100010000';
 | Analysis | 1개 | AI 분석 작업 (analysis_jobs) |
 | Report | 1개 | 리포트 관리 |
 | Meta | 2개 | 메타데이터 (industries, hazard_types) |
-| **합계** | **10개** | 생성 완료 ✓ |
+| **합계** | **10개** | 생성 완료 O |
 
 > **SQL 파일:**
 > - `create_springboot_tables.sql` - 10개 테이블 포함
 >
-> ⚠️ **삭제된 테이블 (2025-12):**
+> [!] **삭제된 테이블 (2025-12):**
 > - `analysis_results` - 미구현으로 삭제
 
 ---
@@ -1639,11 +1715,11 @@ WHERE pnu = '1168010100100010000';
 
 | 컬럼명 | 타입 | 설명 | 역할 | 실제 사용 |
 |--------|------|------|------|----------|
-| id | UUID PK | 리포트 ID | 내부 식별자 | ✅ |
-| user_id | UUID FK | 사용자 ID | users 참조 | ✅ |
-| report_content | JSONB | 리포트 내용 | 전체 리포트 데이터 JSON | ✅ |
+| id | UUID PK | 리포트 ID | 내부 식별자 | [O] |
+| user_id | UUID FK | 사용자 ID | users 참조 | [O] |
+| report_content | JSONB | 리포트 내용 | 전체 리포트 데이터 JSON | [O] |
 
-> ⚠️ **변경 이력 (2025-12)**: S3 관련 컬럼 제거 (`s3_key`, `file_size`, `expires_at` 등), `site_id` 제거, JSONB로 단순화
+> [!] **변경 이력 (2025-12)**: S3 관련 컬럼 제거 (`s3_key`, `file_size`, `expires_at` 등), `site_id` 제거, JSONB로 단순화
 
 ---
 
@@ -1673,12 +1749,12 @@ WHERE pnu = '1168010100100010000';
 
 | 컬럼명 | 타입 | 설명 | 역할 | 실제 사용 |
 |--------|------|------|------|----------|
-| id | SERIAL PK | ID | 내부 식별자 | ✅ Spring `findAll()` |
-| code | VARCHAR(50) UK | 코드 | **핵심** - risk_type 필드와 매핑, `findByCode()`로 조회 | ✅ Frontend 필터, ModelOPS Agent |
-| name | VARCHAR(100) | 한글 이름 | Frontend 표시용 | ✅ Frontend `{{ hazard.name }}` 표시 |
-| name_en | VARCHAR(100) | 영문 이름 | 다국어 지원, language=en일 때 사용 | ✅ Frontend (language=en) |
-| category | VARCHAR(20) | 카테고리 | TEMPERATURE/WATER/WIND/OTHER, UI 그룹핑용 | ✅ Frontend 카테고리별 그룹핑 |
-| description | TEXT | 설명 | 위험 유형 상세 설명 | ⚠️ **제한적 사용** - 툴팁용으로만 표시 |
+| id | SERIAL PK | ID | 내부 식별자 | [O] Spring `findAll()` |
+| code | VARCHAR(50) UK | 코드 | **핵심** - risk_type 필드와 매핑, `findByCode()`로 조회 | [O] Frontend 필터, ModelOPS Agent |
+| name | VARCHAR(100) | 한글 이름 | Frontend 표시용 | [O] Frontend `{{ hazard.name }}` 표시 |
+| name_en | VARCHAR(100) | 영문 이름 | 다국어 지원, language=en일 때 사용 | [O] Frontend (language=en) |
+| category | VARCHAR(20) | 카테고리 | TEMPERATURE/WATER/WIND/OTHER, UI 그룹핑용 | [O] Frontend 카테고리별 그룹핑 |
+| description | TEXT | 설명 | 위험 유형 상세 설명 | [!] **제한적 사용** - 툴팁용으로만 표시 |
 
 **초기 데이터 (9개):**
 | code | name | category | ModelOPS Agent |
@@ -1720,12 +1796,12 @@ WHERE pnu = '1168010100100010000';
 
 | 컬럼명 | 타입 | 설명 | 역할 | 실제 사용 |
 |--------|------|------|------|----------|
-| id | SERIAL PK | ID | 내부 식별자 | ✅ Spring `findAll()` |
-| code | VARCHAR(50) UK | 코드 | sites.type과 매핑, `findByCode()`로 조회 | ✅ Frontend 드롭다운 value, FastAPI industry 파라미터 |
-| name | VARCHAR(100) | 업종 이름 | Frontend 드롭다운 표시용 | ✅ Frontend `{{ industry.name }}` 표시 |
-| description | TEXT | 설명 | 업종 상세 설명, 취약성 특성 | ⚠️ **NOT_USED** - DB에 저장되지만 현재 사용처 없음 |
+| id | SERIAL PK | ID | 내부 식별자 | [O] Spring `findAll()` |
+| code | VARCHAR(50) UK | 코드 | sites.type과 매핑, `findByCode()`로 조회 | [O] Frontend 드롭다운 value, FastAPI industry 파라미터 |
+| name | VARCHAR(100) | 업종 이름 | Frontend 드롭다운 표시용 | [O] Frontend `{{ industry.name }}` 표시 |
+| description | TEXT | 설명 | 업종 상세 설명, 취약성 특성 | [!] **NOT_USED** - DB에 저장되지만 현재 사용처 없음 |
 
-> ⚠️ **주의**: `description` 컬럼은 현재 Spring, FastAPI, Frontend 어디에서도 조회/사용되지 않습니다.
+> [!] **주의**: `description` 컬럼은 현재 Spring, FastAPI, Frontend 어디에서도 조회/사용되지 않습니다.
 > `findByCode()`는 Repository에 정의되어 있지만 실제로 호출하는 코드가 없습니다.
 
 **초기 데이터 (16개):**
@@ -1824,6 +1900,7 @@ WHERE g.longitude = ROUND(sites.longitude::numeric, 2)
 | building_aggregate_cache | 국토교통부 건축물대장 | 06_load_buildings.py |
 | api_disaster_yearbook | 행정안전부 재해연보 | 15_load_disaster_yearbook.py |
 | api_typhoon_besttrack | 기상청 베스트트랙 | 09_load_typhoon_besttrack.py |
+| api_sgis_population | SGIS 인구통계 | 17_load_sgis_population.py |
 
 ---
 
@@ -1897,9 +1974,9 @@ WHERE g.longitude = ROUND(sites.longitude::numeric, 2)
 
 | 데이터베이스 | 테이블 수 | 상태 |
 |-------------|----------|------|
-| Datawarehouse | 47개 | ✓ 완료 |
-| Application | 9개 | ✓ 완료 |
-| **합계** | **56개** | ✓ |
+| Datawarehouse | 47개 | O 완료 |
+| Application | 9개 | O 완료 |
+| **합계** | **57개** | O |
 
 ---
 

@@ -1,8 +1,8 @@
 '''
 파일명: state.py
-최종 수정일: 2025-12-02
-버전: v05
-파일 개요: LangGraph 워크플로우 상태 정의 (Phase 2 전용 + 다중 사업장 지원)
+최종 수정일: 2025-12-15
+버전: v06
+파일 개요: LangGraph 워크플로우 상태 정의 (Phase 2 전용 + 다중 사업장 지원 + 물리적 리스크 표)
 변경 이력:
 	- 2025-11-11: v01 - Super Agent 계층적 구조로 전면 개편
 	- 2025-11-21: v02 - Scratch Space 기반 데이터 관리 적용
@@ -12,6 +12,9 @@
 	- 2025-12-02: v05 - Phase 1/2 분리: Phase 1 필드 제거 (physical_risk_scores, aal_analysis, risk_analysis_status 등)
 	                   - 다중 사업장 지원 필드 추가 (site_ids, sites_data)
 	                   - DB 로드 기반 데이터 관리
+	- 2025-12-15: v06 - 물리적 리스크 보고서 전용 필드 추가
+	                   - sites_risk_assessment: 사업장별 리스크 평가 및 표 (SSP 시나리오 기반)
+	                   - risk_table_status: 리스크 표 생성 상태
 '''
 from typing import TypedDict, Dict, Any, List, Optional
 from typing_extensions import Annotated
@@ -25,7 +28,7 @@ class SuperAgentState(TypedDict, total=False):
 	"""
 	# ========== 입력 정보 ==========
 	target_location: Dict[str, Any]  # 분석 대상 위치 (위도, 경도, 주소) - 단일 사업장
-	building_info: Dict[str, Any]  # 건물 정보 (연식, 구조, 용도) - 단일 사업장
+	building_info: Dict[str, Any]  # 건물 정보 (d연식, 구조, 용도) - 단일 사업장
 	asset_info: Dict[str, Any]  # 사업장 노출 자산 정보 - 단일 사업장
 	analysis_params: Dict[str, Any]  # 분석 파라미터 (시간 범위, 시나리오)
 	company_name: Optional[str]  # 회사명 (Report Analysis용)
@@ -80,6 +83,11 @@ class SuperAgentState(TypedDict, total=False):
 	response_strategy: Optional[Dict[str, Any]]  # LLM 기반 대응 전략
 	strategy_status: str  # 전략 생성 상태
 	llm_reasoning: Optional[str]  # LLM 추론 과정
+
+	# ========== Step 7.5: 리스크 표 생성 (물리적 리스크 보고서) ==========
+	sites_risk_assessment: Optional[List[Dict[str, Any]]]  # 사업장별 리스크 평가 및 표
+	# 구조: [{"site_id": int, "site_name": str, "risk_table": {...}, "vulnerability_summary": {...}}, ...]
+	risk_table_status: str  # 리스크 표 생성 상태
 
 	# ========== Step 8: 리포트 생성 ==========
 	generated_report: Optional[Dict[str, Any]]  # 생성된 리포트

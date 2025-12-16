@@ -567,47 +567,176 @@ class SKAXPhysicalRiskAnalyzer:
     	language: str = 'ko'
     ) -> Dict[str, Any]:
 		"""
-   		[TODO] 다중 사업장 물리적 리스크 분석 실행 (Agent 구현 예정)
-    	이 메소드는 여러 사업장 리스트를 받아 내부적으로 분석을 수행하고 결과를 종합하여 반환합니다.
-		현재는 Agent 로직이 수정 중이므로 Mock 데이터를 반환합니다.
+		다중 사업장 물리적 리스크 분석 실행
 
-        Args:
-            target_locations: 분석 대상 위치 정보 리스트
-             building_infos: 건물 정보 리스트 (target_locations와 동일한 순서)
-             asset_infos: 자산 정보 리스트 (target_locations와 동일한 순서)
-             analysis_params: 분석 파라미터 (모든 사업장에 공통 적용)
-             user_id: 사용자 ID (로그 및 추적용)
-             hazard_types: 분석할 위험 유형 목록 (모든 사업장에 공통 적용)
-             priority: 작업 우선순위 (모든 사업장에 공통 적용)
-             options: 분석 옵션 (모든 사업장에 공통 적용)
-             additional_data: 추가 데이터 (선택사항, 모든 사업장에 공통 적용)
-             language: 보고서 언어 ('ko' 또는 'en', 기본값: 'ko')
-        Returns:
-            Mock 분석 결과 딕셔너리
-        """
-		self.logger.warning(
-            f"Agent method analyze_multiple_sites is called with mock implementation. "
-            f"user_id={user_id}, site_count={len(target_locations)}, hazard_types={hazard_types}"
-        )
+		이 메소드는 여러 사업장에 대해 Phase 1 DB 조회 후
+		analyze_integrated()를 호출하여 통합 리포트를 생성합니다.
 
-		results_per_site = []
+		Args:
+			target_locations: 분석 대상 위치 정보 리스트
+			building_infos: 건물 정보 리스트 (null 허용)
+			asset_infos: 자산 정보 리스트
+			analysis_params: 분석 파라미터
+			user_id: 사용자 ID
+			hazard_types: 분석할 위험 유형 목록
+			priority: 작업 우선순위
+			options: 분석 옵션
+			additional_data: 추가 데이터
+			language: 보고서 언어
 
-		for idx, loc in enumerate(target_locations):
-			site_id = loc.get("id") or str(uuid4()) # Use actual site ID if present, otherwise generate mock
-			results_per_site.append({
-                "site_id": site_id,
-                "site_name": loc.get("name", f"Site {idx+1}"),
-                "physical_risk_score": 75 + idx * 2, # Mock score
-                "aal_score": 0.02 + (idx * 0.005), # Mock AAL
-                "summary": f"Mock analysis summary for {loc.get('name', 'unknown location')}."
-            })
+		Returns:
+			통합 분석 결과 딕셔너리
+		"""
+		self.logger.info(
+			f"[MULTI-SITE] 다중 사업장 분석 시작: "
+			f"user_id={user_id}, site_count={len(target_locations)}, hazard_types={hazard_types}"
+		)
+
+		try:
+			# Step 1: 각 사업장의 site_id 추출
+			site_ids = [loc.get('id') or str(uuid4()) for loc in target_locations]
+
+			# Step 2: DB에서 Phase 1 결과 조회 (H, E, V, risk_scores, AAL)
+			from ai_agent.utils.database import DatabaseManager
+			db = DatabaseManager()
+
+			sites_data = []
+			for i, site_id in enumerate(site_ids):
+				location = target_locations[i]
+
+				# Phase 1 결과 DB 조회 (hazard, exposure, vulnerability, integrated_risk, aal)
+				site_data = self._load_phase1_results_from_db(
+					db=db,
+					site_id=site_id,
+					latitude=location['latitude'],
+					longitude=location['longitude']
+				)
+
+				# building_info, asset_info 추가
+				site_data['building_info'] = building_infos[i] if i < len(building_infos) else {}
+				site_data['asset_info'] = asset_infos[i] if i < len(asset_infos) else {}
+				site_data['site_name'] = location.get('name', f'Site {i+1}')
+
+				sites_data.append(site_data)
+
+			self.logger.info(f"[MULTI-SITE] Phase 1 데이터 로드 완료: {len(sites_data)}개 사업장")
+
+			# Step 3: analyze_integrated() 호출 (기존 multi-site workflow 활용)
+			result = self.analyze_integrated(
+				site_ids=site_ids,
+				sites_data=sites_data,
+				analysis_params=analysis_params,
+				language=language,
+				additional_data=additional_data
+			)
+
+			self.logger.info(f"[MULTI-SITE] 분석 완료: workflow_status={result.get('workflow_status')}")
+
+			return result
+
+		except Exception as e:
+			self.logger.error(f"[MULTI-SITE] 분석 실패: {str(e)}", exc_info=True)
+			return {
+				'workflow_status': 'failed',
+				'message': f"Multi-site analysis failed: {str(e)}",
+				'total_sites': len(target_locations),
+				'hazard_types_requested': hazard_types,
+				'errors': [str(e)]
+			}
+
+	def _load_phase1_results_from_db(
+		self,
+		db,  # DatabaseManager
+		site_id: str,
+		latitude: float,
+		longitude: float
+	) -> Dict[str, Any]:
+		"""
+		DB에서 Phase 1 결과 조회 (H, E, V, integrated_risk, AAL)
+
+		Returns:
+			{
+				'site_id': str,
+				'latitude': float,
+				'longitude': float,
+				'hazard_scores': Dict[str, float],
+				'exposure_scores': Dict[str, float],
+				'vulnerability_scores': Dict[str, float],
+				'risk_scores': Dict[str, float],
+				'aal_values': Dict[str, float]
+			}
+		"""
+		# Target year and scenario (2040, SSP2-4.5)
+		target_year = '2040'
+
+		# 9개 리스크 타입
+		RISK_TYPES = [
+			'extreme_heat', 'extreme_cold', 'wildfire', 'drought',
+			'water_stress', 'sea_level_rise', 'river_flood', 'urban_flood', 'typhoon'
+		]
+
+		hazard_scores = {}
+		exposure_scores = {}
+		vulnerability_scores = {}
+		risk_scores = {}
+		aal_values = {}
+
+		for risk_type in RISK_TYPES:
+			# Hazard 조회
+			h_query = """
+				SELECT ssp245_score_100
+				FROM hazard_results
+				WHERE latitude = %s AND longitude = %s AND target_year = %s AND risk_type = %s
+			"""
+			h_result = db.execute_query(h_query, (latitude, longitude, target_year, risk_type))
+			H = h_result[0]['ssp245_score_100'] if h_result else 0
+
+			# Exposure 조회
+			e_query = """
+				SELECT exposure_score
+				FROM exposure_results
+				WHERE site_id = %s AND target_year = %s AND risk_type = %s
+			"""
+			e_result = db.execute_query(e_query, (site_id, target_year, risk_type))
+			E = e_result[0]['exposure_score'] if e_result else 0
+
+			# Vulnerability 조회
+			v_query = """
+				SELECT vulnerability_score
+				FROM vulnerability_results
+				WHERE site_id = %s AND target_year = %s AND risk_type = %s
+			"""
+			v_result = db.execute_query(v_query, (site_id, target_year, risk_type))
+			V = v_result[0]['vulnerability_score'] if v_result else 0
+
+			# Integrated Risk 계산 (H × E × V / 10000)
+			integrated_risk = (H * E * V) / 10000
+
+			# AAL 조회
+			aal_query = """
+				SELECT ssp245_final_aal
+				FROM aal_scaled_results
+				WHERE site_id = %s AND target_year = %s AND risk_type = %s
+			"""
+			aal_result = db.execute_query(aal_query, (site_id, target_year, risk_type))
+			AAL = aal_result[0]['ssp245_final_aal'] if aal_result else 0
+
+			# 저장
+			hazard_scores[risk_type] = H
+			exposure_scores[risk_type] = E
+			vulnerability_scores[risk_type] = V
+			risk_scores[risk_type] = integrated_risk
+			aal_values[risk_type] = AAL
 
 		return {
-            'workflow_status': 'completed',
-            'message': "Mock multi-site analysis completed successfully.",
-            'total_sites': len(target_locations),
-            'hazard_types_requested': hazard_types,
-             'results_per_site': results_per_site
+			'site_id': site_id,
+			'latitude': latitude,
+			'longitude': longitude,
+			'hazard_scores': hazard_scores,
+			'exposure_scores': exposure_scores,
+			'vulnerability_scores': vulnerability_scores,
+			'risk_scores': risk_scores,
+			'aal_values': aal_values
 		}
 
 	def _get_agent_configs(self) -> list:

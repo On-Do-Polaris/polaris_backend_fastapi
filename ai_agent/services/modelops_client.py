@@ -11,7 +11,7 @@
 	- Health check 엔드포인트 지원
 
 변경사항 (v03):
-	- API 엔드포인트 변경: /api/v1/risk-assessment/* → /api/v1/site-assessment/*
+	- API 엔드포인트 변경: /api/v1/risk-assessment/* → /api/site-assessment/*
 	- WebSocket 지원 제거 (동기 API로 변경)
 	- status 폴링 제거 (동기 계산으로 변경)
 	- cached results 조회 제거
@@ -83,30 +83,31 @@ class ModelOpsClient:
 
 	def calculate_site_risk(
 		self,
-		latitude: float,
-		longitude: float,
-		building_info: Dict[str, Any],
-		site_id: Optional[str] = None,
+		sites: Dict[str, Dict[str, float]],
+		building_info: Optional[Dict[str, Any]] = None,
 		asset_info: Optional[Dict[str, Any]] = None
 	) -> Dict[str, Any]:
 		"""
-		사업장 리스크 계산 요청 (H×E×V×AAL 통합 계산)
+		사업장 리스크 계산 요청 (다중 사업장 병렬 처리)
 
 		Args:
-			latitude: 위도 (-90 ~ 90)
-			longitude: 경도 (-180 ~ 180)
-			building_info: 건물 정보 (필수)
+			sites: 사업장 위치 정보 딕셔너리 (필수)
 				{
-					"building_type": "office",  # office, factory, warehouse, etc.
-					"structure": "철근콘크리트",  # 철근콘크리트, 철골, 목조, etc.
-					"building_age": 15,  # 건물 연식 (년)
-					"total_area_m2": 2500,  # 전체 면적 (m2)
-					"ground_floors": 5,  # 지상 층수
-					"basement_floors": 1,  # 지하 층수
-					"has_piloti": false,  # 필로티 구조 여부
-					"elevation_m": 10  # 지면 고도 (m)
+					"site_01": {"latitude": 37.5665, "longitude": 126.9780},
+					"site_02": {"latitude": 35.1796, "longitude": 129.0756},
+					...
 				}
-			site_id: 사업장 ID (선택)
+			building_info: 건물 정보 (선택)
+				{
+					"building_type": "office",
+					"structure": "철근콘크리트",
+					"building_age": 15,
+					"total_area_m2": 2500,
+					"ground_floors": 5,
+					"basement_floors": 1,
+					"has_piloti": false,
+					"elevation_m": 10
+				}
 			asset_info: 자산 정보 (선택)
 				{
 					"total_value": 50000000000,  # 총 자산 가치 (원)
@@ -115,50 +116,49 @@ class ModelOpsClient:
 
 		Returns:
 			{
-				"site_id": str,
-				"latitude": float,
-				"longitude": float,
-				"hazard": {risk_type: {...}, ...},  # 9개 리스크별 H 점수
-				"exposure": {risk_type: {...}, ...},  # 9개 리스크별 E 점수
-				"vulnerability": {risk_type: {...}, ...},  # 9개 리스크별 V 점수
-				"integrated_risk": {risk_type: {...}, ...},  # H×E×V/10000
-				"aal_scaled": {risk_type: {...}, ...},  # 최종 AAL
-				"summary": {
-					"total_integrated_risk": float,  # 9개 리스크 합산
-					"total_final_aal": float,  # 9개 AAL 합산
-					"risk_count": int  # 평가된 리스크 개수
-				},
+				"status": "success" | "partial" | "failed",
+				"total_sites": int,
+				"successful_sites": int,
+				"failed_sites": int,
+				"message": str,
 				"calculated_at": str  # ISO 8601 형식
 			}
 		"""
-		self.logger.info(f"사업장 리스크 계산 요청: lat={latitude}, lng={longitude}, site_id={site_id}")
+		self.logger.info(f"사업장 리스크 계산 요청: {len(sites)}개 사업장")
 
 		# 유효성 검증
-		if not (-90 <= latitude <= 90):
-			raise ValueError(f"Invalid latitude: {latitude}. Must be between -90 and 90.")
-		if not (-180 <= longitude <= 180):
-			raise ValueError(f"Invalid longitude: {longitude}. Must be between -180 and 180.")
-		if not building_info:
-			raise ValueError("building_info is required")
+		if not sites or len(sites) == 0:
+			raise ValueError("sites dictionary is required and must not be empty")
+
+		# sites의 각 위치에 대한 유효성 검증
+		for site_id, location in sites.items():
+			lat = location.get('latitude')
+			lon = location.get('longitude')
+			if not lat or not lon:
+				raise ValueError(f"Invalid location for site {site_id}: latitude and longitude are required")
+			if not (-90 <= lat <= 90):
+				raise ValueError(f"Invalid latitude for site {site_id}: {lat}. Must be between -90 and 90.")
+			if not (-180 <= lon <= 180):
+				raise ValueError(f"Invalid longitude for site {site_id}: {lon}. Must be between -180 and 180.")
 
 		payload = {
-			"latitude": latitude,
-			"longitude": longitude,
-			"building_info": building_info
+			"sites": sites
 		}
 
-		if site_id:
-			payload["site_id"] = site_id
+		if building_info:
+			payload["building_info"] = building_info
 		if asset_info:
 			payload["asset_info"] = asset_info
 
 		try:
-			response = self.client.post("/api/v1/site-assessment/calculate", json=payload)
+			response = self.client.post("/api/site-assessment/calculate", json=payload)
 			response.raise_for_status()
 
 			result = response.json()
-			total_aal = result.get('summary', {}).get('total_final_aal', 0)
-			self.logger.info(f"사업장 리스크 계산 완료: total_aal={total_aal:.6f}")
+			status = result.get('status', 'unknown')
+			successful = result.get('successful_sites', 0)
+			failed = result.get('failed_sites', 0)
+			self.logger.info(f"사업장 리스크 계산 완료: status={status}, successful={successful}, failed={failed}")
 
 			return result
 
@@ -171,67 +171,52 @@ class ModelOpsClient:
 
 	def recommend_relocation_sites(
 		self,
-		candidate_grids: List[Dict[str, float]],
-		building_info: Dict[str, Any],
+		sites: Dict[str, Dict[str, float]],
+		candidate_grids: Optional[List[Dict[str, float]]] = None,
+		building_info: Optional[Dict[str, Any]] = None,
+		batch_id: Optional[str] = None,
 		asset_info: Optional[Dict[str, Any]] = None,
 		max_candidates: int = 3,
-		ssp_scenario: str = "ssp2",
+		ssp_scenario: str = "SSP245",
 		target_year: int = 2040
 	) -> Dict[str, Any]:
 		"""
-		사업장 이전 후보지 추천 요청 (~1000개 격자 평가)
+		사업장 이전 후보지 추천 요청 (다중 사업장 병렬 처리)
 
 		Args:
-			candidate_grids: 후보지 격자 목록
+			sites: 사업장 위치 정보 딕셔너리 (필수)
+				{
+					"site_01": {"latitude": 37.5665, "longitude": 126.9780},
+					"site_02": {"latitude": 35.1796, "longitude": 129.0756},
+					...
+				}
+			candidate_grids: 후보지 격자 목록 (선택, 없으면 고정 위치 사용)
 				[
 					{"latitude": 37.5665, "longitude": 126.9780},
 					{"latitude": 37.5666, "longitude": 126.9781},
 					...
 				]
-			building_info: 건물 정보 (필수)
+			building_info: 건물 정보 (선택)
+			batch_id: 배치 작업 ID (선택, ModelOps 콜백용)
 			asset_info: 자산 정보 (선택)
 			max_candidates: 최대 추천 후보지 개수 (기본: 3)
-			ssp_scenario: SSP 시나리오 (기본: "ssp2")
+			ssp_scenario: SSP 시나리오 (기본: "SSP245")
 			target_year: 목표 연도 (기본: 2040)
 
 		Returns:
 			{
-				"candidates": [
-					{
-						"rank": 1,
-						"latitude": 37.5665,
-						"longitude": 126.9780,
-						"total_aal": 0.123456,
-						"average_integrated_risk": 45.67,
-						"risk_details": {
-							"extreme_heat": {...},
-							"extreme_cold": {...},
-							...  # 9개 리스크
-						}
-					},
-					...
-				],
-				"total_grids_evaluated": 1000,
-				"search_criteria": {
-					"max_candidates": 3,
-					"ssp_scenario": "ssp2",
-					"target_year": 2040
-				},
-				"calculated_at": "2025-12-11T..."
+				"status": "success" | "failed",
+				"message": str
 			}
 		"""
-		total_grids = len(candidate_grids)
-		self.logger.info(f"이전 후보지 추천 요청: {total_grids}개 격자")
+		self.logger.info(f"이전 후보지 추천 요청: {len(sites)}개 사업장, batch_id={batch_id}")
 
 		# 유효성 검증
-		if total_grids == 0:
-			raise ValueError("candidate_grids는 최소 1개 이상이어야 합니다.")
-		if not building_info:
-			raise ValueError("building_info is required")
+		if not sites or len(sites) == 0:
+			raise ValueError("sites dictionary is required and must not be empty")
 
 		payload = {
-			"candidate_grids": candidate_grids,
-			"building_info": building_info,
+			"sites": sites,
 			"search_criteria": {
 				"max_candidates": max_candidates,
 				"ssp_scenario": ssp_scenario,
@@ -239,20 +224,22 @@ class ModelOpsClient:
 			}
 		}
 
+		if candidate_grids:
+			payload["candidate_grids"] = candidate_grids
+		if building_info:
+			payload["building_info"] = building_info
+		if batch_id:
+			payload["batch_id"] = batch_id
 		if asset_info:
 			payload["asset_info"] = asset_info
 
 		try:
-			response = self.client.post("/api/v1/site-assessment/recommend-locations", json=payload)
+			response = self.client.post("/api/site-assessment/recommend-locations", json=payload)
 			response.raise_for_status()
 
 			result = response.json()
-			evaluated = result.get('total_grids_evaluated', 0)
-			self.logger.info(f"이전 후보지 추천 완료: {evaluated}개 격자 평가")
-
-			if result.get('candidates'):
-				top1_aal = result['candidates'][0]['total_aal']
-				self.logger.info(f"  Top 1 AAL: {top1_aal:.6f}")
+			status = result.get('status', 'unknown')
+			self.logger.info(f"이전 후보지 추천 완료: status={status}")
 
 			return result
 

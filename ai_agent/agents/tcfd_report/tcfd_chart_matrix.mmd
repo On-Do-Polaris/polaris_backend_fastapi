@@ -1,0 +1,24 @@
+graph LR
+    subgraph "JSON Block 생성"
+        N2A[Node 2-A] -->|TableBlock| T1["📊 시나리오별 AAL 비교표<br/>SSP1-2.6, SSP2-4.5, SSP3-7.0, SSP5-8.5"]
+
+        N2B[Node 2-B] -->|TextBlock x5| T2["📝 P1: 하천범람 영향<br/>📝 P2: 태풍 영향<br/>📝 P3: 도시침수 영향<br/>📝 P4: 극심한고온 영향<br/>📝 P5: 해수면상승 영향"]
+
+        N2C[Node 2-C] -->|TextBlock x5| T3["📝 P1: 하천범람 대응<br/>📝 P2: 태풍 대응<br/>📝 P3: 도시침수 대응<br/>📝 P4: 극심한고온 대응<br/>📝 P5: 해수면상승 대응"]
+
+        N3[Node 3] -->|HeatmapTableBlock| T4["🔥 사업장별 리스크 분포<br/>Gray/Yellow/Orange/Red<br/>8개 사업장 x 9개 리스크"]
+
+        N5[Node 5] -->|LineChartBlock| T5["📈 AAL 추이 차트<br/>2024-2100<br/>4개 시나리오 비교"]
+    end
+
+    style N2A fill:#F3E5F5,stroke:#7B1FA2
+    style N2B fill:#F3E5F5,stroke:#7B1FA2
+    style N2C fill:#F3E5F5,stroke:#7B1FA2
+    style N3 fill:#E8F5E9,stroke:#388E3C
+    style N5 fill:#FFEBEE,stroke:#C62828
+
+    style T1 fill:#FFF9C4
+    style T2 fill:#FFF9C4
+    style T3 fill:#FFF9C4
+    style T4 fill:#FFCCBC
+    style T5 fill:#BBDEFB

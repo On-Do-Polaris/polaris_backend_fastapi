@@ -1,5 +1,5 @@
 from uuid import UUID, uuid4
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime
 from fastapi import HTTPException
 import logging
@@ -225,51 +225,106 @@ class AnalysisService:
         self.logger.info(f"[BACKGROUND] 다중 사업장 분석 시작: job_id={job_id}, site_count={len(request.sites)}")
 
         try:
-            # Prepare inputs for the agent's multi-site method
+            from ai_agent.services import get_modelops_client
+            modelops_client = get_modelops_client()
+
+            # Step 1: ModelOps API 트리거 (모든 사업장을 한 번에 처리)
+            # building_info는 null로 처리 (요구사항)
+            building_info = None
+            asset_info = {
+                'total_value': 50000000000,
+                'insurance_coverage_rate': 0.3
+            }
+
+            # 모든 사업장의 위치 정보를 sites 딕셔너리로 구성
+            sites_dict = {}
+            for site in request.sites:
+                sites_dict[str(site.id)] = {
+                    'latitude': site.latitude,
+                    'longitude': site.longitude
+                }
+
+            # 1-1. calculate API 호출 (동기) - 다중 사업장 병렬 처리
+            self.logger.info(f"  [ModelOps] calculate API 호출: {len(sites_dict)}개 사업장")
+            calculate_result = modelops_client.calculate_site_risk(
+                sites=sites_dict,
+                building_info=building_info,
+                asset_info=asset_info
+            )
+            self.logger.info(f"  [ModelOps] calculate 완료: {calculate_result.get('status')}, {calculate_result.get('calculated_at')}")
+
+            # 1-2. recommend-locations API 호출 (비동기 트리거) - 다중 사업장 병렬 처리
+            # candidate_grids는 None으로 전달하여 ModelOps가 고정 위치 사용하도록 함
+            self.logger.info(f"  [ModelOps] recommend-locations API 트리거: {len(sites_dict)}개 사업장, batch_id={job_id}")
+            # 비동기 트리거만 하고 결과는 기다리지 않음 (요구사항)
+            try:
+                modelops_client.recommend_relocation_sites(
+                    sites=sites_dict,
+                    candidate_grids=None,  # None이면 ModelOps가 고정 위치 사용
+                    building_info=building_info,
+                    batch_id=str(job_id),
+                    asset_info=asset_info,
+                    max_candidates=3,
+                    ssp_scenario="SSP245",
+                    target_year=2040
+                )
+                self.logger.info(f"  [ModelOps] recommend-locations 트리거 완료")
+            except Exception as e:
+                # 비동기 트리거 실패해도 전체 프로세스는 계속 진행
+                self.logger.warning(f"  [ModelOps] recommend-locations 트리거 실패: {str(e)}")
+
+            # Step 2: Agent 호출 (기존 로직 유지)
             target_locations = []
-            building_infos = [] # Assuming Agent will handle defaults if dict is empty
-            asset_infos = [] # Assuming Agent will handle defaults if dict is empty
+            building_infos = []
+            asset_infos = []
 
             for site in request.sites:
                 target_locations.append({
                     'latitude': site.latitude,
                     'longitude': site.longitude,
                     'name': site.name,
+                    'id': str(site.id)
                 })
-                # For simplicity, pass empty dicts for building_info and asset_info
-                # The agent method analyze_multiple_sites will need to handle defaults or derive them per site.
-                building_infos.append({}) 
-                asset_infos.append({'total_asset_value': 50000000000}) # Pass default asset value
+                building_infos.append({})  # null로 처리
+                asset_infos.append({'total_asset_value': 50000000000})
 
             analysis_params = {
                 'time_horizon': '2050',
                 'analysis_period': '2025-2050'
             }
-            
-            # This is the core assumption based on user's instruction.
-            # Call the assumed multi-site agent method.
-            # Expected to return a dict or list of dicts that represent the consolidated result.
+
             agent_result = await self._run_agent_multiple_analysis_wrapper(
                 target_locations=target_locations,
                 building_infos=building_infos,
                 asset_infos=asset_infos,
                 analysis_params=analysis_params,
-                user_id=request.user_id, # Pass user_id
-                hazard_types=request.hazard_types, # Pass hazard_types
-                priority=request.priority, # Pass priority
-                options=request.options, # Pass options
+                user_id=request.user_id,
+                hazard_types=request.hazard_types,
+                priority=request.priority,
+                options=request.options,
             )
 
             error = {"code": "ANALYSIS_FAILED", "message": str(agent_result.get('errors', []))} if agent_result and agent_result.get('errors') else None
-            status = 'done' if not error else 'failed'
-            progress = 100
-            
+
             self._analysis_results[job_id] = agent_result
             self._cached_states[job_id] = agent_result.copy()
 
-            self._update_job_in_db(job_id, status=status, progress=progress, results=agent_result, error=error)
+            # Agent 완료 플래그 설정
+            self._update_job_flags_in_db(
+                job_id=job_id,
+                agent_completed=True,
+                error=error
+            )
 
-            self.logger.info(f"[BACKGROUND] 다중 사업장 분석 완료: job_id={job_id}, status={status}")
+            # 두 플래그 모두 True인지 체크 (Agent AND ModelOps Recommendation)
+            if self._check_both_completed(job_id):
+                # 둘 다 완료되면 status='done' 설정
+                self._update_job_in_db(job_id, status='done', progress=100, results=agent_result, error=error)
+                self.logger.info(f"[BACKGROUND] 모든 작업 완료 (Agent + Recommendation): job_id={job_id}")
+            else:
+                # Agent만 완료, Recommendation 대기 중
+                self._update_job_in_db(job_id, status='ing', progress=90, results=agent_result, error=error)
+                self.logger.info(f"[BACKGROUND] Agent 완료, Recommendation 대기 중: job_id={job_id}")
 
         except Exception as e:
             self.logger.error(f"[BACKGROUND] 다중 사업장 분석 실패: job_id={job_id}, error={str(e)}", exc_info=True)
@@ -1017,11 +1072,128 @@ class AnalysisService:
             )
         return None
 
-    async def mark_modelops_recommendation_completed(self, user_id: UUID):
+    def _update_job_flags_in_db(
+        self,
+        job_id: UUID,
+        agent_completed: Optional[bool] = None,
+        modelops_recommendation_completed: Optional[bool] = None,
+        error: Optional[dict] = None
+    ):
+        """batch_jobs 테이블의 완료 플래그 업데이트"""
+        if not self.db:
+            return
+
+        updates = []
+        params = []
+
+        if agent_completed is not None:
+            updates.append("agent_completed = %s")
+            params.append(agent_completed)
+
+        if modelops_recommendation_completed is not None:
+            updates.append("modelops_recommendation_completed = %s")
+            params.append(modelops_recommendation_completed)
+
+        if error:
+            updates.append("error_message = %s")
+            params.append(json.dumps(error))
+
+        if not updates:
+            return
+
+        params.append(str(job_id))
+
+        query = f"""
+            UPDATE batch_jobs
+            SET {', '.join(updates)}
+            WHERE batch_id = %s
+        """
+        try:
+            self.db.execute_update(query, tuple(params))
+            self.logger.info(f"Job flags updated: job_id={job_id}, agent_completed={agent_completed}, modelops_recommendation_completed={modelops_recommendation_completed}")
+        except Exception as e:
+            self.logger.error(f"Failed to update job flags: {e}")
+
+    def _check_both_completed(self, job_id: UUID) -> bool:
+        """Agent와 ModelOps 둘 다 완료되었는지 체크"""
+        if not self.db:
+            return False
+
+        query = """
+            SELECT agent_completed, modelops_recommendation_completed
+            FROM batch_jobs
+            WHERE batch_id = %s
+        """
+        try:
+            result = self.db.execute_query(query, (str(job_id),))
+
+            if not result:
+                return False
+
+            row = result[0]
+            both_completed = row['agent_completed'] and row['modelops_recommendation_completed']
+            self.logger.debug(f"Both completed check: job_id={job_id}, agent={row['agent_completed']}, modelops={row['modelops_recommendation_completed']}, result={both_completed}")
+            return both_completed
+        except Exception as e:
+            self.logger.error(f"Failed to check completion flags: {e}")
+            return False
+
+    def _get_latest_job_by_user_and_status(self, user_id: UUID, status: str) -> Optional[dict]:
+        """user_id와 status로 가장 최근 job 조회"""
+        if not self.db:
+            return None
+
+        query = """
+            SELECT * FROM batch_jobs
+            WHERE created_by = %s AND status = %s
+            ORDER BY created_at DESC
+            LIMIT 1
+        """
+        try:
+            result = self.db.execute_query(query, (str(user_id), status))
+            return result[0] if result else None
+        except Exception as e:
+            self.logger.error(f"Failed to get latest job: {e}")
+            return None
+
+    async def mark_modelops_recommendation_completed(self, batch_id: UUID):
         """ModelOps 서버에서 후보지 추천 완료 시 호출하는 메서드"""
-        # This method's logic may need review in context of multi-site jobs
-        self.logger.info(f"[MODELOPS] 후보지 추천 완료 알림 수신: user_id={user_id}")
-        return
+        self.logger.info(f"[MODELOPS] 후보지 추천 완료 알림 수신: batch_id={batch_id}")
+
+        # batch_id로 job 조회
+        if not self.db:
+            self.logger.error("[MODELOPS] DB 연결 없음")
+            return
+
+        query = """
+            SELECT * FROM batch_jobs
+            WHERE batch_id = %s
+        """
+        try:
+            result = self.db.execute_query(query, (str(batch_id),))
+            if not result:
+                self.logger.warning(f"[MODELOPS] batch_id={batch_id}에 해당하는 작업이 없습니다.")
+                return
+
+            job = result[0]
+        except Exception as e:
+            self.logger.error(f"[MODELOPS] Job 조회 실패: {e}")
+            return
+
+        # Recommendation 완료 플래그 설정
+        self._update_job_flags_in_db(
+            job_id=batch_id,
+            modelops_recommendation_completed=True
+        )
+
+        # 두 플래그 모두 True인지 체크
+        if self._check_both_completed(batch_id):
+            # results 조회 (agent_result)
+            results = job.get('results')
+            self._update_job_in_db(batch_id, status='done', progress=100, results=results)
+            self.logger.info(f"[MODELOPS] 모든 작업 완료: batch_id={batch_id}")
+        else:
+            self.logger.info(f"[MODELOPS] Recommendation 완료, Agent 대기 중: batch_id={batch_id}")
 
     async def get_analysis_summary(
         self,

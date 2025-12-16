@@ -79,6 +79,7 @@ COPY main.py .
 COPY src/ ./src/
 COPY ai_agent/ ./ai_agent/
 COPY static/ ./static/
+COPY utils/ ./utils/
 
 # Create scratch directory for output files (before changing user)
 RUN mkdir -p /app/scratch && chmod 755 /app/scratch

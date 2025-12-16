@@ -179,16 +179,8 @@ class ReportService:
             result = cached_report.get('result', {})
             final_report = result.get('final_report', {})
 
-            # 웹 렌더링용 데이터 반환
-            return {
-                "siteId": str(cached_report['site_id']) if cached_report.get('site_id') else None,
-                "reportData": {
-                    "markdown": final_report.get('markdown', ''),
-                    "json": final_report.get('json', {}),
-                    "metadata": result.get('metadata', {}),
-                },
-                "createdAt": cached_report.get('created_at').isoformat() if cached_report.get('created_at') else None,
-            }
+            # Spring Boot 호환 형식으로 변환
+            return self._transform_to_spring_format(report_id, final_report, cached_report)
         except Exception as e:
             print(f"Error retrieving web view: {e}")
             return None
@@ -338,6 +330,84 @@ class ReportService:
         if cached:
             return cached.get('data')
         return None
+
+    def _transform_to_spring_format(self, report_id: str, final_report: dict, cached_report: dict) -> dict:
+        """
+        AI Agent 결과를 Spring Boot 호환 형식으로 변환
+
+        Args:
+            report_id: 리포트 ID
+            final_report: AI Agent의 final_report 딕셔너리
+            cached_report: 캐시된 리포트 정보
+
+        Returns:
+            Spring Boot 호환 형식의 딕셔너리
+            {
+                "report_id": "tcfd_report_20251216_163321",
+                "meta": {"title": "TCFD 보고서"},
+                "sections": [
+                    {"id": "ceosummry", "title": "경영진 요약", "content": "..."},
+                    {"id": "governance", "title": "거버넌스", "content": "..."},
+                    ...
+                ]
+            }
+        """
+        from datetime import datetime
+
+        # report_id 생성 (timestamp 포함)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        formatted_report_id = f"tcfd_report_{timestamp}"
+
+        # JSON 데이터에서 섹션 추출
+        json_data = final_report.get('json', {})
+        executive_summary = json_data.get('executive_summary', '')
+        sections_dict = json_data.get('sections', {})
+
+        # 섹션 ID 매핑 (AI Agent 키 → Spring Boot 키)
+        section_mapping = {
+            'executive_summary': {'id': 'ceosummry', 'title': '경영진 요약'},
+            'governance': {'id': 'governance', 'title': '거버넌스'},
+            'strategy': {'id': 'strategy', 'title': '전략'},
+            'risk_management': {'id': 'riskmanagement', 'title': '리스크 관리'},
+            'metrics_and_targets': {'id': 'goal', 'title': '지표 및 목표'},
+            'metrics_targets': {'id': 'goal', 'title': '지표 및 목표'},  # 대체 키
+        }
+
+        # sections 배열 생성
+        sections = []
+
+        # Executive Summary 추가
+        if executive_summary:
+            sections.append({
+                "id": "ceosummry",
+                "title": "경영진 요약",
+                "content": executive_summary
+            })
+
+        # 나머지 섹션 추가 (순서 유지)
+        section_order = ['governance', 'strategy', 'risk_management', 'metrics_and_targets', 'metrics_targets']
+        for section_key in section_order:
+            content = sections_dict.get(section_key)
+            if content and section_key in section_mapping:
+                section_info = section_mapping[section_key]
+                # 중복 방지 (metrics_and_targets와 metrics_targets가 모두 있을 경우)
+                if not any(s['id'] == section_info['id'] for s in sections):
+                    sections.append({
+                        "id": section_info['id'],
+                        "title": section_info['title'],
+                        "content": content
+                    })
+
+        # Spring Boot 호환 형식으로 반환
+        return {
+            "report_id": formatted_report_id,
+            "meta": {
+                "title": "TCFD 보고서",
+                "generated_at": cached_report.get('created_at').isoformat() if cached_report.get('created_at') else datetime.now().isoformat(),
+                "site_id": str(cached_report['site_id']) if cached_report.get('site_id') else None
+            },
+            "sections": sections
+        }
 
     async def delete_report(self) -> dict:
         """Spring Boot API 호환 - 리포트 삭제"""

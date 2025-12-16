@@ -13,6 +13,9 @@ from src.schemas.simulation import (
     CandidateResult,
     PhysicalRiskScores,
     AALScores,
+    LocationRecommendationResponse,
+    LocationRecommendationSite,
+    LocationRecommendationCandidate,
 )
 from src.schemas.common import SSPScenario
 
@@ -194,6 +197,153 @@ class SimulationService:
 
         except Exception:
             return None
+
+    async def get_location_recommendation(
+        self, site_id: str
+    ) -> LocationRecommendationResponse:
+        """
+        Spring Boot API 호환 - 위치 추천 (candidate_sites 테이블 기반)
+
+        종합 AAL이 가장 낮은 상위 3개의 후보지를 반환
+        """
+        try:
+            db = DatabaseManager()
+
+            # candidate_sites 테이블에서 상위 3개 조회
+            candidates = db.fetch_top_candidates_by_aal(site_id, limit=3)
+
+            # 후보지 변환
+            result_candidates = []
+            for candidate in candidates:
+                # risks와 aal_by_risk는 JSONB로 저장되어 있음
+                risks = candidate.get('risks', {}) or {}
+                aal_by_risk = candidate.get('aal_by_risk', {}) or {}
+
+                # dict -> int/float 변환
+                physical_risk_scores = {}
+                aal_scores = {}
+
+                for risk_type in ['extreme_heat', 'extreme_cold', 'river_flood', 'urban_flood',
+                                  'drought', 'water_stress', 'sea_level_rise', 'typhoon', 'wildfire']:
+                    physical_risk_scores[risk_type] = int(risks.get(risk_type, 0) or 0)
+                    aal_scores[risk_type] = float(aal_by_risk.get(risk_type, 0.0) or 0.0)
+
+                # advantages/disadvantages는 text[] 배열
+                advantages = candidate.get('advantages', []) or []
+                disadvantages = candidate.get('disadvantages', []) or []
+
+                result_candidates.append(
+                    LocationRecommendationCandidate(
+                        candidateId=candidate['candidate_id'],
+                        candidateName=candidate.get('name'),
+                        latitude=float(candidate['latitude']),
+                        longitude=float(candidate['longitude']),
+                        jibunAddress=candidate.get('jibun_address'),
+                        roadAddress=candidate.get('road_address'),
+                        riskscore=int(candidate.get('risk_score') or 0),
+                        aalscore=float(candidate.get('aal') or 0.0),
+                        **{
+                            "physical-risk-scores": physical_risk_scores,
+                            "aal-scores": aal_scores
+                        },
+                        pros=advantages[0] if advantages else None,
+                        cons=disadvantages[0] if disadvantages else None
+                    )
+                )
+
+            # 3개가 안 되면 None으로 채움
+            site_data = LocationRecommendationSite(
+                siteId=UUID(site_id),
+                candidate1=result_candidates[0] if len(result_candidates) > 0 else None,
+                candidate2=result_candidates[1] if len(result_candidates) > 1 else None,
+                candidate3=result_candidates[2] if len(result_candidates) > 2 else None
+            )
+
+            return LocationRecommendationResponse(site=site_data)
+
+        except Exception as e:
+            self.logger.error(f"[RECOMMENDATION] Failed to get recommendations: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Location recommendation failed: {str(e)}")
+
+    async def compare_relocation_with_db(
+        self, request: RelocationSimulationRequest
+    ) -> RelocationSimulationResponse:
+        """
+        Spring Boot API 호환 - 이전 시뮬레이션 비교 (DB 기반)
+
+        candidate_sites 테이블에서 좌표로 후보지를 조회하여 반환
+        """
+        try:
+            db = DatabaseManager()
+
+            # 좌표로 후보지 조회
+            candidate = db.fetch_candidate_by_location(
+                request.candidate.latitude,
+                request.candidate.longitude,
+                tolerance=0.001  # 약 111m
+            )
+
+            if not candidate:
+                # DB에 없으면 기존 로직 사용 (ai_agent 호출)
+                return await self.compare_relocation(request)
+
+            # candidate_sites 데이터로 응답 생성
+            risks = candidate.get('risks', {}) or {}
+            aal_by_risk = candidate.get('aal_by_risk', {}) or {}
+
+            physical_risk_scores = PhysicalRiskScores(
+                extreme_heat=int(risks.get('extreme_heat', 0) or 0),
+                extreme_cold=int(risks.get('extreme_cold', 0) or 0),
+                river_flood=int(risks.get('river_flood', 0) or 0),
+                urban_flood=int(risks.get('urban_flood', 0) or 0),
+                drought=int(risks.get('drought', 0) or 0),
+                water_stress=int(risks.get('water_stress', 0) or 0),
+                sea_level_rise=int(risks.get('sea_level_rise', 0) or 0),
+                typhoon=int(risks.get('typhoon', 0) or 0),
+                wildfire=int(risks.get('wildfire', 0) or 0)
+            )
+
+            aal_scores = AALScores(
+                extreme_heat=float(aal_by_risk.get('extreme_heat', 0.0) or 0.0),
+                extreme_cold=float(aal_by_risk.get('extreme_cold', 0.0) or 0.0),
+                river_flood=float(aal_by_risk.get('river_flood', 0.0) or 0.0),
+                urban_flood=float(aal_by_risk.get('urban_flood', 0.0) or 0.0),
+                drought=float(aal_by_risk.get('drought', 0.0) or 0.0),
+                water_stress=float(aal_by_risk.get('water_stress', 0.0) or 0.0),
+                sea_level_rise=float(aal_by_risk.get('sea_level_rise', 0.0) or 0.0),
+                typhoon=float(aal_by_risk.get('typhoon', 0.0) or 0.0),
+                wildfire=float(aal_by_risk.get('wildfire', 0.0) or 0.0)
+            )
+
+            # advantages/disadvantages는 text[] 배열
+            advantages = candidate.get('advantages', []) or []
+            disadvantages = candidate.get('disadvantages', []) or []
+
+            candidate_result = CandidateResult(
+                candidateId=candidate['candidate_id'],
+                latitude=float(candidate['latitude']),
+                longitude=float(candidate['longitude']),
+                jibunAddress=candidate.get('jibun_address'),
+                roadAddress=candidate.get('road_address'),
+                riskscore=int(candidate.get('risk_score') or 0),
+                aalscore=float(candidate.get('aal') or 0.0),
+                **{
+                    "physical-risk-scores": physical_risk_scores,
+                    "aal-scores": aal_scores
+                },
+                pros=advantages[0] if advantages else "장점 정보 없음",
+                cons=disadvantages[0] if disadvantages else "단점 정보 없음"
+            )
+
+            return RelocationSimulationResponse(
+                siteId=request.site_id,
+                candidate=candidate_result
+            )
+
+        except Exception as e:
+            self.logger.error(f"[COMPARE] Failed to compare relocation: {e}", exc_info=True)
+            # DB 조회 실패 시 기존 로직으로 폴백
+            return await self.compare_relocation(request)
 
     async def run_climate_simulation(
             self, request: ClimateSimulationRequest

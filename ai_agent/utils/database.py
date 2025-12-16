@@ -1419,3 +1419,89 @@ class DatabaseManager:
             params = (site_id,)
 
         return self.execute_query(query, params)
+
+    # ==================== Candidate Sites Queries ====================
+
+    def fetch_top_candidates_by_aal(
+        self,
+        site_id: str,
+        limit: int = 3
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch top candidate sites by lowest AAL (종합 AAL 기준)
+
+        Args:
+            site_id: Reference site UUID
+            limit: Number of candidates to return (default: 3)
+
+        Returns:
+            List of top candidate sites ordered by lowest AAL
+        """
+        query = """
+            SELECT
+                id as candidate_id,
+                name,
+                road_address,
+                jibun_address,
+                latitude,
+                longitude,
+                risk_score,
+                risk_level,
+                risks,
+                aal,
+                aal_by_risk,
+                advantages,
+                disadvantages
+            FROM candidate_sites
+            WHERE is_active = true
+                AND site_id = %s
+                AND aal IS NOT NULL
+            ORDER BY aal ASC
+            LIMIT %s
+        """
+        return self.execute_query(query, (site_id, limit))
+
+    def fetch_candidate_by_location(
+        self,
+        latitude: float,
+        longitude: float,
+        tolerance: float = 0.0001
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Fetch candidate site by coordinates (within tolerance)
+
+        Args:
+            latitude: Latitude
+            longitude: Longitude
+            tolerance: Coordinate matching tolerance (default: 0.0001 degrees ~11m)
+
+        Returns:
+            Candidate site data or None if not found
+        """
+        query = """
+            SELECT
+                id as candidate_id,
+                name,
+                road_address,
+                jibun_address,
+                latitude,
+                longitude,
+                risk_score,
+                risk_level,
+                risks,
+                aal,
+                aal_by_risk,
+                advantages,
+                disadvantages
+            FROM candidate_sites
+            WHERE is_active = true
+                AND latitude BETWEEN %s AND %s
+                AND longitude BETWEEN %s AND %s
+            LIMIT 1
+        """
+        results = self.execute_query(
+            query,
+            (latitude - tolerance, latitude + tolerance,
+             longitude - tolerance, longitude + tolerance)
+        )
+        return results[0] if results else None

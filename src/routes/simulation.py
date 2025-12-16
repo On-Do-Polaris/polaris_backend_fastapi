@@ -5,6 +5,7 @@ from src.schemas.simulation import (
     RelocationSimulationResponse,
     ClimateSimulationRequest,
     ClimateSimulationResponse,
+    LocationRecommendationResponse,
 )
 from src.services.simulation_service import SimulationService
 from src.core.auth import verify_api_key
@@ -17,9 +18,14 @@ async def compare_relocation(
     request: RelocationSimulationRequest,
     api_key: str = Depends(verify_api_key),
 ):
-    """Spring Boot API 호환 - 사업장 이전 시뮬레이션 (비교)"""
+    """
+    Spring Boot API 호환 - 사업장 이전 시뮬레이션 (비교)
+
+    candidate_sites 테이블에서 좌표로 후보지를 조회하여 반환.
+    DB에 없으면 ai_agent로 실시간 분석 수행.
+    """
     service = SimulationService()
-    return await service.compare_relocation(request)
+    return await service.compare_relocation_with_db(request)
 
 
 @router.post("/climate", response_model=ClimateSimulationResponse)
@@ -32,26 +38,21 @@ async def run_climate_simulation(
     return await service.run_climate_simulation(request)
 
 
-@router.get("/location/recommendation")
+@router.get("/location/recommendation", response_model=LocationRecommendationResponse)
 async def get_location_recommendation(
     site_id: str = Query(..., alias="siteId"),
     api_key: str = Depends(verify_api_key),
 ):
     """
-    이전 후보지 추천 (Spring Boot 호환 - STUB)
+    이전 후보지 추천 (Spring Boot 호환)
 
-    현재는 빈 데이터를 반환합니다.
-    향후 실제 추천 로직 구현 필요.
+    candidate_sites 테이블에서 종합 AAL이 가장 낮은 상위 3개의 후보지를 반환합니다.
 
     Args:
         siteId: 사업장 ID
 
     Returns:
-        추천 후보지 목록 (현재는 빈 배열)
+        추천 후보지 상위 3개 (AAL 기준 오름차순)
     """
-    return {
-        "siteId": site_id,
-        "recommendations": [],
-        "status": "not_implemented",
-        "message": "Location recommendation feature is under development."
-    }
+    service = SimulationService()
+    return await service.get_location_recommendation(site_id)

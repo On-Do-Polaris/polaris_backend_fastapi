@@ -149,7 +149,7 @@ class ClimateSimulationResponse(BaseModel):
     """
     Spring Boot의 runClimateSimulation 서비스 로직과 일치하는 응답 스키마
     """
-    
+
     # 1. 행정구역별 점수
     # Spring 주석: "regionScores": { "11010": { "2025": 45.2, ... } }
     region_scores: Dict[str, Dict[str, float]] = Field(
@@ -168,10 +168,48 @@ class ClimateSimulationResponse(BaseModel):
         example={"4b5be9aa-c228-4a13-b0c5-0d98deb51424": {"2025": 12.5, "2030": 15.0}}
     )
 
-    # (선택) Spring 로직에서 시나리오/위험유형은 Request 정보를 사용하므로, 
+    # (선택) Spring 로직에서 시나리오/위험유형은 Request 정보를 사용하므로,
     # 응답에는 포함하지 않아도 되지만, 검증용으로 필요하다면 아래와 같이 유지 가능합니다.
     # scenario: SSPScenario = Field(..., description="SSP 시나리오")
     # risk_type: str = Field(..., alias="riskType", description="리스크 유형")
+
+    class Config:
+        populate_by_name = True
+
+
+class LocationRecommendationCandidate(BaseModel):
+    """후보지 정보"""
+    candidate_id: UUID = Field(..., alias="candidateId", description="후보지 ID")
+    candidate_name: Optional[str] = Field(None, alias="candidateName", description="후보지 이름")
+    latitude: float = Field(..., description="위도")
+    longitude: float = Field(..., description="경도")
+    jibun_address: Optional[str] = Field(None, alias="jibunAddress", description="지번 주소")
+    road_address: Optional[str] = Field(None, alias="roadAddress", description="도로명 주소")
+    riskscore: int = Field(ge=0, le=100, description="종합 리스크 점수 (0-100)")
+    aalscore: float = Field(ge=0, description="종합 AAL 점수")
+    physical_risk_scores: Dict[str, int] = Field(..., alias="physical-risk-scores", description="재난별 물리적 리스크 점수")
+    aal_scores: Dict[str, float] = Field(..., alias="aal-scores", description="재난별 AAL 점수")
+    pros: Optional[str] = Field(None, description="장점")
+    cons: Optional[str] = Field(None, description="단점")
+
+    class Config:
+        populate_by_name = True
+
+
+class LocationRecommendationSite(BaseModel):
+    """사업장 정보"""
+    site_id: UUID = Field(..., alias="siteId", description="사업장 ID")
+    candidate1: Optional[LocationRecommendationCandidate] = Field(None, description="1순위 후보지")
+    candidate2: Optional[LocationRecommendationCandidate] = Field(None, description="2순위 후보지")
+    candidate3: Optional[LocationRecommendationCandidate] = Field(None, description="3순위 후보지")
+
+    class Config:
+        populate_by_name = True
+
+
+class LocationRecommendationResponse(BaseModel):
+    """Spring Boot API 호환 - 위치 추천 응답"""
+    site: LocationRecommendationSite = Field(..., description="사업장 및 추천 후보지")
 
     class Config:
         populate_by_name = True

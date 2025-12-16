@@ -28,7 +28,7 @@ class SuperAgentState(TypedDict, total=False):
 	"""
 	# ========== 입력 정보 ==========
 	target_location: Dict[str, Any]  # 분석 대상 위치 (위도, 경도, 주소) - 단일 사업장
-	building_info: Dict[str, Any]  # 건물 정보 (연식, 구조, 용도) - 단일 사업장
+	building_info: Dict[str, Any]  # 건물 정보 (d연식, 구조, 용도) - 단일 사업장
 	asset_info: Dict[str, Any]  # 사업장 노출 자산 정보 - 단일 사업장
 	analysis_params: Dict[str, Any]  # 분석 파라미터 (시간 범위, 시나리오)
 	company_name: Optional[str]  # 회사명 (Report Analysis용)

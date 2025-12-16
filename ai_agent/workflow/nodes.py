@@ -54,8 +54,10 @@ scratch_manager = ScratchSpaceManager(base_path="./scratch", default_ttl_hours=4
 @traceable(name="modelops_trigger_node", tags=["workflow", "node", "modelops-trigger"])
 def data_collection_node(state: SuperAgentState, config: Any) -> Dict:
 	"""
-	ModelOps API 요청 트리거 노드
-	사업장 리스크 계산 요청을 ModelOps로 전송하고 200 응답 확인
+	데이터 수집 노드 (DB에서 Phase 1 결과 로드)
+
+	Service Layer에서 이미 ModelOps API를 호출했으므로
+	이 노드는 DB 조회만 수행합니다.
 
 	Args:
 		state: 현재 워크플로우 상태
@@ -64,73 +66,37 @@ def data_collection_node(state: SuperAgentState, config: Any) -> Dict:
 	Returns:
 		업데이트된 상태 딕셔너리
 	"""
-	print("[Node 1] ModelOps API 요청 트리거...")
+	print("[Node 1] Phase 1 결과 DB 조회...")
 
 	# Workflow Mock 모드 체크
 	if config.WORKFLOW_MOCK_MODE:
-		print("  [MOCK] Using mock ModelOps request")
+		print("  [MOCK] Using mock data")
 		return {
-			'modelops_request_id': 'mock_request_12345',
-			'modelops_status': 'triggered',
 			'data_collection_status': 'completed',
 			'current_step': 'risk_assessment',
-			'logs': ['Workflow Mock: ModelOps 요청 완료']
+			'logs': ['Workflow Mock: 데이터 수집 완료']
 		}
 
 	try:
-		from ai_agent.services import get_modelops_client
+		# Service Layer에서 이미 ModelOps API를 호출했으므로
+		# 이 노드는 아무 작업도 하지 않거나, 간단한 검증만 수행
 
-		# ModelOps 클라이언트 초기화
-		modelops_client = get_modelops_client()
+		# State에서 site_ids 확인
+		site_ids = state.get('site_ids', [])
+		if not site_ids:
+			# 단일 사업장 모드
+			site_id = state.get('site_id')
+			print(f"  - 단일 사업장 모드: site_id={site_id}")
+		else:
+			# 다중 사업장 모드
+			print(f"  - 다중 사업장 모드: {len(site_ids)}개 사업장")
 
-		# Step 1: 위치 및 사업장 정보 추출
-		target_location = state.get('target_location', {})
-		latitude = target_location.get('latitude')
-		longitude = target_location.get('longitude')
-		site_id = state.get('site_id', target_location.get('site_id'))
+		print("  [OK] 데이터 수집 단계 완료 (Service Layer에서 처리됨)")
 
-		if not latitude or not longitude:
-			raise ValueError("위경도 정보가 필요합니다")
-
-		print(f"  - 위치: lat={latitude}, lng={longitude}, site_id={site_id}")
-
-		# Step 2: 건물 및 자산 정보 추출
-		additional_data = state.get('additional_data', {})
-		building_info = additional_data.get('building_info', {}) if additional_data else {}
-		asset_info = additional_data.get('asset_info', {}) if additional_data else {}
-
-		# Step 3: ModelOps API 호출 - 사업장 리스크 계산 (동기)
-		print("  - ModelOps 사업장 리스크 계산 중...")
-		response = modelops_client.calculate_site_risk(
-			latitude=latitude,
-			longitude=longitude,
-			site_id=site_id,
-			building_info=building_info,
-			asset_info=asset_info
-		)
-
-		print(f"  [OK] 사업장 리스크 계산 완료 (HTTP 200)")
-		print(f"  - site_id: {response.get('site_id')}")
-		print(f"  - 계산 시각: {response.get('calculated_at')}")
-
-		# Step 4: ModelOps API 호출 - 후보지 추천 (비동기, 콜백 방식)
-		# ModelOps가 추천 완료 후 FastAPI /api/internal/modelops/recommendation-complete 호출
-		# 현재는 후보지 추천 기능 미구현으로 스킵 (향후 ModelOps 측 구현 필요)
-
-		# Step 5: State 업데이트 (Node 3에서 DB 조회에 필요한 정보만 저장)
 		return {
-			'modelops_request_id': response.get('site_id'),  # site_id를 request_id로 사용
-			'modelops_latitude': latitude,
-			'modelops_longitude': longitude,
-			'modelops_site_id': site_id,
-			'modelops_status': 'triggered',
 			'data_collection_status': 'completed',
 			'current_step': 'risk_assessment',
-			'logs': [
-				'ModelOps 사업장 리스크 계산 완료 (HTTP 200)',
-				f'Site ID: {site_id}',
-				f'위치: ({latitude}, {longitude})'
-			]
+			'logs': ['Phase 1 데이터 준비 완료 (Service Layer에서 ModelOps API 호출됨)']
 		}
 
 	except Exception as e:
@@ -139,8 +105,7 @@ def data_collection_node(state: SuperAgentState, config: Any) -> Dict:
 		traceback.print_exc()
 		return {
 			'data_collection_status': 'failed',
-			'modelops_status': 'failed',
-			'errors': [f'ModelOps API 요청 오류: {str(e)}']
+			'errors': [f'데이터 수집 오류: {str(e)}']
 		}
 
 

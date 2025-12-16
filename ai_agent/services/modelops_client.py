@@ -11,7 +11,7 @@
 	- Health check 엔드포인트 지원
 
 변경사항 (v03):
-	- API 엔드포인트 변경: /api/v1/risk-assessment/* → /api/v1/site-assessment/*
+	- API 엔드포인트 변경: /api/v1/risk-assessment/* → /api/site-assessment/*
 	- WebSocket 지원 제거 (동기 API로 변경)
 	- status 폴링 제거 (동기 계산으로 변경)
 	- cached results 조회 제거
@@ -86,7 +86,7 @@ class ModelOpsClient:
 		latitude: float,
 		longitude: float,
 		building_info: Dict[str, Any],
-		site_id: Optional[str] = None,
+		site_ids: Optional[List[str]] = None,
 		asset_info: Optional[Dict[str, Any]] = None
 	) -> Dict[str, Any]:
 		"""
@@ -106,7 +106,7 @@ class ModelOpsClient:
 					"has_piloti": false,  # 필로티 구조 여부
 					"elevation_m": 10  # 지면 고도 (m)
 				}
-			site_id: 사업장 ID (선택)
+			site_ids: 사업장 ID 리스트 (선택)
 			asset_info: 자산 정보 (선택)
 				{
 					"total_value": 50000000000,  # 총 자산 가치 (원)
@@ -131,7 +131,7 @@ class ModelOpsClient:
 				"calculated_at": str  # ISO 8601 형식
 			}
 		"""
-		self.logger.info(f"사업장 리스크 계산 요청: lat={latitude}, lng={longitude}, site_id={site_id}")
+		self.logger.info(f"사업장 리스크 계산 요청: lat={latitude}, lng={longitude}, site_ids={site_ids}")
 
 		# 유효성 검증
 		if not (-90 <= latitude <= 90):
@@ -147,13 +147,13 @@ class ModelOpsClient:
 			"building_info": building_info
 		}
 
-		if site_id:
-			payload["site_id"] = site_id
+		if site_ids:
+			payload["site_ids"] = site_ids
 		if asset_info:
 			payload["asset_info"] = asset_info
 
 		try:
-			response = self.client.post("/api/v1/site-assessment/calculate", json=payload)
+			response = self.client.post("/api/site-assessment/calculate", json=payload)
 			response.raise_for_status()
 
 			result = response.json()
@@ -173,6 +173,8 @@ class ModelOpsClient:
 		self,
 		candidate_grids: List[Dict[str, float]],
 		building_info: Dict[str, Any],
+		site_ids: Optional[List[str]] = None,
+		batch_id: Optional[str] = None,
 		asset_info: Optional[Dict[str, Any]] = None,
 		max_candidates: int = 3,
 		ssp_scenario: str = "ssp2",
@@ -189,6 +191,8 @@ class ModelOpsClient:
 					...
 				]
 			building_info: 건물 정보 (필수)
+			site_ids: 사업장 ID 리스트 (선택)
+			batch_id: 배치 작업 ID (선택, ModelOps 콜백용)
 			asset_info: 자산 정보 (선택)
 			max_candidates: 최대 추천 후보지 개수 (기본: 3)
 			ssp_scenario: SSP 시나리오 (기본: "ssp2")
@@ -221,7 +225,7 @@ class ModelOpsClient:
 			}
 		"""
 		total_grids = len(candidate_grids)
-		self.logger.info(f"이전 후보지 추천 요청: {total_grids}개 격자")
+		self.logger.info(f"이전 후보지 추천 요청: {total_grids}개 격자, site_ids={site_ids}")
 
 		# 유효성 검증
 		if total_grids == 0:
@@ -239,11 +243,15 @@ class ModelOpsClient:
 			}
 		}
 
+		if site_ids:
+			payload["site_ids"] = site_ids
+		if batch_id:
+			payload["batch_id"] = batch_id
 		if asset_info:
 			payload["asset_info"] = asset_info
 
 		try:
-			response = self.client.post("/api/v1/site-assessment/recommend-locations", json=payload)
+			response = self.client.post("/api/site-assessment/recommend-locations", json=payload)
 			response.raise_for_status()
 
 			result = response.json()

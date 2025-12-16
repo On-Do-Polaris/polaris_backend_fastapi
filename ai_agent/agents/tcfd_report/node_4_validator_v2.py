@@ -266,16 +266,30 @@ class ValidatorNode:
                     "message": f"Priority Table 행 개수({len(rows)})와 Impact Analysis 개수({len(impact_analyses)})가 불일치"
                 })
 
-        # 3. AAL 값 범위 체크 (0-100%)
+        # 3. AAL 값 범위 체크
+        # 참고: total_aal은 멀티 사이트 합계이므로 100%를 초과할 수 있음 (정상)
+        # 개별 사이트 AAL만 0-100% 범위 검증
         if impact_analyses:
             for i, impact in enumerate(impact_analyses, 1):
-                aal = impact.get("total_aal", 0.0)
-                if aal < 0 or aal > 100:
+                # 개별 사이트별 AAL 검증 (site_aal_values가 있는 경우)
+                site_aal_values = impact.get("site_aal_values", {})
+                for site_name, aal in site_aal_values.items():
+                    if aal < 0 or aal > 100:
+                        issues.append({
+                            "severity": "critical",
+                            "type": "data_validity",
+                            "field": f"impact_aal_p{i}_{site_name}",
+                            "message": f"P{i} {site_name} AAL 값이 범위를 벗어남: {aal}% (0-100% 범위)"
+                        })
+
+                # total_aal이 음수인 경우만 에러 (합계 > 100%는 멀티사이트에서 정상)
+                total_aal = impact.get("total_aal", 0.0)
+                if total_aal < 0:
                     issues.append({
                         "severity": "critical",
                         "type": "data_validity",
                         "field": f"impact_aal_p{i}",
-                        "message": f"P{i} AAL 값이 범위를 벗어남: {aal}% (0-100% 범위)"
+                        "message": f"P{i} AAL 값이 음수: {total_aal}%"
                     })
 
         return issues

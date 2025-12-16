@@ -1,15 +1,18 @@
 '''
 파일명: building_characteristics_agent.py
-작성일: 2025-12-15
-버전: v07 (TCFD Report v2.1 - DB 연동 추가)
+작성일: 2025-12-16
+버전: v09 (DB 조회만 - API 호출 X)
 파일 개요: 건축물 대장 기반 물리적 취약성 정밀 분석 에이전트 (보고서 생성용 가이드라인 제공)
 
 역할:
-    - BuildingDataFetcher를 통해 실시간 건축물 정보 및 지리 정보 수집
-    - DB(building_aggregate_cache)에 데이터 적재 후 조회하여 분석
+    - BuildingDataLoader를 통해 DB에서만 건축물 데이터 조회 (API 호출 X)
     - 데이터 기반의 물리적 취약성(Vulnerability) 및 회복력(Resilience) 요인 도출
     - LLM을 활용한 **보고서 생성 에이전트를 위한 가이드라인** 생성 (보고서 콘텐츠 직접 생성 X)
     - 다중 사업장 병렬 처리 지원 (asyncio.gather)
+
+아키텍처:
+    - building_characteristics_loader.py: ETL (API 호출 → DB 적재) ← 별도 트리거로 실행
+    - building_characteristics_agent.py: 분석 (DB 조회만 → LLM → 결과) ← Node 0에서 호출
 
 변경 이력:
     - 2025-12-08: v01 - 초기 생성 (vulnerability_analysis_agent.py)
@@ -19,6 +22,8 @@
     - 2025-12-15: v05 - 다중 사업장 배치 처리 지원 (analyze_batch), TCFD Report v2.1 대응
     - 2025-12-15: v06 - 병렬 처리 완료 (asyncio.gather, 전체 async 전환)
     - 2025-12-15: v07 - DB 연동 추가 (building_aggregate_cache 테이블)
+    - 2025-12-16: v08 - ETL 분리 (BuildingDataLoader 사용)
+    - 2025-12-16: v09 - DB 조회만 하도록 수정 (API 호출 X)
 '''
 
 from typing import Dict, Any, List, Optional
@@ -28,19 +33,12 @@ from datetime import datetime
 import json # for pretty printing data to LLM
 import asyncio
 
-# BuildingDataFetcher 임포트
+# BuildingDataLoader 임포트 (ETL 담당)
 try:
-    from ...utils.building_data_fetcher import BuildingDataFetcher
+    from .building_characteristics_loader import BuildingDataLoader
 except ImportError:
-    BuildingDataFetcher = None
-    print("⚠️ BuildingDataFetcher를 임포트할 수 없습니다.")
-
-# DatabaseManager 임포트
-try:
-    from ...utils.database import DatabaseManager
-except ImportError:
-    DatabaseManager = None
-    print("⚠️ DatabaseManager를 임포트할 수 없습니다.")
+    BuildingDataLoader = None
+    print("⚠️ BuildingDataLoader를 임포트할 수 없습니다.")
 
 logger = logging.getLogger(__name__)
 
@@ -49,16 +47,18 @@ class BuildingCharacteristicsAgent:
     """
     건축물 물리적 특성 분석 에이전트 (TCFD 보고서 생성용)
     → 보고서 생성 에이전트에 참고할 만한 가이드라인을 제공
-    → v05: 다중 사업장 배치 처리 지원 (TCFD Report v2.1)
-    → v07: DB 연동 추가 (building_aggregate_cache)
+    → v09: DB 조회만 (API 호출 X)
 
     플로우:
-        1. 사업장 정보 (주소) 받음
-        2. DB 캐시 확인 → 있으면 캐시에서 로드
-        3. 캐시 없으면 → API 호출 → DB에 저장
-        4. DB에서 데이터 로드
-        5. LLM 분석
-        6. 분석 결과만 state로 전달
+        1. 사업장 정보 (site_id 또는 주소) 받음
+        2. BuildingDataLoader를 통해 DB에서만 데이터 조회 (API 호출 X)
+        3. 취약성/회복력 분석
+        4. LLM 가이드라인 생성
+        5. 분석 결과 반환
+
+    아키텍처:
+        - BuildingDataLoader: ETL (API → DB) - 별도 트리거
+        - BuildingCharacteristicsAgent: 분석 (DB 조회만 → LLM → 결과) - Node 0 호출
     """
 
     def __init__(self, llm_client=None, db_url: Optional[str] = None):
@@ -70,31 +70,16 @@ class BuildingCharacteristicsAgent:
         self.logger = logger
         self.llm_client = llm_client
 
-        # BuildingDataFetcher 초기화
-        if BuildingDataFetcher:
+        # BuildingDataLoader 초기화 (ETL 담당)
+        if BuildingDataLoader:
             try:
-                self.fetcher = BuildingDataFetcher()
-                self.logger.info("BuildingDataFetcher 초기화 성공")
+                self.data_loader = BuildingDataLoader(db_url=db_url)
+                self.logger.info("BuildingDataLoader 초기화 성공")
             except Exception as e:
-                self.logger.error(f"BuildingDataFetcher 초기화 실패: {e}")
-                self.fetcher = None
+                self.logger.error(f"BuildingDataLoader 초기화 실패: {e}")
+                self.data_loader = None
         else:
-            self.fetcher = None
-
-        # DatabaseManager 초기화 (datawarehouse DB)
-        self.db_manager = None
-        if DatabaseManager:
-            try:
-                # datawarehouse DB URL 사용
-                dw_db_url = db_url or os.getenv('DATAWAREHOUSE_DATABASE_URL') or os.getenv('DATABASE_URL')
-                if dw_db_url:
-                    self.db_manager = DatabaseManager(dw_db_url)
-                    self.logger.info("DatabaseManager 초기화 성공 (building_aggregate_cache)")
-                else:
-                    self.logger.warning("DB URL이 설정되지 않음 - DB 캐시 비활성화")
-            except Exception as e:
-                self.logger.error(f"DatabaseManager 초기화 실패: {e}")
-                self.db_manager = None
+            self.data_loader = None
 
     async def analyze_batch(self, sites_data: List[Dict[str, Any]]) -> Dict[int, Dict[str, Any]]:
         """
@@ -171,30 +156,32 @@ class BuildingCharacteristicsAgent:
 
     async def _analyze_single_site_async(
         self,
-        site_id: int,
-        lat: float,
-        lon: float,
+        site_id,  # int 또는 str (UUID)
+        lat: float = None,
+        lon: float = None,
         address: str = None,
         risk_scores: Dict[str, Any] = None
     ) -> Dict[str, Any]:
         """
-        단일 사업장 비동기 분석 (병렬 처리용)
+        단일 사업장 비동기 분석 (병렬 처리용) - DB 조회만
 
-        :param site_id: 사업장 ID
-        :param lat: 위도
-        :param lon: 경도
-        :param address: 주소
+        :param site_id: 사업장 ID (int 또는 UUID str)
+        :param lat: 위도 (미사용, 호환성 유지)
+        :param lon: 경도 (미사용, 호환성 유지)
+        :param address: 주소 (DB 캐시 조회용)
         :param risk_scores: 리스크 점수
         :return: 분석 결과
         """
         try:
-            return await self._analyze_single_site(lat, lon, address, risk_scores)
+            # site_id를 str로 변환 (UUID 형식)
+            site_id_str = str(site_id) if site_id else None
+            return await self._analyze_single_site(lat, lon, address, risk_scores, site_id_str)
         except Exception as e:
             self.logger.error(f"사업장 {site_id} 분석 중 오류: {e}")
             return {
                 "meta": {
                     "analyzed_at": datetime.now().isoformat(),
-                    "location": {"lat": lat, "lon": lon},
+                    "location": {"address": address},
                     "error": str(e)
                 },
                 "building_data": {},
@@ -230,28 +217,43 @@ class BuildingCharacteristicsAgent:
                 }
         return risk_scores
 
-    async def analyze(self, lat: float, lon: float, address: str = None, risk_scores: Dict[str, Any] = None) -> Dict[str, Any]:
+    async def analyze(
+        self,
+        lat: float = None,
+        lon: float = None,
+        address: str = None,
+        risk_scores: Dict[str, Any] = None,
+        site_id: str = None
+    ) -> Dict[str, Any]:
         """
         단일 사업장 분석 (하위 호환성 유지) - 비동기
 
         ⚠️ 새로운 코드에서는 analyze_batch() 사용을 권장합니다.
         """
-        return await self._analyze_single_site(lat, lon, address, risk_scores)
+        return await self._analyze_single_site(lat, lon, address, risk_scores, site_id)
 
-    async def _analyze_single_site(self, lat: float, lon: float, address: str = None, risk_scores: Dict[str, Any] = None) -> Dict[str, Any]:
+    async def _analyze_single_site(
+        self,
+        lat: float = None,
+        lon: float = None,
+        address: str = None,
+        risk_scores: Dict[str, Any] = None,
+        site_id: str = None
+    ) -> Dict[str, Any]:
         """
-        위치 기반 건물 특성 분석 수행 (비동기)
+        건물 특성 분석 수행 (비동기) - DB 조회만
 
-        :param lat: 위도
-        :param lon: 경도
-        :param address: (선택) 도로명 주소 - 제공 시 더 정확한 데이터 조회 가능
+        :param lat: 위도 (미사용, 호환성 유지)
+        :param lon: 경도 (미사용, 호환성 유지)
+        :param address: (선택) 도로명 주소 - DB 캐시 조회에 사용
         :param risk_scores: (선택) 외부에서 계산된 리스크 점수 딕셔너리
+        :param site_id: (선택) 사업장 UUID - DB 조회에 사용
         :return: 분석 결과 (데이터, 취약/회복 요인, 가이드라인)
         """
-        self.logger.info(f"건물 특성 분석 시작: lat={lat}, lon={lon}, address={address}")
+        self.logger.info(f"건물 특성 분석 시작: site_id={site_id}, address={address}")
 
-        # 1. 데이터 수집 (fetch_full_tcfd_data 활용)
-        building_data = self._fetch_data(lat, lon, address)
+        # 1. 데이터 수집 (DB 캐시에서만 조회 - API 호출 X)
+        building_data = self._fetch_data(lat, lon, address, site_id)
 
         # 2. 요인 분석
         vulnerabilities = self._identify_vulnerabilities(building_data)
@@ -273,7 +275,7 @@ class BuildingCharacteristicsAgent:
             "meta": {
                 "analyzed_at": datetime.now().isoformat(),
                 "location": {"lat": lat, "lon": lon},
-                "data_source": "Architectural HUB API (TCFD Enhanced)" if self.fetcher else "Fallback Data"
+                "data_source": "building_aggregate_cache (DB)" if self.data_loader else "Fallback Data"
             },
             "building_data": building_data,
             "structural_grade": structural_grade,
@@ -285,93 +287,49 @@ class BuildingCharacteristicsAgent:
         self.logger.info("건물 특성 분석 완료")
         return result
 
-    def _fetch_data(self, lat: float, lon: float, address: str = None) -> Dict[str, Any]:
-        """
-        BuildingDataFetcher를 통한 TCFD 데이터 조회 (DB 캐시 활용)
-
-        플로우:
-            1. 주소 코드 추출
-            2. DB 캐시 확인 → 있으면 캐시 데이터 반환
-            3. 캐시 없으면 → API 호출 → DB 저장 → 데이터 반환
-        """
-        if not self.fetcher:
-            self.logger.warning("Fetcher 없음, 빈 데이터 반환")
-            return {}
-
-        try:
-            # 1. API로 데이터 조회 (주소 코드도 함께 반환됨)
-            data = self.fetcher.fetch_full_tcfd_data(lat, lon, address)
-
-            if not data:
-                self.logger.warning(f"API에서 데이터 조회 실패: lat={lat}, lon={lon}")
-                return {}
-
-            # 2. 주소 코드 추출 (meta에서)
-            meta = data.get('meta', {})
-            sigungu_cd = meta.get('sigungu_cd', '')
-            bjdong_cd = meta.get('bjdong_cd', '')
-            bun = meta.get('bun', '')
-            ji = meta.get('ji', '')
-
-            # 3. DB 캐시에 저장 (주소 코드가 있는 경우만)
-            if self.db_manager and sigungu_cd and bjdong_cd and bun and ji:
-                try:
-                    self.db_manager.save_building_aggregate_cache(
-                        sigungu_cd=sigungu_cd,
-                        bjdong_cd=bjdong_cd,
-                        bun=bun,
-                        ji=ji,
-                        building_data=data
-                    )
-                    self.logger.info(f"DB 캐시 저장 완료: {sigungu_cd}-{bjdong_cd}-{bun}-{ji}")
-                except Exception as cache_error:
-                    self.logger.warning(f"DB 캐시 저장 실패 (계속 진행): {cache_error}")
-
-            return data
-
-        except Exception as e:
-            self.logger.error(f"TCFD 데이터 조회 중 오류: {e}")
-            return {}
-
-    def _fetch_data_from_cache(
+    def _fetch_data(
         self,
-        sigungu_cd: str,
-        bjdong_cd: str,
-        bun: str,
-        ji: str
-    ) -> Optional[Dict[str, Any]]:
+        lat: float = None,
+        lon: float = None,
+        address: str = None,
+        site_id: str = None
+    ) -> Dict[str, Any]:
         """
-        DB 캐시에서 빌딩 데이터 조회
+        BuildingDataLoader를 통한 건축물 데이터 조회 (DB만 - API 호출 X)
+
+        ⚠️ 주의: site_id로 sites 테이블 조회하지 않음!
+        - sites 정보는 Node 0에서 이미 조회해서 address로 전달됨
+        - 여기서는 전달받은 address로 building_aggregate_cache만 조회
 
         Args:
-            sigungu_cd: 시군구 코드
-            bjdong_cd: 법정동 코드
-            bun: 번
-            ji: 지
+            lat: 위도 (미사용, 호환성 유지)
+            lon: 경도 (미사용, 호환성 유지)
+            address: 도로명 주소 (Node 0에서 전달받음 → building_aggregate_cache 조회용)
+            site_id: 사업장 UUID (로깅용, DB 조회에는 미사용)
 
         Returns:
-            BuildingDataFetcher 형식의 데이터 또는 None
+            BuildingDataFetcher 형식의 건축물 데이터
         """
-        if not self.db_manager:
-            return None
+        if not self.data_loader:
+            self.logger.warning("DataLoader 없음, 빈 데이터 반환")
+            return {}
 
         try:
-            cache_data = self.db_manager.fetch_building_aggregate_cache(
-                sigungu_cd=sigungu_cd,
-                bjdong_cd=bjdong_cd,
-                bun=bun,
-                ji=ji
-            )
+            # 주소로 building_aggregate_cache 테이블 조회
+            # (sites 테이블 조회 X - Node 0에서 이미 조회해서 address 전달함)
+            if address:
+                data = self.data_loader.fetch_from_db_only(road_address=address)
+                if data:
+                    self.logger.info(f"building_aggregate_cache에서 데이터 조회 완료: {address}")
+                    return data
 
-            if cache_data:
-                self.logger.info(f"DB 캐시에서 데이터 로드: {sigungu_cd}-{bjdong_cd}-{bun}-{ji}")
-                return self.db_manager.convert_cache_to_building_data(cache_data)
-
-            return None
+            # DB에 데이터 없으면 빈 데이터 반환 (API 호출 X)
+            self.logger.warning(f"building_aggregate_cache에 데이터 없음 (site_id={site_id}, address={address})")
+            return {}
 
         except Exception as e:
-            self.logger.error(f"DB 캐시 조회 실패: {e}")
-            return None
+            self.logger.error(f"DB 데이터 조회 중 오류: {e}")
+            return {}
 
     def _identify_vulnerabilities(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """취약성 요인 식별 로직 (건축물 대장 API 기반만 사용)"""

@@ -1,9 +1,9 @@
 """
 Node 0: Data Preprocessing
-사업장 데이터 로딩 + Excel 데이터 처리 (Optional)
+사업장 데이터 로딩 + 추가 데이터 조회
 
-작성일: 2025-12-15
-버전: v05 (target_years 필터링 추가)
+작성일: 2025-12-16
+버전: v07 (DB 조회만 - API/Excel 직접 접근 X)
 
 설계 이유:
 - State 기반: TCFDReportState TypedDict 사용
@@ -12,9 +12,17 @@ Node 0: Data Preprocessing
 - 배치 처리: 여러 사업장 동시 로딩
 - target_years: 특정 년도만 필터링 (2025~2030, 2020s~2050s)
 
+아키텍처 (ETL 분리 - DB 조회만):
+- BuildingCharacteristicsLoader: ETL (API → DB) ← 별도 트리거로 실행
+- BuildingCharacteristicsAgent: 분석 (DB 조회만 → LLM → 결과) ← Node 0에서 호출
+- AdditionalDataLoader: ETL (Excel → DB) ← 별도 트리거로 실행
+- AdditionalDataAgent: 분석 (DB 조회만 → LLM → 가이드라인) ← Node 0에서 호출
+
 DB 접근:
 - Application DB (SpringBoot): sites 테이블 (사업장 정보)
 - Datawarehouse DB (ModelOps): H, E, V, P, AAL 결과 테이블들
+- Datawarehouse DB: building_aggregate_cache (건축물 데이터)
+- Datawarehouse DB: site_additional_data (추가 데이터)
 """
 
 import asyncio
@@ -30,9 +38,11 @@ from ..primary_data.building_characteristics_agent import BuildingCharacteristic
 
 
 # 유효한 target_year 값들 (보고서에서 사용하는 년도)
+# - 개별 연도: 2025~2030
+# - 연대별: 2020s, 2030s, 2040s, 2050s
 VALID_TARGET_YEARS: List[str] = [
-    "2025", "2026", "2027", "2028", "2029", "2030",
-    "2020s", "2030s", "2040s", "2050s"
+    "2025", "2026", "2027", "2028", "2029", "2030",  # 개별 연도
+    "2020s", "2030s", "2040s", "2050s"               # 연대별
 ]
 
 
@@ -95,21 +105,23 @@ class DataPreprocessingNode:
     async def execute(
         self,
         site_ids: List[int],
-        excel_file: Optional[str] = None,
+        excel_file: Optional[str] = None,  # DEPRECATED: 미사용 (DB 조회로 변경)
         target_years: Optional[List[str]] = None
     ) -> TCFDReportState:
         """
         메인 실행 함수
 
         Args:
-            site_ids: 사업장 ID 리스트
-            excel_file: Excel 파일 경로 (Optional)
+            site_ids: 사업장 ID 리스트 (int 또는 UUID str)
+            excel_file: DEPRECATED - 미사용 (추가 데이터는 DB에서 조회)
             target_years: 분석 목표 연도 리스트 (Optional).
                          None이면 VALID_TARGET_YEARS 사용.
 
         Returns:
             TCFDReportState
         """
+        # excel_file 파라미터 무시 (deprecated)
+        _ = excel_file
         # target_years가 None이면 기본값 사용
         if target_years is None:
             target_years = VALID_TARGET_YEARS
@@ -137,17 +149,17 @@ class DataPreprocessingNode:
             site_data, aal_scaled_results, hazard_results
         )
 
-        # 4. Excel 데이터 처리 (Optional) → 별도 필드로 반환
+        # 4. 추가 데이터 처리 (DB 조회) → 별도 필드로 반환
         additional_data: Dict[str, Any] = {}
         use_additional_data = False
 
-        if excel_file and os.path.exists(excel_file):
-            self.logger.info(f"Excel 파일 처리 시작: {excel_file}")
-            additional_data, use_additional_data = await self._process_excel(
-                excel_file, site_ids
-            )
-        else:
-            self.logger.info("Excel 파일 없음 - AdditionalDataAgent 건너뜀")
+        # site_ids를 UUID 문자열로 변환
+        site_ids_str = [str(sid) for sid in site_ids]
+
+        self.logger.info("AdditionalDataAgent 실행 시작 (DB 조회)")
+        additional_data, use_additional_data = await self._process_additional_data(
+            site_ids_str
+        )
 
         self.logger.info(f"Node 0 실행 완료: {len(site_data)}개 사업장 로딩")
 
@@ -474,24 +486,26 @@ class DataPreprocessingNode:
 
     # ==================== AD Agent 실행 ====================
 
-    async def _process_excel(
+    async def _process_additional_data(
         self,
-        excel_file: str,
-        site_ids: List[int]
+        site_ids: List[str]
     ) -> tuple:
         """
-        Excel 파일 처리 (AdditionalDataAgent 호출)
+        추가 데이터 처리 (AdditionalDataAgent 호출 - DB 조회)
 
         Args:
-            excel_file: Excel 파일 경로
-            site_ids: 사업장 ID 리스트
+            site_ids: 사업장 UUID 리스트
 
         Returns:
             (additional_data: Dict, use_additional_data: bool)
         """
         try:
-            agent = AdditionalDataAgent(llm_client=self.llm_client)
-            result = agent.analyze(excel_file, site_ids)
+            # DB URL 전달 (site_additional_data 테이블 접근용)
+            agent = AdditionalDataAgent(
+                llm_client=self.llm_client,
+                db_url=self.dw_db_url
+            )
+            result = await agent.analyze_from_db(site_ids)
 
             if result.get("status") == "completed":
                 self.logger.info(
@@ -500,10 +514,26 @@ class DataPreprocessingNode:
                 return result, True  # additional_data, use_additional_data = True
             else:
                 self.logger.warning(
-                    f"Excel 분석 실패: {result.get('meta', {}).get('error', 'Unknown')}"
+                    f"추가 데이터 분석 실패: {result.get('meta', {}).get('error', 'Unknown')}"
                 )
                 return {}, False
 
         except Exception as e:
-            self.logger.error(f"Excel 파일 처리 실패: {e}", exc_info=True)
+            self.logger.error(f"추가 데이터 처리 실패: {e}", exc_info=True)
             return {}, False
+
+    async def _process_excel(
+        self,
+        excel_file: str,
+        site_ids: List[int]
+    ) -> tuple:
+        """
+        Excel 파일 처리 (DEPRECATED - 하위 호환성 유지)
+
+        ⚠️ 새로운 코드에서는 _process_additional_data() 사용을 권장합니다.
+        """
+        self.logger.warning("_process_excel은 deprecated입니다. _process_additional_data()를 사용하세요.")
+
+        # site_ids를 str로 변환
+        site_ids_str = [str(sid) for sid in site_ids]
+        return await self._process_additional_data(site_ids_str)

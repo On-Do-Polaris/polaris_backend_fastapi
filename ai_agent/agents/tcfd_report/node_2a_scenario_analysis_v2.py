@@ -451,13 +451,15 @@ Now, generate the scenario analysis:
         # LLM 호출
         try:
             response = await self.llm.ainvoke(prompt)
+            # AIMessage에서 content 추출
+            response_text = response.content if hasattr(response, 'content') else str(response)
 
             # JSON 응답인 경우 파싱
-            if response.strip().startswith("{"):
-                parsed = json.loads(response)
-                return parsed.get("analysis", response)
+            if response_text.strip().startswith("{"):
+                parsed = json.loads(response_text)
+                return parsed.get("analysis", response_text)
 
-            return response
+            return response_text
 
         except Exception as e:
             print(f"⚠️  LLM 분석 실패: {e}")

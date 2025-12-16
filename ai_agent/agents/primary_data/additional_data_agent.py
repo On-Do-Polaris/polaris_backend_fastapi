@@ -1,73 +1,104 @@
 '''
 파일명: additional_data_agent.py
-작성일: 2025-12-15
-버전: v03 (TCFD Report v2.1 - Parallel Processing)
-파일 개요: 추가 데이터 (Excel) 분석 에이전트 (보고서 생성용 가이드라인 제공)
+작성일: 2025-12-16
+버전: v05 (DB 조회만 - Excel 직접 접근 X)
+파일 개요: 추가 데이터 분석 에이전트 (보고서 생성용 가이드라인 제공)
 
 역할:
-    - 사용자가 업로드한 Excel 파일에서 사업장별 추가 정보 추출
+    - AdditionalDataLoader를 통해 DB에서만 추가 데이터 조회 (Excel 직접 접근 X)
     - 추출된 데이터를 분석하여 보고서 생성 에이전트를 위한 가이드라인 생성
-    - ⚠️ 조건부 실행: Excel 파일이 제공된 경우에만 실행
+    - ⚠️ 조건부 실행: 추가 데이터가 DB에 적재된 경우에만 실행
     - 다중 사업장 병렬 처리 지원 (asyncio.gather)
+
+아키텍처:
+    - additional_data_loader.py: ETL (Excel → DB 적재) ← 별도 트리거로 실행
+    - additional_data_agent.py: 분석 (DB 조회만 → LLM → 가이드라인) ← Node 0에서 호출
 
 변경 이력:
     - 2025-12-14: v01 - 초기 생성 (TCFD Report v2 Refactoring)
     - 2025-12-15: v02 - 다중 사업장 배치 처리 확인, TCFD Report v2.1 대응
     - 2025-12-15: v03 - 병렬 처리 완료 (asyncio.gather, 전체 async 전환)
+    - 2025-12-16: v04 - ETL 분리 (AdditionalDataLoader 사용)
+    - 2025-12-16: v05 - DB 조회만 하도록 수정 (Excel 직접 접근 X)
 '''
 
 from typing import Dict, Any, List, Optional
 import logging
 from datetime import datetime
-import pandas as pd
 import json
 import asyncio
-import os
-from pathlib import Path
+
+# AdditionalDataLoader 임포트 (ETL 담당)
+try:
+    from .additional_data_loader import AdditionalDataLoader
+except ImportError:
+    AdditionalDataLoader = None
+    print("⚠️ AdditionalDataLoader를 임포트할 수 없습니다.")
 
 logger = logging.getLogger(__name__)
 
 
 class AdditionalDataAgent:
     """
-    추가 데이터 분석 에이전트 (Excel → LLM Guideline)
+    추가 데이터 분석 에이전트 (DB → LLM Guideline)
+    → v05: DB 조회만 (Excel 직접 접근 X)
 
     입력:
-        - excel_file: str (파일 경로)
-        - site_ids: List[int] (분석 대상 사업장 ID 리스트)
+        - site_ids: List[str] (분석 대상 사업장 UUID 리스트)
 
     출력:
-        - site_specific_guidelines: Dict[int, Dict] (사업장별 가이드라인)
+        - site_specific_guidelines: Dict[str, Dict] (사업장별 가이드라인)
         - summary: str (전체 요약)
+
+    아키텍처:
+        - AdditionalDataLoader: ETL (Excel → DB) - 별도 트리거
+        - AdditionalDataAgent: 분석 (DB 조회만 → LLM → 가이드라인) - Node 0 호출
     """
 
-    def __init__(self, llm_client=None):
+    def __init__(self, llm_client=None, db_url: Optional[str] = None):
         """
         초기화
         :param llm_client: LLM 클라이언트 인스턴스 (텍스트 생성용)
+        :param db_url: Datawarehouse DB URL (site_additional_data 테이블 접근용)
         """
         self.logger = logger
         self.llm_client = llm_client
+
+        # AdditionalDataLoader 초기화 (DB 조회용)
+        if AdditionalDataLoader:
+            try:
+                self.data_loader = AdditionalDataLoader(db_url=db_url)
+                self.logger.info("AdditionalDataLoader 초기화 성공")
+            except Exception as e:
+                self.logger.error(f"AdditionalDataLoader 초기화 실패: {e}")
+                self.data_loader = None
+        else:
+            self.data_loader = None
+
         self.logger.info("AdditionalDataAgent 초기화 완료")
 
-    async def analyze(self, excel_file: str, site_ids: List[int]) -> Dict[str, Any]:
+    async def analyze_from_db(self, site_ids: List[str]) -> Dict[str, Any]:
         """
-        Excel 파일 분석 및 가이드라인 생성 (병렬 처리)
+        DB에서 추가 데이터 조회 및 가이드라인 생성 (병렬 처리)
+        → Node 0에서 호출하는 주 메서드
 
-        :param excel_file: Excel 파일 경로
-        :param site_ids: 분석 대상 사업장 ID 리스트
+        :param site_ids: 분석 대상 사업장 UUID 리스트
         :return: 분석 결과 (사업장별 가이드라인 + 전체 요약)
         """
-        self.logger.info(f"추가 데이터 분석 시작: {excel_file}, {len(site_ids)}개 사업장")
+        self.logger.info(f"추가 데이터 분석 시작 (DB 조회): {len(site_ids)}개 사업장")
 
         try:
-            # 1. Excel 파일 읽기
-            raw_data = self._read_excel(excel_file)
+            # 1. 각 사업장별로 DB에서 추가 데이터 조회
+            site_data = {}
+            for site_id in site_ids:
+                if self.data_loader:
+                    data = self.data_loader.fetch_all_for_site(site_id)
+                    site_data[site_id] = data
+                else:
+                    self.logger.warning(f"DataLoader 없음, 사업장 {site_id} 빈 데이터")
+                    site_data[site_id] = {}
 
-            # 2. 사업장 ID와 매칭하여 데이터 추출
-            site_data = self._extract_site_data(raw_data, site_ids)
-
-            # 3. 각 사업장별 가이드라인 생성 (병렬 처리)
+            # 2. 각 사업장별 가이드라인 생성 (병렬 처리)
             tasks = [
                 self._generate_site_guideline(site_id, data)
                 for site_id, data in site_data.items()
@@ -83,92 +114,56 @@ class AdditionalDataAgent:
             }
             self.logger.info(f"✅ {len(site_specific_guidelines)}개 사업장 병렬 처리 완료")
 
-            # 4. 전체 요약 (Optional)
+            # 3. 전체 요약 (Optional)
             summary = await self._generate_summary(site_specific_guidelines)
-
-            # 5. 엑셀 파일 삭제 (분석 완료 후)
-            self._delete_excel_file(excel_file)
 
             result = {
                 "meta": {
                     "analyzed_at": datetime.now().isoformat(),
-                    "source_file": excel_file,
-                    "site_count": len(site_specific_guidelines),
-                    "file_deleted": True
+                    "source": "database",
+                    "site_count": len(site_specific_guidelines)
                 },
                 "site_specific_guidelines": site_specific_guidelines,
                 "summary": summary,
                 "status": "completed"
             }
 
-            self.logger.info("추가 데이터 분석 완료")
+            self.logger.info("추가 데이터 분석 완료 (DB 조회)")
             return result
 
         except Exception as e:
             self.logger.error(f"추가 데이터 분석 실패: {e}")
-            # 실패 시에도 엑셀 파일 삭제 시도
-            self._delete_excel_file(excel_file)
-            
             return {
                 "meta": {
                     "analyzed_at": datetime.now().isoformat(),
-                    "source_file": excel_file,
-                    "error": str(e),
-                    "file_deleted": True
+                    "source": "database",
+                    "error": str(e)
                 },
                 "site_specific_guidelines": {},
                 "summary": "",
                 "status": "failed"
             }
 
-    def _read_excel(self, file_path: str) -> pd.DataFrame:
+    async def analyze(self, excel_file: str = None, site_ids: List = None) -> Dict[str, Any]:
         """
-        Excel 파일 읽기
+        추가 데이터 분석 (하위 호환성 유지)
 
-        ⚠️ 예상 Excel 구조:
-        - Column 1: site_id (또는 site_name)
-        - Column 2~N: 추가 정보 (자유 형식)
+        ⚠️ DEPRECATED: 새로운 코드에서는 analyze_from_db() 사용을 권장합니다.
 
-        실제 구조는 프로젝트 요구사항에 따라 조정 필요
+        :param excel_file: Excel 파일 경로 (미사용, 호환성 유지)
+        :param site_ids: 분석 대상 사업장 ID 리스트 (str UUID 또는 int)
+        :return: 분석 결과 (사업장별 가이드라인 + 전체 요약)
         """
-        try:
-            # TODO: 실제 Excel 구조에 맞게 수정 필요
-            df = pd.read_excel(file_path, sheet_name=0)  # 첫 번째 시트 읽기
-            self.logger.info(f"Excel 파일 읽기 성공: {len(df)}행, {len(df.columns)}열")
-            return df
-        except Exception as e:
-            self.logger.error(f"Excel 파일 읽기 실패: {e}")
-            raise
+        self.logger.warning("analyze()는 deprecated입니다. analyze_from_db()를 사용하세요.")
 
-    def _extract_site_data(self, df: pd.DataFrame, site_ids: List[int]) -> Dict[int, Dict[str, Any]]:
-        """
-        DataFrame에서 사업장 ID에 해당하는 데이터 추출
-
-        ⚠️ site_id 컬럼명은 실제 Excel 구조에 따라 조정 필요
-        """
-        site_data = {}
-
-        # TODO: 실제 Excel 구조에 맞게 컬럼명 수정 필요
-        # 예: 'site_id', 'site_name', '사업장ID', '사업장명' 등
-
-        # 임시 구현: site_id 컬럼이 있다고 가정
-        if 'site_id' in df.columns:
-            for site_id in site_ids:
-                site_df = df[df['site_id'] == site_id]
-                if not site_df.empty:
-                    # DataFrame을 dict로 변환 (첫 번째 행만 사용)
-                    site_data[site_id] = site_df.iloc[0].to_dict()
-                else:
-                    self.logger.warning(f"사업장 ID {site_id}에 대한 데이터 없음")
-                    site_data[site_id] = {}
+        # site_ids를 str로 변환
+        if site_ids:
+            site_ids_str = [str(sid) for sid in site_ids]
         else:
-            # site_id 컬럼이 없는 경우 - site_name으로 매칭 시도 등
-            self.logger.warning("Excel에 site_id 컬럼이 없습니다. 전체 데이터를 반환합니다.")
-            # Fallback: 모든 데이터를 첫 번째 site_id에 할당
-            if site_ids:
-                site_data[site_ids[0]] = df.to_dict(orient='records')
+            site_ids_str = []
 
-        return site_data
+        # DB 조회 메서드로 위임
+        return await self.analyze_from_db(site_ids_str)
 
     async def _generate_site_guideline(self, site_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -194,11 +189,14 @@ class AdditionalDataAgent:
                     # Fallback to sync invoke
                     response = self.llm_client.invoke(prompt)
 
+                # AIMessage에서 content 추출
+                guideline_text = response.content if hasattr(response, 'content') else str(response)
+
                 # 간단한 파싱 (실제로는 더 정교한 파싱 필요)
                 return {
                     "site_id": site_id,
-                    "guideline": response,
-                    "key_insights": self._extract_key_insights(response)
+                    "guideline": guideline_text,
+                    "key_insights": self._extract_key_insights(guideline_text)
                 }
             except Exception as e:
                 self.logger.error(f"LLM 가이드라인 생성 실패 (사업장 {site_id}): {e}")
@@ -262,8 +260,15 @@ class AdditionalDataAgent:
         """
         LLM 프롬프트 구성 (추가 데이터 → 가이드라인 변환)
         """
-        # 데이터를 JSON 형식으로 정리
-        data_json = json.dumps(data, indent=2, ensure_ascii=False)
+        # datetime 직렬화 핸들러
+        def json_serializer(obj):
+            if hasattr(obj, 'isoformat'):
+                return obj.isoformat()
+            raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
+        # 데이터 요약 (토큰 제한 때문에 전체 데이터 대신 요약만)
+        summarized_data = self._summarize_data_for_prompt(data)
+        data_json = json.dumps(summarized_data, indent=2, ensure_ascii=False, default=json_serializer)
 
         prompt = f"""당신은 TCFD 보고서 생성 전문가이며, **사용자가 제공한 추가 데이터를 분석하여 보고서 생성 에이전트를 위한 가이드라인**을 작성하는 역할을 맡고 있습니다.
 
@@ -300,6 +305,57 @@ class AdditionalDataAgent:
 """
         return prompt
 
+    def _summarize_data_for_prompt(self, data: Dict[str, Any], max_rows_per_sheet: int = 20) -> Dict[str, Any]:
+        """
+        LLM 토큰 제한을 위해 데이터 요약 (전체 덤프 대신 샘플만)
+
+        Args:
+            data: 카테고리별 데이터 (fetch_all_for_site 결과)
+            max_rows_per_sheet: 시트당 최대 행 수
+
+        Returns:
+            요약된 데이터 (메타 정보 + 샘플 행)
+        """
+        summarized = {}
+
+        for category, items in data.items():
+            summarized[category] = []
+
+            for item in items:
+                file_info = {
+                    "file_name": item.get("file_name", "unknown"),
+                    "category": category,
+                    "uploaded_at": str(item.get("uploaded_at", "")),
+                }
+
+                # structured_data에서 샘플만 추출
+                structured = item.get("structured_data", {})
+                if isinstance(structured, dict):
+                    sheets_summary = []
+                    for sheet in structured.get("sheets", []):
+                        sheet_name = sheet.get("name", "Sheet")
+                        row_count = sheet.get("row_count", 0)
+                        content = sheet.get("content", "")
+
+                        # 처음 N행만 추출
+                        lines = content.split("\n")[:max_rows_per_sheet]
+                        sample_content = "\n".join(lines)
+
+                        sheets_summary.append({
+                            "sheet_name": sheet_name,
+                            "total_rows": row_count,
+                            "sample_rows": len(lines),
+                            "sample_content": sample_content
+                        })
+
+                    file_info["sheets"] = sheets_summary
+                else:
+                    file_info["data_preview"] = str(structured)[:2000]
+
+                summarized[category].append(file_info)
+
+        return summarized
+
     async def _generate_summary(self, site_specific_guidelines: Dict[int, Dict[str, Any]]) -> str:
         """
         전체 사업장 가이드라인 요약 (비동기)
@@ -315,19 +371,3 @@ class AdditionalDataAgent:
         summary += f"총 {total_insights}개의 핵심 인사이트가 추출되었습니다.\n"
 
         return summary
-
-    def _delete_excel_file(self, file_path: str) -> None:
-        """
-        Excel 파일 삭제 (분석 완료 후 정리)
-        
-        :param file_path: 삭제할 Excel 파일 경로
-        """
-        try:
-            if os.path.exists(file_path):
-                os.remove(file_path)
-                self.logger.info(f"✅ Excel 파일 삭제 완료: {file_path}")
-            else:
-                self.logger.warning(f"⚠️ Excel 파일이 존재하지 않음: {file_path}")
-        except Exception as e:
-            self.logger.error(f"❌ Excel 파일 삭제 실패: {file_path}, 오류: {e}")
-            # 삭제 실패는 치명적이지 않으므로 예외를 다시 발생시키지 않음

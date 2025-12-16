@@ -545,6 +545,8 @@ class BuildingDataFetcher:
                 "road_address": road_address,
                 "coordinates": {"lat": lat, "lon": lon},
                 "admin_codes": codes,
+                "bun": bun,  # 번 (4자리)
+                "ji": ji,    # 지 (4자리)
                 "mgm_up_bldrgst_pk": mgm_up_bldrgst_pk,
                 "bldg_id": bldg_id,
                 "jiyuk_cd_nm": jiyuk_cd_nm,

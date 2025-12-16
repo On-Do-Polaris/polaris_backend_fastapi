@@ -369,9 +369,11 @@ Now, generate the mitigation strategy as a JSON object:
         # LLM 호출
         try:
             response = await self.llm.ainvoke(prompt)
+            # AIMessage에서 content 추출
+            response_text = response.content if hasattr(response, 'content') else str(response)
 
             # JSON 파싱 (마크다운 코드 블록 처리)
-            json_str = self._extract_json_from_response(response)
+            json_str = self._extract_json_from_response(response_text)
             if json_str:
                 parsed = json.loads(json_str)
                 return {

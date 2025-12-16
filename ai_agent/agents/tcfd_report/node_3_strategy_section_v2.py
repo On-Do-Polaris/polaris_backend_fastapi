@@ -481,10 +481,12 @@ Generate the Executive Summary now.
         try:
             # LLM 호출
             response = await self.llm.ainvoke(prompt)
+            # AIMessage에서 content 추출
+            response_text = response.content if hasattr(response, 'content') else str(response)
 
             # JSON 파싱 시도 (혹시 JSON으로 올 경우)
             try:
-                result = json.loads(response)
+                result = json.loads(response_text)
                 if isinstance(result, dict) and "executive_summary" in result:
                     return result["executive_summary"]
                 elif isinstance(result, dict) and "content" in result:
@@ -493,7 +495,7 @@ Generate the Executive Summary now.
                 pass
 
             # 일반 텍스트로 반환
-            return response.strip()
+            return response_text.strip()
 
         except Exception as e:
             print(f"  ⚠️  LLM 호출 실패: {e}")

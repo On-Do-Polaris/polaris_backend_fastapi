@@ -1326,3 +1326,96 @@ class DatabaseManager:
             'floor_details': cache_data.get('floor_details', []),
             'transition_specs': {}
         }
+
+    # ==================== Site Additional Data Queries ====================
+
+    def save_additional_data(
+        self,
+        site_id: str,
+        data_category: str,
+        structured_data: Dict[str, Any],
+        metadata: Dict[str, Any] = None
+    ) -> bool:
+        """
+        Save additional data to site_additional_data table
+
+        Args:
+            site_id: Site UUID
+            data_category: Data category (energy, power, insurance, etc.)
+            structured_data: Parsed data (text dump)
+            metadata: File metadata (optional)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            from psycopg2.extras import Json
+
+            query = """
+                INSERT INTO site_additional_data
+                (site_id, data_category, structured_data, metadata, uploaded_at)
+                VALUES (%s, %s, %s, %s, NOW())
+            """
+
+            params = (
+                site_id,
+                data_category,
+                Json(structured_data),
+                Json(metadata or {})
+            )
+
+            self.execute_update(query, params)
+            self.logger.info(f"Additional data saved: site_id={site_id[:8]}..., category={data_category}")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to save additional data: {e}")
+            return False
+
+    def fetch_additional_data(
+        self,
+        site_id: str,
+        data_category: str = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch additional data from site_additional_data table
+
+        Args:
+            site_id: Site UUID
+            data_category: Data category filter (None for all categories)
+
+        Returns:
+            List of additional data records
+        """
+        if data_category:
+            query = """
+                SELECT
+                    id,
+                    site_id,
+                    data_category,
+                    metadata->>'file_name' as file_name,
+                    structured_data,
+                    metadata,
+                    uploaded_at
+                FROM site_additional_data
+                WHERE site_id = %s AND data_category = %s
+                ORDER BY uploaded_at DESC
+            """
+            params = (site_id, data_category)
+        else:
+            query = """
+                SELECT
+                    id,
+                    site_id,
+                    data_category,
+                    metadata->>'file_name' as file_name,
+                    structured_data,
+                    metadata,
+                    uploaded_at
+                FROM site_additional_data
+                WHERE site_id = %s
+                ORDER BY data_category, uploaded_at DESC
+            """
+            params = (site_id,)
+
+        return self.execute_query(query, params)

@@ -46,7 +46,7 @@ def get_app_db_connection():
     return psycopg2.connect(
         host="localhost",
         port="5555",
-        dbname="postgres",
+        dbname="application",
         user="skala",
         password="skala1234"
     )
@@ -57,7 +57,7 @@ def get_dw_db_connection():
     return psycopg2.connect(
         host="localhost",
         port="5555",
-        dbname="postgres",
+        dbname="datawarehouse",
         user="skala",
         password="skala1234"
     )
@@ -71,23 +71,12 @@ def create_test_tables():
     """테스트용 테이블 생성"""
     logger.info("=== 테스트용 테이블 생성 ===")
 
+    # sites 테이블은 application DB에 이미 존재함 - 스킵
+    logger.info("  sites 테이블: application DB에 이미 존재 (스킵)")
+
+    # Datawarehouse DB 테이블들
     conn = get_dw_db_connection()
     cursor = conn.cursor()
-
-    # 1. sites 테이블 (Application DB)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS sites (
-            id UUID PRIMARY KEY,
-            user_id UUID,
-            name VARCHAR(255) NOT NULL,
-            road_address VARCHAR(500),
-            jibun_address VARCHAR(500),
-            latitude DECIMAL(9,6) NOT NULL,
-            longitude DECIMAL(9,6) NOT NULL,
-            type VARCHAR(50)
-        )
-    """)
-    logger.info("  sites 테이블 생성 완료")
 
     # 2. hazard_results
     cursor.execute("""
@@ -322,6 +311,13 @@ def insert_mock_sites():
         cursor = conn.cursor()
 
         for site in MOCK_SITES:
+            # 0. 더미 users 먼저 삽입 (FK 제약조건 해결)
+            cursor.execute("""
+                INSERT INTO users (id, email, name, password)
+                VALUES (%s, %s, %s, 'dummy_password')
+                ON CONFLICT (id) DO NOTHING
+            """, (site["user_id"], f"test_{site['name'].replace(' ', '')}@test.com", "TestUser"))
+
             # 기존 데이터 삭제 (테스트용)
             cursor.execute(
                 "DELETE FROM sites WHERE name = %s",
@@ -386,15 +382,15 @@ def insert_mock_modelops_results():
                 ))
             logger.info(f"    hazard_results: {len(hazard_data)}개")
 
-            # 2. probability_results
+            # 2. probability_results (damage_rates 컬럼 없음)
             prob_data = generate_mock_probability_results(site)
             for row in prob_data:
                 cursor.execute("""
                     INSERT INTO probability_results
                     (latitude, longitude, risk_type, target_year,
                      ssp126_aal, ssp245_aal, ssp370_aal, ssp585_aal,
-                     damage_rates, ssp126_bin_probs, ssp245_bin_probs, ssp370_bin_probs, ssp585_bin_probs)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     ssp126_bin_probs, ssp245_bin_probs, ssp370_bin_probs, ssp585_bin_probs)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (latitude, longitude, risk_type, target_year)
                     DO UPDATE SET
                         ssp126_aal = EXCLUDED.ssp126_aal,
@@ -405,7 +401,7 @@ def insert_mock_modelops_results():
                     row["latitude"], row["longitude"], row["risk_type"], row["target_year"],
                     row["ssp126_aal"], row["ssp245_aal"],
                     row["ssp370_aal"], row["ssp585_aal"],
-                    Json(row["damage_rates"]), Json(row["ssp126_bin_probs"]),
+                    Json(row["ssp126_bin_probs"]),
                     Json(row["ssp245_bin_probs"]), Json(row["ssp370_bin_probs"]), Json(row["ssp585_bin_probs"])
                 ))
             logger.info(f"    probability_results: {len(prob_data)}개")
@@ -507,37 +503,41 @@ async def test_node_0_execution():
     """Node 0 실행 테스트"""
     logger.info("\n=== Node 0 실행 테스트 ===")
 
-    from node_0_data_preprocessing import DataPreprocessingNode
+    from .node_0_data_preprocessing import DataPreprocessingNode
+    from langchain_openai import ChatOpenAI
 
-    # 삽입된 사이트 ID 조회
-    site_ids = get_inserted_site_ids()
-    if not site_ids:
-        logger.error("테스트 사이트가 없습니다. 먼저 목데이터를 삽입하세요.")
-        return None
+    # 실제 테스트 사이트 ID 사용 (판교캠퍼스, SKU타워)
+    site_ids = [
+        "22222222-2222-2222-2222-222222222222",  # SK 판교캠퍼스
+        "44444444-4444-4444-4444-444444444444",  # SK u-타워
+    ]
 
     logger.info(f"테스트 대상 사이트: {site_ids}")
 
     # DB URL 설정 (skala-test 컨테이너: port 5555)
-    app_db_url = "postgresql://skala:skala1234@localhost:5555/postgres"
-    dw_db_url = "postgresql://skala:skala1234@localhost:5555/postgres"
+    app_db_url = "postgresql://skala:skala1234@localhost:5555/application"
+    dw_db_url = "postgresql://skala:skala1234@localhost:5555/datawarehouse"
 
     logger.info(f"Application DB: {app_db_url.split('@')[1]}")
     logger.info(f"Datawarehouse DB: {dw_db_url.split('@')[1]}")
 
     try:
-        # Node 0 초기화 (LLM 클라이언트 없이 - BC/AD 에이전트 건너뜀)
+        # LLM 클라이언트 생성 (BC/AD Agent에서 사용)
+        llm_client = ChatOpenAI(model="gpt-4o-mini", temperature=0.3)
+        logger.info("LLM 클라이언트 생성: gpt-4o-mini")
+
+        # Node 0 초기화 (LLM 포함)
         node = DataPreprocessingNode(
             app_db_url=app_db_url,
             dw_db_url=dw_db_url,
-            llm_client=None,  # BC/AD 건너뜀
+            llm_client=llm_client,  # LLM 전달!
             max_concurrent_sites=5,
             bc_chunk_size=5
         )
 
-        # 실행 (site_id는 int로 변환 필요 - 실제로는 UUID 조회해서 매핑)
-        # 여기서는 1, 2를 테스트 ID로 사용
+        # 실행 (site_ids는 UUID 문자열 리스트)
         state = await node.execute(
-            site_ids=[1, 2],  # 테스트용 - 실제로는 UUID 조회해서 사용
+            site_ids=site_ids,  # UUID 문자열 리스트 사용
             excel_file=None,
             target_years=["2025", "2030", "2030s", "2050s"]
         )

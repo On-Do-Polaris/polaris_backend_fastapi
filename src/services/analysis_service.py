@@ -733,7 +733,7 @@ class AnalysisService:
                 self.logger.warning(f"[PHYSICAL_RISK] 데이터 없음: site_id={site_id}, hazard_type={hazard_type}, term={term}")
                 return None
 
-            # risk_type별로 그룹화
+            # [수정 1] risk_type별 데이터 구조화 (값 하나가 아닌 dict 저장)
             risk_data = {}
             for row in rows:
                 risk_type = row['risk_type']
@@ -742,19 +742,32 @@ class AnalysisService:
                 if risk_type not in risk_data:
                     risk_data[risk_type] = {}
 
-                # Physical Risk Score = H × E × V / 10000
-                E = row['exposure_score']
-                V = row['vulnerability_score']
+                # 공통 Exposure, Vulnerability
+                E = row['exposure_score'] or 0
+                V = row['vulnerability_score'] or 0
+
+                # 각 시나리오별 H 값 추출 및 Total 계산 함수
+                def calc_score(h_val):
+                    h_val = h_val or 0
+                    return {
+                        "total": (h_val * E * V) / 10000,
+                        "h": h_val,
+                        "e": E,
+                        "v": V
+                    }
 
                 risk_data[risk_type][target_year] = {
-                    'ssp126': (row['h_ssp126'] * E * V / 10000) if row['h_ssp126'] else 0,
-                    'ssp245': (row['h_ssp245'] * E * V / 10000) if row['h_ssp245'] else 0,
-                    'ssp370': (row['h_ssp370'] * E * V / 10000) if row['h_ssp370'] else 0,
-                    'ssp585': (row['h_ssp585'] * E * V / 10000) if row['h_ssp585'] else 0,
+                    'ssp126': calc_score(row['h_ssp126']),
+                    'ssp245': calc_score(row['h_ssp245']),
+                    'ssp370': calc_score(row['h_ssp370']),
+                    'ssp585': calc_score(row['h_ssp585']),
                 }
 
             # SSP 시나리오별로 결과 생성
             scenarios = []
+
+            empty_score = {"total": 0, "h": 0, "e": 0, "v": 0}
+            
             for risk_type, year_data in risk_data.items():
                 risk_type_korean = RISK_TYPE_KR_MAPPING.get(risk_type, risk_type)
 
@@ -764,30 +777,32 @@ class AnalysisService:
                     (SSPScenario.SSP3_70, 'ssp370'),
                     (SSPScenario.SSP5_85, 'ssp585')
                 ]:
-                    # 단기: 2026년 데이터를 4분기로 분할 (동일한 값)
-                    short_score = int(year_data.get('2026', {}).get(scenario_key, 0))
+                    # 단기: 2026년 데이터
+                    short_score = {
+                        'point1': year_data.get('2026', {}).get(scenario_key, empty_score)
+                    }
 
                     # 중기: 2026-2030년 데이터
                     mid_scores = {
-                        'year2026': int(year_data.get('2026', {}).get(scenario_key, 0)),
-                        'year2027': int(year_data.get('2027', {}).get(scenario_key, 0)),
-                        'year2028': int(year_data.get('2028', {}).get(scenario_key, 0)),
-                        'year2029': int(year_data.get('2029', {}).get(scenario_key, 0)),
-                        'year2030': int(year_data.get('2030', {}).get(scenario_key, 0)),
+                        'point1': year_data.get('2026', {}).get(scenario_key, empty_score),
+                        'point2': year_data.get('2027', {}).get(scenario_key, empty_score),
+                        'point3': year_data.get('2028', {}).get(scenario_key, empty_score),
+                        'point4': year_data.get('2029', {}).get(scenario_key, empty_score),
+                        'point5': year_data.get('2030', {}).get(scenario_key, empty_score),
                     }
 
                     # 장기: 2020s, 2030s, 2040s, 2050s
                     long_scores = {
-                        'year2020s': int(year_data.get('2020s', {}).get(scenario_key, 0)),
-                        'year2030s': int(year_data.get('2030s', {}).get(scenario_key, 0)),
-                        'year2040s': int(year_data.get('2040s', {}).get(scenario_key, 0)),
-                        'year2050s': int(year_data.get('2050s', {}).get(scenario_key, 0)),
+                        'point1': year_data.get('2020s', {}).get(scenario_key, empty_score),
+                        'point2': year_data.get('2030s', {}).get(scenario_key, empty_score),
+                        'point3': year_data.get('2040s', {}).get(scenario_key, empty_score),
+                        'point4': year_data.get('2050s', {}).get(scenario_key, empty_score),
                     }
 
                     scenarios.append(SSPScenarioScore(
                         scenario=scenario_enum,
                         riskType=risk_type_korean,
-                        shortTerm=ShortTermScore(q1=short_score, q2=short_score, q3=short_score, q4=short_score),
+                        shortTerm=ShortTermScore(**short_score),
                         midTerm=MidTermScore(**mid_scores),
                         longTerm=LongTermScore(**long_scores),
                     ))
@@ -908,29 +923,30 @@ class AnalysisService:
                     (SSPScenario.SSP5_85, 'ssp585')
                 ]:
                     # 단기: 2026년 데이터를 4분기로 분할 (동일한 값)
-                    short_aal = year_data.get('2026', {}).get(scenario_key, 0)
-
+                    short_aal = {
+                        'point1': year_data.get('2026', {}).get(scenario_key, 0),
+                    }
                     # 중기: 2026-2030년 데이터
                     mid_aal = {
-                        'year2026': year_data.get('2026', {}).get(scenario_key, 0),
-                        'year2027': year_data.get('2027', {}).get(scenario_key, 0),
-                        'year2028': year_data.get('2028', {}).get(scenario_key, 0),
-                        'year2029': year_data.get('2029', {}).get(scenario_key, 0),
-                        'year2030': year_data.get('2030', {}).get(scenario_key, 0),
+                        'point1': year_data.get('2026', {}).get(scenario_key, 0),
+                        'point2': year_data.get('2027', {}).get(scenario_key, 0),
+                        'point3': year_data.get('2028', {}).get(scenario_key, 0),
+                        'point4': year_data.get('2029', {}).get(scenario_key, 0),
+                        'point5': year_data.get('2030', {}).get(scenario_key, 0),
                     }
 
                     # 장기: 2020s, 2030s, 2040s, 2050s
-                    long_aal = {
-                        'year2020s': year_data.get('2020s', {}).get(scenario_key, 0),
-                        'year2030s': year_data.get('2030s', {}).get(scenario_key, 0),
-                        'year2040s': year_data.get('2040s', {}).get(scenario_key, 0),
-                        'year2050s': year_data.get('2050s', {}).get(scenario_key, 0),
+                    long_aal ={
+                        'point1': year_data.get('2020s', {}).get(scenario_key, 0),
+                        'point2': year_data.get('2030s', {}).get(scenario_key, 0),
+                        'point3': year_data.get('2040s', {}).get(scenario_key, 0),
+                        'point4': year_data.get('2050s', {}).get(scenario_key, 0),
                     }
 
                     scenarios.append(SSPScenarioImpact(
                         scenario=scenario_enum,
                         riskType=risk_type_korean,
-                        shortTerm=ShortTermAAL(q1=short_aal, q2=short_aal, q3=short_aal, q4=short_aal),
+                        shortTerm=ShortTermAAL(**short_aal),
                         midTerm=MidTermAAL(**mid_aal),
                         longTerm=LongTermAAL(**long_aal),
                     ))

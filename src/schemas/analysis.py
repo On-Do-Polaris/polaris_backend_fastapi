@@ -47,14 +47,14 @@ class StartAnalysisRequest(BaseModel):
         populate_by_name = True
 
 
-class EnhanceAnalysisRequest(BaseModel):
-    """추가 데이터를 반영하여 분석 향상"""
-    site_id: UUID = Field(..., alias="siteId", description="사업장 ID")
-    job_id: UUID = Field(..., alias="jobId", description="원본 분석 작업 ID")
-    additional_data: AdditionalDataInput = Field(..., alias="additionalData", description="추가 데이터 (필수)")
+# class EnhanceAnalysisRequest(BaseModel):
+#     """추가 데이터를 반영하여 분석 향상"""
+#     site_id: UUID = Field(..., alias="siteId", description="사업장 ID")
+#     job_id: UUID = Field(..., alias="jobId", description="원본 분석 작업 ID")
+#     additional_data: AdditionalDataInput = Field(..., alias="additionalData", description="추가 데이터 (필수)")
 
-    class Config:
-        populate_by_name = True
+#     class Config:
+#         populate_by_name = True
 
 
 # Response Schemas
@@ -99,13 +99,16 @@ class AnalysisOverviewResponse(BaseModel):
     class Config:
         populate_by_name = True
 
+# 1. 하위 구조(total, h, e, v)를 정의하는 모델 생성
+class ScoreDetail(BaseModel):
+    total: float = Field(..., ge=0, le=100, description="종합 점수 (0~100)")
+    h: float = Field(..., description="Hazard 점수")
+    e: float = Field(..., description="Exposure 점수")
+    v: float = Field(..., description="Vulnerability 점수")
 
 class ShortTermScore(BaseModel):
     """단기 리스크 점수 (분기별)"""
-    q1: int = Field(ge=0, le=100, description="1분기 점수")
-    q2: int = Field(ge=0, le=100, description="2분기 점수")
-    q3: int = Field(ge=0, le=100, description="3분기 점수")
-    q4: int = Field(ge=0, le=100, description="4분기 점수")
+    point1: ScoreDetail = Field(..., description="year20W26")
 
     class Config:
         populate_by_name = True
@@ -113,11 +116,11 @@ class ShortTermScore(BaseModel):
 
 class MidTermScore(BaseModel):
     """중기 리스크 점수 (연도별)"""
-    year2026: int = Field(ge=0, le=100, alias="year2026")
-    year2027: int = Field(ge=0, le=100, alias="year2027")
-    year2028: int = Field(ge=0, le=100, alias="year2028")
-    year2029: int = Field(ge=0, le=100, alias="year2029")
-    year2030: int = Field(ge=0, le=100, alias="year2030")
+    point1: ScoreDetail = Field(..., description="year2026")
+    point2: ScoreDetail = Field(..., description="year20W7")
+    point3: ScoreDetail = Field(..., description="year2028")
+    point4: ScoreDetail = Field(..., description="year2029")
+    point5: ScoreDetail = Field(..., description="year2030")
 
     class Config:
         populate_by_name = True
@@ -125,10 +128,10 @@ class MidTermScore(BaseModel):
 
 class LongTermScore(BaseModel):
     """장기 리스크 점수 (연대별)"""
-    year2020s: int = Field(ge=0, le=100, alias="year2020s")
-    year2030s: int = Field(ge=0, le=100, alias="year2030s")
-    year2040s: int = Field(ge=0, le=100, alias="year2040s")
-    year2050s: int = Field(ge=0, le=100, alias="year2050s")
+    point1: ScoreDetail = Field(..., description="year2020s")
+    point2: ScoreDetail = Field(..., description="year2030s")
+    point3: ScoreDetail = Field(..., description="year2040s")
+    point4: ScoreDetail = Field(..., description="year2050s")
 
     class Config:
         populate_by_name = True
@@ -176,37 +179,33 @@ class PastEventsResponse(BaseModel):
     class Config:
         populate_by_name = True
 
-
 # Financial Impact - Spring Boot API 호환
 class ShortTermAAL(BaseModel):
-    """단기 AAL (분기별)"""
-    q1: float = Field(..., description="1분기 AAL")
-    q2: float = Field(..., description="2분기 AAL")
-    q3: float = Field(..., description="3분기 AAL")
-    q4: float = Field(..., description="4분기 AAL")
+    """단기 AAL (1년)"""
+    point1: float = Field(..., description="year2026")
 
     class Config:
         populate_by_name = True
 
 
 class MidTermAAL(BaseModel):
-    """중기 AAL (연도별)"""
-    year2026: float = Field(..., alias="year2026")
-    year2027: float = Field(..., alias="year2027")
-    year2028: float = Field(..., alias="year2028")
-    year2029: float = Field(..., alias="year2029")
-    year2030: float = Field(..., alias="year2030")
+    """중기 AAL (5년)"""
+    point1: float = Field(..., description="year2026")
+    point2: float = Field(..., description="year2027")
+    point3: float = Field(..., description="year2028")
+    point4: float = Field(..., description="year2029")
+    point5: float = Field(..., description="year2030")
 
     class Config:
         populate_by_name = True
 
 
 class LongTermAAL(BaseModel):
-    """장기 AAL (연대별)"""
-    year2020s: float = Field(..., alias="year2020s")
-    year2030s: float = Field(..., alias="year2030s")
-    year2040s: float = Field(..., alias="year2040s")
-    year2050s: float = Field(..., alias="year2050s")
+    """장기 AAL (40s년)"""
+    point1: float = Field(..., description="year2020s")
+    point2: float = Field(..., description="year2030s")
+    point3: float = Field(..., description="year2040s")
+    point4: float = Field(..., description="year2050s")
 
     class Config:
         populate_by_name = True

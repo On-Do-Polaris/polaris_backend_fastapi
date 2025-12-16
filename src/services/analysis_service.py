@@ -1038,19 +1038,19 @@ class AnalysisService:
 
             # Queries for H, E, V, AAL from respective tables
             hazard_query = "SELECT risk_type, ssp245_score_100 FROM hazard_results WHERE latitude = %s AND longitude = %s AND target_year = %s"
-            hazard_rows = db.execute_query(hazard_query, (latitude, longitude, TARGET_YEAR))
+            hazard_rows = db.execute_query(hazard_query, (latitude, longitude, str(TARGET_YEAR)))
             hazard_data = {row['risk_type']: row for row in hazard_rows}
 
             exposure_query = "SELECT risk_type, exposure_score FROM exposure_results WHERE site_id = %s AND target_year = %s"
-            exposure_rows = db.execute_query(exposure_query, (str(site_id), TARGET_YEAR))
+            exposure_rows = db.execute_query(exposure_query, (str(site_id), str(TARGET_YEAR)))
             exposure_data = {row['risk_type']: row for row in exposure_rows}
             
             vulnerability_query = "SELECT risk_type, vulnerability_score FROM vulnerability_results WHERE site_id = %s AND target_year = %s"
-            vulnerability_rows = db.execute_query(vulnerability_query, (str(site_id), TARGET_YEAR))
+            vulnerability_rows = db.execute_query(vulnerability_query, (str(site_id), str(TARGET_YEAR)))
             vulnerability_data = {row['risk_type']: row for row in vulnerability_rows}
 
             aal_query = "SELECT risk_type, ssp245_final_aal FROM aal_scaled_results WHERE site_id = %s AND target_year = %s"
-            aal_rows = db.execute_query(aal_query, (str(site_id), TARGET_YEAR))
+            aal_rows = db.execute_query(aal_query, (str(site_id), str(TARGET_YEAR)))
             aal_data = {row['risk_type']: row for row in aal_rows}
             
             # Data validation and processing

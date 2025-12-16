@@ -239,7 +239,7 @@ class SimulationService:
                     """
                     
                     # DBManager execute_query 사용
-                    site_rows = db.execute_query(query_site, (site_ids_tuple, request.hazard_type, request.start_year, request.end_year))
+                    site_rows = db.execute_query(query_site, (site_ids_tuple, request.hazard_type, str(request.start_year), str(request.end_year)))
                     
                     for row in site_rows:
                         s_id = str(row['site_id']) # UUID -> str
@@ -281,7 +281,7 @@ class SimulationService:
                         AND (latitude, longitude) IN ({coords_in_sql})
                     """
                     
-                    region_rows = db.execute_query(query_region, (request.hazard_type, request.start_year, request.end_year))
+                    region_rows = db.execute_query(query_region, (request.hazard_type, str(request.start_year), str(request.end_year)))
                     
                     for row in region_rows:
                         r_lat = float(row['latitude'])

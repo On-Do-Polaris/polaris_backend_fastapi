@@ -92,7 +92,7 @@ class DashboardService:
         """
 
         try:
-            rows = self.db_manager.execute_query(query, (site_ids_tuple, risk_types_tuple, TARGET_YEAR))
+            rows = self.db_manager.execute_query(query, (site_ids_tuple, risk_types_tuple, str(TARGET_YEAR)))
         except Exception as e:
             logger.error(f"Optimized dashboard query failed: {e}", exc_info=True)
             return DashboardSummaryResponse(mainClimateRisk="Error", sites=[])

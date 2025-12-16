@@ -4,7 +4,7 @@ from uuid import UUID
 from collections import Counter
 
 from src.core.config import settings
-from src.schemas.dashboard import DashboardSummaryResponse, SiteSummary
+from src.schemas.dashboard import DashboardSummaryResponse, SiteRiskScore
 from ai_agent.utils.database import DatabaseManager
 
 logger = logging.getLogger(__name__)
@@ -19,7 +19,7 @@ class DashboardService:
             self.db_manager = DatabaseManager()
             logger.info("DatabaseManager initialized for DashboardService")
 
-    async def get_dashboard_summary(self, user_id: Optional[UUID] = None) -> DashboardSummaryResponse:
+    async def get_dashboard_summary(self, site_ids: List[UUID]) -> DashboardSummaryResponse:
         """
         대시보드 요약 정보 조회
 
@@ -29,23 +29,28 @@ class DashboardService:
         Returns:
             DashboardSummaryResponse: 대시보드 요약 정보
         """
-        logger.info(f"대시보드 요약 정보 조회 시작 (user_id={user_id})")
-
+        logger.info(f"대시보드 요약 정보 조회 시작 (site_ids count={len(site_ids)})")
         if settings.USE_MOCK_DATA:
             return self._get_mock_dashboard_summary()
 
-        if not user_id:
-            logger.warning("User ID is required for database query, but none was provided.")
+        if not site_ids:
+            logger.warning("Site IDs are required for database query, but none were provided.")
             # 사용자 ID가 없을 경우 빈 목록을 반환하거나 에러를 발생시킬 수 있습니다.
             return DashboardSummaryResponse(main_climate_risk="N/A", sites=[])
 
-        return self._get_db_dashboard_summary(user_id)
+        return self._get_db_dashboard_summary(site_ids)
 
-    def _get_db_dashboard_summary(self, user_id: UUID) -> DashboardSummaryResponse:
-        """실제 DB에서 대시보드 요약 데이터를 조회하여 반환"""
-        logger.debug(f"Querying database for dashboard summary for user_id={user_id}")
+    def _get_db_dashboard_summary(self, site_ids: List[UUID]) -> DashboardSummaryResponse:
+        """
+        실제 DB에서 대시보드 요약 데이터를 조회하여 반환
+        입력받은 site_ids에 대해 2040년 SSP2-4.5 시나리오 기준 리스크 분석
+        """
+        logger.debug(f"Querying database for dashboard summary for site_ids count={len(site_ids)}")
 
-        # 9개 리스크 타입
+        if not site_ids:
+            return DashboardSummaryResponse(mainClimateRisk="No data", sites=[])
+
+        # 9개 리스크 타입 정의
         RISK_TYPES = [
             'extreme_heat', 'extreme_cold', 'river_flood', 'urban_flood',
             'drought', 'water_stress', 'sea_level_rise', 'typhoon', 'wildfire'
@@ -64,124 +69,123 @@ class DashboardService:
             'typhoon': '태풍'
         }
 
-        # 2040년, SSP2 시나리오 기준
+        # 분석 기준 설정: 2040년, SSP2-4.5
         TARGET_YEAR = 2040
-        SSP_SCENARIO = 'ssp245'
-
-        # 사용자의 모든 사업장 조회
-        sites_query = """
-        SELECT
-            site_id,
-            name,
-            site_type,
-            latitude,
-            longitude,
-            jibun_address,
-            road_address
-        FROM site
-        WHERE user_id = %s
+        
+        # 1. 전달받은 site_ids에 해당하는 사업장의 좌표(Lat, Lon) 조회
+        # Hazard 데이터는 격자(좌표) 기반이므로 좌표 정보가 필수입니다.
+        site_ids_str = tuple(str(sid) for sid in site_ids)
+        placeholder = ",".join(["%s"] * len(site_ids_str))
+        
+        sites_query = f"""
+            SELECT site_id, latitude, longitude
+            FROM site
+            WHERE site_id IN ({placeholder})
         """
 
         try:
-            sites = self.db_manager.execute_query(sites_query, (str(user_id),))
+            # 리스트가 1개일 경우 튜플 처리를 위해 분기 혹은 바로 실행
+            sites = self.db_manager.execute_query(sites_query, site_ids_str)
         except Exception as e:
             logger.error(f"Database query failed for sites: {e}", exc_info=True)
-            return DashboardSummaryResponse(main_climate_risk="Error", sites=[])
+            return DashboardSummaryResponse(mainClimateRisk="Error", sites=[])
 
         if not sites:
-            return DashboardSummaryResponse(main_climate_risk="No data", sites=[])
+            return DashboardSummaryResponse(mainClimateRisk="No data", sites=[])
 
-        sites_summary: List[SiteSummary] = []
+        sites_summary: List[SiteRiskScore] = []
         all_risk_type_scores = {risk_type: [] for risk_type in RISK_TYPES}
 
-        # 각 사업장별로 물리 리스크 점수 계산
+        # 2. 각 사업장별로 9개 리스크에 대한 점수 계산
         for site in sites:
             site_id = site['site_id']
-            latitude = site['latitude']
-            longitude = site['longitude']
+            # Decimal 타입을 float로 변환
+            latitude = float(site['latitude'])
+            longitude = float(site['longitude'])
 
-            # 각 재해 유형별 H, E, V 점수 조회 및 물리 리스크 계산
             risk_scores = []
 
             for risk_type in RISK_TYPES:
                 try:
-                    # Hazard 조회 (격자 기반)
+                    # [Hazard] 격자 기반 조회 (ssp245, 2040년)
+                    # Datawarehouse ERD: hazard_results 
                     hazard_query = """
-                    SELECT ssp245_score_100
-                    FROM hazard_results
-                    WHERE latitude = %s AND longitude = %s
-                    AND risk_type = %s AND target_year = %s
-                    LIMIT 1
+                        SELECT ssp245_score_100
+                        FROM hazard_results
+                        WHERE latitude = %s AND longitude = %s
+                          AND risk_type = %s AND target_year = %s
+                        LIMIT 1
                     """
                     hazard_result = self.db_manager.execute_query(
                         hazard_query,
                         (latitude, longitude, risk_type, TARGET_YEAR)
                     )
-                    hazard = hazard_result[0]['ssp245_score_100'] if hazard_result else 0
+                    # 데이터가 없으면 0점 처리
+                    hazard = float(hazard_result[0]['ssp245_score_100']) if hazard_result else 0.0
 
-                    # Exposure 조회 (사업장 기반)
+                    # [Exposure] 사업장 ID 기반 조회
+                    # Datawarehouse ERD: exposure_results 
                     exposure_query = """
-                    SELECT exposure_score
-                    FROM exposure_results
-                    WHERE site_id = %s AND risk_type = %s AND target_year = %s
-                    LIMIT 1
+                        SELECT exposure_score
+                        FROM exposure_results
+                        WHERE site_id = %s AND risk_type = %s AND target_year = %s
+                        LIMIT 1
                     """
                     exposure_result = self.db_manager.execute_query(
                         exposure_query,
                         (str(site_id), risk_type, TARGET_YEAR)
                     )
-                    exposure = exposure_result[0]['exposure_score'] if exposure_result else 0
+                    exposure = float(exposure_result[0]['exposure_score']) if exposure_result else 0.0
 
-                    # Vulnerability 조회 (사업장 기반)
+                    # [Vulnerability] 사업장 ID 기반 조회
+                    # Datawarehouse ERD: vulnerability_results 
                     vulnerability_query = """
-                    SELECT vulnerability_score
-                    FROM vulnerability_results
-                    WHERE site_id = %s AND risk_type = %s AND target_year = %s
-                    LIMIT 1
+                        SELECT vulnerability_score
+                        FROM vulnerability_results
+                        WHERE site_id = %s AND risk_type = %s AND target_year = %s
+                        LIMIT 1
                     """
                     vulnerability_result = self.db_manager.execute_query(
                         vulnerability_query,
                         (str(site_id), risk_type, TARGET_YEAR)
                     )
-                    vulnerability = vulnerability_result[0]['vulnerability_score'] if vulnerability_result else 0
+                    vulnerability = float(vulnerability_result[0]['vulnerability_score']) if vulnerability_result else 0.0
 
-                    # 물리 리스크 점수 계산: (H × E × V) / 10000
+                    # [Physical Risk Calculation]
+                    # Formula: (Hazard * Exposure * Vulnerability) / 10000
                     physical_risk_score = (hazard * exposure * vulnerability) / 10000.0
+                    
                     risk_scores.append(physical_risk_score)
-
-                    # 전체 사업장의 재해 유형별 점수 저장 (mainClimateRisk 계산용)
                     all_risk_type_scores[risk_type].append(physical_risk_score)
 
                 except Exception as e:
                     logger.warning(f"Failed to calculate risk for site {site_id}, risk_type {risk_type}: {e}")
-                    risk_scores.append(0)
-                    all_risk_type_scores[risk_type].append(0)
+                    risk_scores.append(0.0)
+                    all_risk_type_scores[risk_type].append(0.0)
 
-            # 해당 사업장의 totalRiskScore = 9개 재해 유형의 평균
-            total_risk_score = int(sum(risk_scores) / len(risk_scores)) if risk_scores else 0
+            # 해당 사업장의 통합 점수 (9개 리스크 평균)
+            avg_risk_score = sum(risk_scores) / len(risk_scores) if risk_scores else 0.0
 
-            sites_summary.append(SiteSummary(
-                siteId=site['site_id'],
-                siteName=site['name'],
-                siteType=site['site_type'],
-                latitude=site['latitude'],
-                longitude=site['longitude'],
-                jibunAddress=site.get('jibun_address'),
-                roadAddress=site.get('road_address'),
-                totalRiskScore=total_risk_score
+            sites_summary.append(SiteRiskScore(
+                siteId=site_id,
+                totalRiskScore=round(avg_risk_score, 2)  # 소수점 2자리 반올림
             ))
 
-        # mainClimateRisk: 모든 사업장의 재해 유형별 평균 중 가장 높은 유형
+        # 3. Main Climate Risk 도출 (전체 사업장에서 가장 평균 점수가 높은 리스크)
         risk_type_averages = {}
         for risk_type, scores in all_risk_type_scores.items():
             if scores:
                 risk_type_averages[risk_type] = sum(scores) / len(scores)
             else:
-                risk_type_averages[risk_type] = 0
+                risk_type_averages[risk_type] = 0.0
 
         if risk_type_averages:
             main_risk_type = max(risk_type_averages, key=risk_type_averages.get)
-            main_climate_risk = RISK_TYPE_KR_MAPPING.get(main_risk_type, main_risk_type)
+            # 점수가 모두 0인 경우 처리
+            if risk_type_averages[main_risk_type] == 0:
+                main_climate_risk = "분석 데이터 없음"
+            else:
+                main_climate_risk = RISK_TYPE_KR_MAPPING.get(main_risk_type, main_risk_type)
         else:
             main_climate_risk = "Not available"
 
@@ -245,9 +249,6 @@ class DashboardService:
             mainClimateRisk=main_climate_risk,
             sites=sites
         )
-
-# ### 쿼리 개선안
-#     def _get_db_dashboard_summary(self, user_id: UUID) -> DashboardSummaryResponse:
         """
         실제 DB에서 대시보드 요약 데이터를 조회하여 반환 (성능 최적화 버전)
         - 기존: N(사업장) * 9(리스크) * 3(테이블) = 270+회 쿼리

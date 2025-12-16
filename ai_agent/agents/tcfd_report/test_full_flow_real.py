@@ -134,7 +134,7 @@ async def run_full_flow_with_real_data():
         mode="init"
     )
 
-    report_template = result_1.get("report_template", {})
+    report_template = result_1.get("report_template_profile", {})
     print(f"  ✅ report_template 생성 완료")
 
     # ========== Step 2: Node 2-A - Scenario Analysis ==========

@@ -161,6 +161,7 @@ dependencies = [
     "tiktoken==0.10.0",
     "toml==0.10.2",
     "tomlkit==0.13.3",
+    "torch>=2.1.0",
     "tornado==6.5.2",
     "tqdm==4.67.1",
     "trove-classifiers==2025.5.9.12",

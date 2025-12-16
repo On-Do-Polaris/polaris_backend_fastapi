@@ -1,7 +1,7 @@
 '''
 파일명: additional_data_agent.py
 작성일: 2025-12-16
-버전: v05 (DB 조회만 - Excel 직접 접근 X)
+버전: v07 (2섹션 JSON 출력 간소화, BC Agent와 구조 통일)
 파일 개요: 추가 데이터 분석 에이전트 (보고서 생성용 가이드라인 제공)
 
 역할:
@@ -20,6 +20,8 @@
     - 2025-12-15: v03 - 병렬 처리 완료 (asyncio.gather, 전체 async 전환)
     - 2025-12-16: v04 - ETL 분리 (AdditionalDataLoader 사용)
     - 2025-12-16: v05 - DB 조회만 하도록 수정 (Excel 직접 접근 X)
+    - 2025-12-16: v06 - 영어 프롬프트 + 한글 출력 (토큰 효율화)
+    - 2025-12-16: v07 - 2섹션 JSON 출력 (data_summary + report_guidelines), BC Agent와 구조 통일
 '''
 
 from typing import Dict, Any, List, Optional
@@ -168,13 +170,23 @@ class AdditionalDataAgent:
     async def _generate_site_guideline(self, site_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
         """
         사업장별 가이드라인 생성 (LLM 활용 - 비동기)
+        v07: JSON 출력 (data_summary + report_guidelines)
         """
         if not data:
             return {
                 "site_id": site_id,
-                "guideline": "추가 데이터 없음",
-                "relevance": 0.0,
-                "key_insights": []
+                "agent_guidelines": {
+                    "data_summary": {
+                        "one_liner": "추가 데이터 없음",
+                        "key_data_points": [],
+                        "data_availability": "Low"
+                    },
+                    "report_guidelines": {
+                        "scenario_analysis_focus": "데이터 부족",
+                        "impact_analysis_focus": "데이터 부족",
+                        "mitigation_focus": "데이터 부족"
+                    }
+                }
             }
 
         # LLM 사용
@@ -190,75 +202,107 @@ class AdditionalDataAgent:
                     response = self.llm_client.invoke(prompt)
 
                 # AIMessage에서 content 추출
-                guideline_text = response.content if hasattr(response, 'content') else str(response)
+                response_text = response.content if hasattr(response, 'content') else str(response)
 
-                # 간단한 파싱 (실제로는 더 정교한 파싱 필요)
-                return {
-                    "site_id": site_id,
-                    "guideline": guideline_text,
-                    "key_insights": self._extract_key_insights(guideline_text)
-                }
+                # JSON 파싱
+                parsed_guidelines = self._parse_json_response(response_text)
+                if parsed_guidelines:
+                    return {
+                        "site_id": site_id,
+                        "agent_guidelines": parsed_guidelines
+                    }
+
+                # JSON 파싱 실패 시 fallback
+                self.logger.warning(f"JSON 파싱 실패 (사업장 {site_id})")
+                return self._generate_fallback_guideline(site_id, data)
+
             except Exception as e:
                 self.logger.error(f"LLM 가이드라인 생성 실패 (사업장 {site_id}): {e}")
                 return self._generate_fallback_guideline(site_id, data)
 
         return self._generate_fallback_guideline(site_id, data)
 
-    def _extract_key_insights(self, guideline_text: str) -> List[str]:
+    def _parse_json_response(self, response_text: str) -> Optional[Dict[str, Any]]:
         """
-        가이드라인 텍스트에서 핵심 인사이트 추출
-
-        ⚠️ 간단한 구현: 줄바꿈 기준으로 분리
-        실제로는 더 정교한 파싱 필요 (정규표현식, LLM 재호출 등)
+        LLM 응답에서 JSON 추출 및 파싱 (BC Agent와 동일한 로직)
         """
-        # 간단한 파싱: "- "로 시작하는 줄만 추출
-        insights = []
-        for line in guideline_text.split('\n'):
-            line = line.strip()
-            if line.startswith('- '):
-                insights.append(line[2:])  # "- " 제거
+        import re
+        import json
 
-        return insights[:5]  # 최대 5개만 반환
+        # 1. 순수 JSON인 경우
+        try:
+            clean_text = response_text.strip()
+            if clean_text.startswith('{'):
+                return json.loads(clean_text)
+        except json.JSONDecodeError:
+            pass
+
+        # 2. 마크다운 코드블록 내 JSON 추출
+        try:
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response_text, re.DOTALL)
+            if json_match:
+                return json.loads(json_match.group(1))
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+        # 3. 중괄호 기반 추출 시도
+        try:
+            start_idx = response_text.find('{')
+            end_idx = response_text.rfind('}')
+            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                json_str = response_text[start_idx:end_idx + 1]
+                return json.loads(json_str)
+        except json.JSONDecodeError:
+            pass
+
+        return None
 
     def _generate_fallback_guideline(self, site_id: int, data: Any) -> Dict[str, Any]:
-        """LLM 실패 시 기본 가이드라인 생성"""
-        guideline = f"## 사업장 {site_id} 추가 정보\n\n"
-        key_insights = []
+        """LLM 실패 시 기본 JSON 가이드라인 생성 (v07: 2섹션 구조)"""
+        key_data_points = []
+        one_liner = "추가 데이터 없음"
+        availability = "Low"
 
         if data:
-            # data가 list인 경우 (site_id 컬럼 없는 Excel에서 전체 데이터)
-            if isinstance(data, list):
+            # data가 dict인 경우 (카테고리별 데이터)
+            if isinstance(data, dict):
+                categories = list(data.keys())
+                total_files = sum(len(v) if isinstance(v, list) else 1 for v in data.values())
+
+                if categories:
+                    one_liner = f"{len(categories)}개 카테고리의 추가 데이터 ({total_files}개 파일)"
+                    key_data_points = [f"{cat}: {len(data[cat])}개 파일" if isinstance(data[cat], list) else f"{cat}: 1개" for cat in categories[:3]]
+                    availability = "High" if total_files > 5 else "Medium"
+
+            # data가 list인 경우 (시계열 데이터)
+            elif isinstance(data, list):
                 if len(data) > 0:
-                    # 첫 번째 행의 컬럼들 표시
                     first_row = data[0]
                     columns = list(first_row.keys()) if isinstance(first_row, dict) else []
-                    guideline += f"- 데이터 컬럼: {', '.join(columns)}\n"
-                    guideline += f"- 총 레코드 수: {len(data)}행\n"
-
-                    # 시계열 데이터 요약
-                    if columns:
-                        key_insights.append(f"시계열 데이터 {len(data)}개 레코드")
-                        for col in columns[:3]:  # 최대 3개 컬럼만 표시
-                            key_insights.append(f"{col} 데이터 포함")
-            # data가 dict인 경우 (기존 로직)
-            elif isinstance(data, dict):
-                for key, value in data.items():
-                    if value and str(value).strip():
-                        guideline += f"- {key}: {value}\n"
-            else:
-                guideline += f"- 데이터 타입: {type(data).__name__}\n"
-        else:
-            guideline += "- 추가 데이터 없음\n"
+                    one_liner = f"시계열 데이터 {len(data)}개 레코드"
+                    key_data_points = [f"{col} 데이터 포함" for col in columns[:3]]
+                    availability = "High" if len(data) > 10 else "Medium"
 
         return {
             "site_id": site_id,
-            "guideline": guideline,
-            "key_insights": key_insights
+            "agent_guidelines": {
+                "data_summary": {
+                    "one_liner": one_liner,
+                    "key_data_points": key_data_points,
+                    "data_availability": availability
+                },
+                "report_guidelines": {
+                    "scenario_analysis_focus": "제공된 추가 데이터를 바탕으로 시나리오 분석에 반영",
+                    "impact_analysis_focus": "추가 데이터의 정량적 정보를 영향 분석에 활용",
+                    "mitigation_focus": "데이터 기반 대응 전략 수립"
+                }
+            }
         }
 
     def _build_prompt(self, site_id: int, data: Dict[str, Any]) -> str:
         """
         LLM 프롬프트 구성 (추가 데이터 → 가이드라인 변환)
+        v07 업데이트: 2섹션 간소화 (data_summary + report_guidelines)
         """
         # datetime 직렬화 핸들러
         def json_serializer(obj):
@@ -270,38 +314,37 @@ class AdditionalDataAgent:
         summarized_data = self._summarize_data_for_prompt(data)
         data_json = json.dumps(summarized_data, indent=2, ensure_ascii=False, default=json_serializer)
 
-        prompt = f"""당신은 TCFD 보고서 생성 전문가이며, **사용자가 제공한 추가 데이터를 분석하여 보고서 생성 에이전트를 위한 가이드라인**을 작성하는 역할을 맡고 있습니다.
+        prompt = f"""<ROLE>
+You are a TCFD report expert. Analyze additional site data and generate **concise guidelines** for TCFD report agents.
+</ROLE>
 
-제공된 데이터는 **사업장 {site_id}에 대한 추가 정보**이며, 이 정보를 바탕으로 보고서 작성 시 활용할 핵심 인사이트를 정리해주세요.
-
-⚠️ **중요**: 이 가이드라인은 추후 Node 2-A (Scenario Analysis), Node 2-B (Impact Analysis), Node 2-C (Mitigation Strategies) 에이전트가 참고합니다.
-
----
-## 사업장 {site_id} 추가 데이터
+<ADDITIONAL_DATA>
+Site ID: {site_id}
 
 {data_json}
+</ADDITIONAL_DATA>
 
----
-## 가이드라인 작성 지침
+<OUTPUT_FORMAT>
+Generate JSON with 2 sections:
 
-위의 추가 데이터를 분석하여 다음 목차에 따라 **보고서 생성 에이전트를 위한 가이드라인**을 작성하세요.
+{{
+  "data_summary": {{
+    "one_liner": "1-sentence data summary",
+    "key_data_points": ["Data point 1", "Data point 2", "Data point 3"],
+    "data_availability": "High/Medium/Low"
+  }},
 
-**[가이드라인 목차]**
-1. **데이터 요약** (3-5문장)
-   - 제공된 추가 데이터의 핵심 내용을 간결하게 요약
-   - 어떤 유형의 정보인지 명시 (예: 시설물 세부 정보, 운영 현황, 재무 데이터 등)
+  "report_guidelines": {{
+    "scenario_analysis_focus": "Key points for scenario analysis",
+    "impact_analysis_focus": "Key points for impact analysis",
+    "mitigation_focus": "Key points for adaptation strategies"
+  }}
+}}
 
-2. **보고서 활용 방안**
-   - Node 2-A (Scenario Analysis): 이 데이터가 시나리오 분석에 어떻게 활용될 수 있는지
-   - Node 2-B (Impact Analysis): 영향 분석 시 강조해야 할 포인트
-   - Node 2-C (Mitigation Strategies): 대응 전략 수립 시 참고할 정보
+**OUTPUT LANGUAGE: All text MUST be in KOREAN.** Only JSON keys in English.
 
-3. **주의사항**
-   - 이 데이터를 과도하게 일반화하거나 왜곡하지 않도록 주의
-   - 특정 사업장에만 해당하는 정보임을 명시
-
-**톤앤매너**: 간결하고 실용적인 어조로, 보고서 생성 에이전트가 바로 활용할 수 있도록 구체적으로 작성하세요.
-**주의**: 최종 보고서 내용을 직접 작성하지 마세요. 가이드라인과 핵심 포인트만 제공하세요.
+Output pure JSON only. No markdown.
+</OUTPUT_FORMAT>
 """
         return prompt
 

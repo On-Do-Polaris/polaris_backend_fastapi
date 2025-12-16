@@ -1,7 +1,7 @@
 '''
 파일명: building_characteristics_agent.py
 작성일: 2025-12-16
-버전: v09 (DB 조회만 - API 호출 X)
+버전: v11 (2섹션 간소화 + 원본 데이터 제거, State 최적화)
 파일 개요: 건축물 대장 기반 물리적 취약성 정밀 분석 에이전트 (보고서 생성용 가이드라인 제공)
 
 역할:
@@ -24,6 +24,8 @@
     - 2025-12-15: v07 - DB 연동 추가 (building_aggregate_cache 테이블)
     - 2025-12-16: v08 - ETL 분리 (BuildingDataLoader 사용)
     - 2025-12-16: v09 - DB 조회만 하도록 수정 (API 호출 X)
+    - 2025-12-16: v10 - 영어 프롬프트 + 한글 출력, 5섹션→3섹션 간소화 (토큰 효율화)
+    - 2025-12-16: v11 - 2섹션 간소화 (data_summary + report_guidelines), 원본 데이터 State 전달 제거
 '''
 
 from typing import Dict, Any, List, Optional
@@ -83,7 +85,7 @@ class BuildingCharacteristicsAgent:
 
     async def analyze_batch(self, sites_data: List[Dict[str, Any]]) -> Dict[int, Dict[str, Any]]:
         """
-        다중 사업장 배치 분석 수행 (TCFD Report v2.1) - 병렬 처리
+        다중 사업장 배치 분석 수행 (v11: 2섹션 간소화) - 병렬 처리
 
         :param sites_data: 사업장 정보 리스트
             각 Dict 구조: {
@@ -94,12 +96,11 @@ class BuildingCharacteristicsAgent:
         :return: 사업장별 분석 결과 딕셔너리 (site_id를 키로 사용)
             {
                 site_id: {
-                    "meta": {...},
-                    "building_data": {...},
-                    "structural_grade": str,
-                    "vulnerabilities": [...],
-                    "resilience": [...],
-                    "agent_guidelines": str
+                    "meta": {"analyzed_at": str, "data_source": str},
+                    "agent_guidelines": {
+                        "data_summary": {"one_liner": str, "key_characteristics": [...], "risk_exposure_level": str},
+                        "report_guidelines": {"impact_focus": str, "mitigation_priorities": str, "reporting_tone": str}
+                    }
                 },
                 ...
             }
@@ -138,18 +139,26 @@ class BuildingCharacteristicsAgent:
                 results[site_id] = {
                     "meta": {
                         "analyzed_at": datetime.now().isoformat(),
-                        "location": {},
+                        "data_source": "Error",
                         "error": str(result)
                     },
-                    "building_data": {},
-                    "structural_grade": "Unknown",
-                    "vulnerabilities": [],
-                    "resilience": [],
-                    "agent_guidelines": "분석 실패로 가이드라인을 생성할 수 없습니다."
+                    "agent_guidelines": {
+                        "data_summary": {
+                            "one_liner": "분석 실패",
+                            "key_characteristics": [],
+                            "risk_exposure_level": "Unknown"
+                        },
+                        "report_guidelines": {
+                            "impact_focus": "분석 실패로 가이드라인을 생성할 수 없습니다.",
+                            "mitigation_priorities": "데이터 확인 필요",
+                            "reporting_tone": "neutral"
+                        }
+                    }
                 }
             else:
                 results[site_id] = result
-                self.logger.info(f"  ✓ 사업장 {site_id} 분석 완료: {result.get('structural_grade', 'Unknown')}")
+                risk_level = result.get('agent_guidelines', {}).get('data_summary', {}).get('risk_exposure_level', 'Unknown')
+                self.logger.info(f"  ✓ 사업장 {site_id} 분석 완료: {risk_level}")
 
         self.logger.info(f"✅ 다중 사업장 건물 특성 분석 완료: {len(results)}개 사업장")
         return results
@@ -274,14 +283,9 @@ class BuildingCharacteristicsAgent:
         result = {
             "meta": {
                 "analyzed_at": datetime.now().isoformat(),
-                "location": {"lat": lat, "lon": lon},
                 "data_source": "building_aggregate_cache (DB)" if self.data_loader else "Fallback Data"
             },
-            "building_data": building_data,
-            "structural_grade": structural_grade,
-            "vulnerabilities": vulnerabilities,
-            "resilience": resilience,
-            "agent_guidelines": guidelines  # ← 보고서 에이전트가 사용할 가이드라인
+            "agent_guidelines": guidelines  # data_summary + report_guidelines
         }
 
         self.logger.info("건물 특성 분석 완료")
@@ -600,9 +604,9 @@ class BuildingCharacteristicsAgent:
 
             except Exception as e:
                 self.logger.error(f"LLM 가이드라인 생성 실패: {e}")
-                return self._generate_fallback_guidelines_json(data, vulnerabilities, resilience, grade)
+                return self._generate_fallback_guidelines_json(data, vulnerabilities, grade)
 
-        return self._generate_fallback_guidelines_json(data, vulnerabilities, resilience, grade)
+        return self._generate_fallback_guidelines_json(data, vulnerabilities, grade)
 
     def _parse_llm_json_response(self, response_text: str) -> Optional[Dict[str, Any]]:
         """
@@ -648,39 +652,28 @@ class BuildingCharacteristicsAgent:
         self,
         data: Dict[str, Any],
         vulnerabilities: List[Dict],
-        resilience: List[Dict],
         grade: str
     ) -> Dict[str, Any]:
         """
-        LLM 실패 시 기본 JSON 가이드라인 생성
+        LLM 실패 시 기본 JSON 가이드라인 생성 (v11: 2섹션 구조)
 
         Returns:
-            Dict: 구조화된 fallback 가이드라인
+            Dict: {"data_summary": {...}, "report_guidelines": {...}}
         """
         meta = data.get('meta', {})
         physical_specs = data.get('physical_specs', {})
         age = physical_specs.get('age', {}).get('years', 0)
         structure = physical_specs.get('structure', '미상')
+        seismic = physical_specs.get('seismic', {}).get('applied', 'N')
 
-        # 취약 요인 변환
-        high_risk_factors = []
-        for v in vulnerabilities[:5]:  # 최대 5개
-            high_risk_factors.append({
-                "factor": v.get('factor', ''),
-                "related_risks": self._infer_related_risks(v.get('category', '')),
-                "severity": v.get('severity', 'Medium'),
-                "impact_description": v.get('description', '')
-            })
+        # 주요 특성 추출
+        characteristics = [f"준공 {age}년차 건물", f"구조: {structure}"]
 
-        # 회복력 요인 변환
-        resilience_factors = []
-        for r in resilience[:5]:  # 최대 5개
-            resilience_factors.append({
-                "factor": r.get('factor', ''),
-                "related_risks": self._infer_related_risks(r.get('category', '')),
-                "strength": r.get('strength', 'Medium'),
-                "benefit_description": r.get('description', '')
-            })
+        # 취약점/회복력 요약
+        if vulnerabilities:
+            characteristics.append(f"주요 취약점: {vulnerabilities[0].get('factor', '')}")
+        if seismic == 'Y':
+            characteristics.append("내진설계 적용")
 
         # 리스크 레벨 결정
         if 'E' in grade or 'D' in grade:
@@ -694,67 +687,15 @@ class BuildingCharacteristicsAgent:
             tone = "positive"
 
         return {
-            "building_summary": {
+            "data_summary": {
                 "one_liner": f"{age}년 경과 {structure} 건물, 구조등급 {grade}",
-                "key_characteristics": [
-                    f"준공 {age}년차 건물",
-                    f"구조: {structure}",
-                    f"구조안전등급: {grade}"
-                ],
+                "key_characteristics": characteristics[:3],  # 최대 3개
                 "risk_exposure_level": risk_level
             },
-            "vulnerability_summary": {
-                "high_risk_factors": high_risk_factors,
-                "resilience_factors": resilience_factors
-            },
-            "impact_analysis_guide": {
-                "financial_impact": {
-                    "estimated_exposure": risk_level,
-                    "key_cost_drivers": ["건물 노후화", "설비 손상 위험"],
-                    "narrative": "LLM 분석 실패로 기본 가이드라인 제공. 상세 분석 필요."
-                },
-                "operational_impact": {
-                    "critical_systems_at_risk": ["전기 설비", "기계 설비"],
-                    "estimated_downtime": "산정 필요",
-                    "narrative": "LLM 분석 실패로 기본 가이드라인 제공. 상세 분석 필요."
-                },
-                "asset_impact": {
-                    "vulnerable_assets": ["건물 구조", "설비"],
-                    "damage_potential": "Moderate",
-                    "narrative": "LLM 분석 실패로 기본 가이드라인 제공. 상세 분석 필요."
-                }
-            },
-            "mitigation_recommendations": {
-                "short_term": [
-                    {
-                        "action": "취약 지점 긴급 점검",
-                        "target_risk": "general",
-                        "priority": "High",
-                        "estimated_cost": "산정 필요"
-                    }
-                ],
-                "mid_term": [
-                    {
-                        "action": "설비 보강 계획 수립",
-                        "target_risk": "general",
-                        "priority": "Medium",
-                        "estimated_cost": "산정 필요"
-                    }
-                ],
-                "long_term": [
-                    {
-                        "action": "장기 리스크 저감 전략 수립",
-                        "target_risk": "general",
-                        "priority": "Medium",
-                        "estimated_cost": "산정 필요"
-                    }
-                ]
-            },
-            "report_narrative_guide": {
-                "recommended_tone": tone,
-                "key_message": f"구조등급 {grade} 건물로, 체계적인 리스크 관리 필요",
-                "tcfd_alignment": "물리적 리스크 노출에 대한 모니터링 및 대응 전략 수립",
-                "stakeholder_focus": "건물 리스크 현황 파악 및 대응 방안 제시"
+            "report_guidelines": {
+                "impact_focus": f"구조등급 {grade} 건물의 물리적 리스크 노출 분석 (재무/운영/자산)",
+                "mitigation_priorities": "단기: 취약 지점 점검, 중기: 설비 보강, 장기: 리스크 저감 전략",
+                "reporting_tone": tone
             },
             "_fallback": True  # Fallback 가이드라인임을 표시
         }
@@ -827,163 +768,75 @@ class BuildingCharacteristicsAgent:
         """
         LLM 프롬프트 구성 (TCFD 보고서 노드용 구조화된 가이드라인 생성)
 
-        v08 업데이트: JSON 구조화 출력으로 변경
-        - Node 2-B (Impact Analysis): financial_impact, operational_impact, asset_impact 활용
-        - Node 2-C (Mitigation Strategies): short_term, mid_term, long_term 대응 방안 활용
+        v10 업데이트: 간소화된 영어 프롬프트 + 한글 출력 (토큰 효율화)
+        - 5개 섹션 → 3개 섹션으로 축소
+        - Node 2-B (Impact Analysis): analysis_guidelines.impact_focus 활용
+        - Node 2-C (Mitigation Strategies): analysis_guidelines.mitigation_priorities 활용
         - Node 3 (Strategy Section): vulnerability_summary 활용
         """
 
         meta = data.get('meta', {})
         physical_specs = data.get('physical_specs', {})
         floor_details = data.get('floor_details', [])
-        transition_specs = data.get('transition_specs', {})
+        geo_risks = data.get('geo_risks', {})
 
-        # 건물 정보 요약
+        # Building info summary
         building_age = physical_specs.get('age', {}).get('years', 0)
-        structure_type = physical_specs.get('structure', '미상')
+        structure_type = physical_specs.get('structure', 'Unknown')
         seismic_applied = physical_specs.get('seismic', {}).get('applied', 'Unknown')
         max_underground = physical_specs.get('floors', {}).get('max_underground', 0)
         ground_floors = physical_specs.get('floors', {}).get('ground', 0)
 
-        # 지하층 중요 설비 여부
+        # River & coast distance
+        river_info = geo_risks.get('river', {})
+        river_distance = river_info.get('distance_m', 'N/A') if river_info else 'N/A'
+        coast_distance = geo_risks.get('coast_distance_m', 'N/A')
+
+        # Underground critical facilities check
         basement_critical = any(
             f.get('type') == 'Underground' and f.get('is_potentially_critical')
             for f in floor_details
         )
 
         prompt = f"""<ROLE>
-당신은 TCFD 보고서 생성 전문가입니다. 건축물 데이터를 분석하여
-**보고서 생성 노드(Node 2-B, 2-C, 3)가 활용할 구조화된 가이드라인**을 JSON 형식으로 생성합니다.
+You are a TCFD building analysis expert. Analyze building data and generate **concise guidelines** for TCFD report agents.
 </ROLE>
 
 <BUILDING_DATA>
-## 건물 기본 정보
-- 주소: {meta.get('address', '미상')}
-- 준공연도: {physical_specs.get('age', {}).get('completion_year', '미상')} (경과년수: {building_age}년)
-- 구조: {structure_type}
-- 내진설계: {seismic_applied}
-- 지상층수: {ground_floors}층, 지하층수: {max_underground}층
-- 구조안전등급: {grade}
+Address: {meta.get('address', 'N/A')}
+Age: {building_age} years (Built: {physical_specs.get('age', {}).get('completion_year', 'N/A')})
+Structure: {structure_type} | Seismic: {seismic_applied} | Grade: {grade}
+Floors: {ground_floors} above, {max_underground} below
+River: {river_distance}m | Coast: {coast_distance}m
 
-## 층별 상세 (지하층 중심)
-{json.dumps([f for f in floor_details if f.get('type') == 'Underground'], indent=2, ensure_ascii=False) if floor_details else '(지하층 없음)'}
+Basement: {json.dumps([f for f in floor_details if f.get('type') == 'Underground'], ensure_ascii=False) if floor_details else 'None'}
 
-## 에너지/전환 특성
-{json.dumps(transition_specs, indent=2, ensure_ascii=False) if transition_specs else '(데이터 없음)'}
+Vulnerabilities: {self._format_list(vulnerabilities) if vulnerabilities else 'None'}
+Resilience: {self._format_list(resilience) if resilience else 'None'}
+Risk Scores: {self._format_dict(risk_scores) if risk_scores else 'None'}
 </BUILDING_DATA>
 
-<SYSTEM_ANALYSIS>
-## 식별된 취약 요인 (시스템 분석)
-{self._format_list(vulnerabilities) if vulnerabilities else '(식별된 취약 요인 없음)'}
+<OUTPUT_FORMAT>
+Generate JSON with 2 sections:
 
-## 식별된 회복력 요인 (시스템 분석)
-{self._format_list(resilience) if resilience else '(식별된 회복력 요인 없음)'}
-</SYSTEM_ANALYSIS>
-
-<RISK_CONTEXT>
-## 외부 리스크 평가 점수
-{self._format_dict(risk_scores) if risk_scores else '(리스크 점수 미제공)'}
-</RISK_CONTEXT>
-
-<OUTPUT_REQUIREMENTS>
-다음 JSON 형식으로 정확히 출력하세요. 각 필드는 해당 TCFD 보고서 노드에서 직접 활용됩니다.
-
-```json
 {{
-  "building_summary": {{
-    "one_liner": "건물 특성을 1문장으로 요약 (예: '30년 경과 철근콘크리트 건물, 내진설계 미적용')",
-    "key_characteristics": [
-      "핵심 물리적 특성 1 (예: 준공 30년차 노후 건물)",
-      "핵심 물리적 특성 2",
-      "핵심 물리적 특성 3"
-    ],
-    "risk_exposure_level": "High/Medium/Low - 전반적 리스크 노출 수준"
+  "data_summary": {{
+    "one_liner": "1-sentence building summary",
+    "key_characteristics": ["Characteristic 1", "Characteristic 2", "Characteristic 3"],
+    "risk_exposure_level": "High/Medium/Low"
   }},
 
-  "vulnerability_summary": {{
-    "high_risk_factors": [
-      {{
-        "factor": "취약 요인명 (예: 지하 전기실)",
-        "related_risks": ["river_flood", "urban_flood"],
-        "severity": "Very High/High/Medium",
-        "impact_description": "이 요인이 미치는 구체적 영향 (재무/운영/자산 관점)"
-      }}
-    ],
-    "resilience_factors": [
-      {{
-        "factor": "회복력 요인명 (예: 내진설계 적용)",
-        "related_risks": ["typhoon", "earthquake"],
-        "strength": "Very High/High/Medium",
-        "benefit_description": "이 요인이 제공하는 구체적 이점"
-      }}
-    ]
-  }},
-
-  "impact_analysis_guide": {{
-    "financial_impact": {{
-      "estimated_exposure": "예상 재무적 노출 수준 (High/Medium/Low)",
-      "key_cost_drivers": ["주요 비용 발생 요인 1", "비용 요인 2"],
-      "narrative": "재무적 영향에 대해 보고서에 서술할 핵심 내용 (2-3문장)"
-    }},
-    "operational_impact": {{
-      "critical_systems_at_risk": ["위험에 노출된 핵심 시스템/설비"],
-      "estimated_downtime": "예상 운영 중단 기간 (예: '최대 7일')",
-      "narrative": "운영적 영향에 대해 보고서에 서술할 핵심 내용 (2-3문장)"
-    }},
-    "asset_impact": {{
-      "vulnerable_assets": ["취약한 자산/설비 리스트"],
-      "damage_potential": "예상 손상 수준 (Severe/Moderate/Minor)",
-      "narrative": "자산 영향에 대해 보고서에 서술할 핵심 내용 (2-3문장)"
-    }}
-  }},
-
-  "mitigation_recommendations": {{
-    "short_term": [
-      {{
-        "action": "단기 조치 (1년 이내)",
-        "target_risk": "대응 대상 리스크 (예: urban_flood)",
-        "priority": "High/Medium",
-        "estimated_cost": "예상 비용 범위 (예: 5억원~10억원)"
-      }}
-    ],
-    "mid_term": [
-      {{
-        "action": "중기 조치 (1-5년)",
-        "target_risk": "대응 대상 리스크",
-        "priority": "High/Medium",
-        "estimated_cost": "예상 비용 범위"
-      }}
-    ],
-    "long_term": [
-      {{
-        "action": "장기 조치 (5년 이상)",
-        "target_risk": "대응 대상 리스크",
-        "priority": "High/Medium",
-        "estimated_cost": "예상 비용 범위"
-      }}
-    ]
-  }},
-
-  "report_narrative_guide": {{
-    "recommended_tone": "warning/neutral/positive - 권장 보고서 톤",
-    "key_message": "보고서에서 강조해야 할 핵심 메시지 (1문장)",
-    "tcfd_alignment": "TCFD 프레임워크 관점에서 강조할 포인트",
-    "stakeholder_focus": "투자자/이해관계자에게 전달할 핵심 내용"
+  "report_guidelines": {{
+    "impact_focus": "Key points for impact analysis (financial/operational/asset)",
+    "mitigation_priorities": "Priority adaptation measures (short/mid/long term)",
+    "reporting_tone": "warning/neutral/positive"
   }}
 }}
-```
-</OUTPUT_REQUIREMENTS>
 
-<QUALITY_CHECKLIST>
-출력 전 확인사항:
-- [ ] 모든 JSON 필드가 채워져 있는가?
-- [ ] high_risk_factors의 related_risks가 실제 리스크 타입인가? (river_flood, urban_flood, typhoon, extreme_heat, drought, wildfire, sea_level_rise, extreme_cold, water_stress)
-- [ ] impact_analysis_guide의 narrative가 구체적이고 데이터 기반인가?
-- [ ] mitigation_recommendations가 실행 가능하고 비용 추정이 현실적인가?
-- [ ] 건물 데이터(연식, 구조, 지하층 등)를 근거로 분석했는가?
-</QUALITY_CHECKLIST>
+**OUTPUT LANGUAGE: All text MUST be in KOREAN.** Only JSON keys in English.
 
-JSON 출력만 제공하세요. 추가 설명이나 마크다운 코드블록(```) 없이 순수 JSON만 출력하세요.
+Output pure JSON only. No markdown.
+</OUTPUT_FORMAT>
 """
         return prompt
 

@@ -346,9 +346,17 @@ class ReportService:
                 "report_id": "tcfd_report_20251216_163321",
                 "meta": {"title": "TCFD 보고서"},
                 "sections": [
-                    {"id": "ceosummry", "title": "경영진 요약", "content": "..."},
-                    {"id": "governance", "title": "거버넌스", "content": "..."},
-                    ...
+                    {
+                        "section_id": "governance",
+                        "title": "1. Governance",
+                        "blocks": [
+                            {
+                                "type": "text",
+                                "subheading": "1.1 이사회의 감독",
+                                "content": "..."
+                            }
+                        ]
+                    }
                 ]
             }
         """
@@ -365,12 +373,12 @@ class ReportService:
 
         # 섹션 ID 매핑 (AI Agent 키 → Spring Boot 키)
         section_mapping = {
-            'executive_summary': {'id': 'ceosummry', 'title': '경영진 요약'},
-            'governance': {'id': 'governance', 'title': '거버넌스'},
-            'strategy': {'id': 'strategy', 'title': '전략'},
-            'risk_management': {'id': 'riskmanagement', 'title': '리스크 관리'},
-            'metrics_and_targets': {'id': 'goal', 'title': '지표 및 목표'},
-            'metrics_targets': {'id': 'goal', 'title': '지표 및 목표'},  # 대체 키
+            'executive_summary': {'section_id': 'ceosummry', 'title': 'Executive Summary', 'number': '0'},
+            'governance': {'section_id': 'governance', 'title': 'Governance', 'number': '1'},
+            'strategy': {'section_id': 'strategy', 'title': 'Strategy', 'number': '2'},
+            'risk_management': {'section_id': 'risk_management', 'title': 'Risk Management', 'number': '3'},
+            'metrics_and_targets': {'section_id': 'metrics_targets', 'title': 'Metrics & Targets', 'number': '4'},
+            'metrics_targets': {'section_id': 'metrics_targets', 'title': 'Metrics & Targets', 'number': '4'},
         }
 
         # sections 배열 생성
@@ -378,10 +386,11 @@ class ReportService:
 
         # Executive Summary 추가
         if executive_summary:
+            blocks = self._parse_markdown_to_blocks(executive_summary)
             sections.append({
-                "id": "ceosummry",
-                "title": "경영진 요약",
-                "content": executive_summary
+                "section_id": "ceosummry",
+                "title": "Executive Summary",
+                "blocks": blocks
             })
 
         # 나머지 섹션 추가 (순서 유지)
@@ -390,24 +399,260 @@ class ReportService:
             content = sections_dict.get(section_key)
             if content and section_key in section_mapping:
                 section_info = section_mapping[section_key]
-                # 중복 방지 (metrics_and_targets와 metrics_targets가 모두 있을 경우)
-                if not any(s['id'] == section_info['id'] for s in sections):
+                # 중복 방지
+                if not any(s['section_id'] == section_info['section_id'] for s in sections):
+                    blocks = self._parse_markdown_to_blocks(content)
                     sections.append({
-                        "id": section_info['id'],
-                        "title": section_info['title'],
-                        "content": content
+                        "section_id": section_info['section_id'],
+                        "title": f"{section_info['number']}. {section_info['title']}",
+                        "blocks": blocks
                     })
 
         # Spring Boot 호환 형식으로 반환
         return {
             "report_id": formatted_report_id,
             "meta": {
-                "title": "TCFD 보고서",
-                "generated_at": cached_report.get('created_at').isoformat() if cached_report.get('created_at') else datetime.now().isoformat(),
-                "site_id": str(cached_report['site_id']) if cached_report.get('site_id') else None
+                "title": "TCFD 보고서"
             },
             "sections": sections
         }
+
+    def _parse_markdown_to_blocks(self, markdown_text: str) -> list:
+        """
+        Markdown 텍스트를 blocks 배열로 파싱
+
+        Args:
+            markdown_text: Markdown 형식의 텍스트
+
+        Returns:
+            blocks 배열
+            [
+                {
+                    "type": "text",
+                    "subheading": "1.1 제목",
+                    "content": "내용..."
+                },
+                {
+                    "type": "table",
+                    "title": "테이블 제목",
+                    "headers": [...],
+                    "items": [...]
+                }
+            ]
+        """
+        import re
+
+        blocks = []
+        lines = markdown_text.split('\n')
+        current_block = None
+        current_content = []
+
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+
+            # ### 소제목 감지 (###로 시작하는 heading)
+            if line.startswith('###'):
+                # 이전 블록 저장
+                if current_block:
+                    current_block['content'] = '\n'.join(current_content).strip()
+                    if current_block['content']:
+                        blocks.append(current_block)
+
+                # 새 블록 시작
+                subheading = line.replace('###', '').strip()
+                current_block = {
+                    "type": "text",
+                    "subheading": subheading,
+                    "content": ""
+                }
+                current_content = []
+
+            # 테이블 감지 (|로 시작)
+            elif line.startswith('|') and '|' in line:
+                # 이전 블록 저장
+                if current_block:
+                    current_block['content'] = '\n'.join(current_content).strip()
+                    if current_block['content']:
+                        blocks.append(current_block)
+                    current_block = None
+                    current_content = []
+
+                # 테이블 파싱
+                table_block = self._parse_table(lines, i)
+                if table_block:
+                    blocks.append(table_block)
+                    # 테이블 라인 건너뛰기
+                    while i < len(lines) and lines[i].strip().startswith('|'):
+                        i += 1
+                    continue
+
+            # 일반 텍스트
+            elif line and not line.startswith('#'):
+                if current_block is None:
+                    # 소제목 없는 블록
+                    current_block = {
+                        "type": "text",
+                        "subheading": None,
+                        "content": ""
+                    }
+                current_content.append(line)
+
+            i += 1
+
+        # 마지막 블록 저장
+        if current_block and current_content:
+            current_block['content'] = '\n'.join(current_content).strip()
+            if current_block['content']:
+                blocks.append(current_block)
+
+        return blocks
+
+    def _parse_table(self, lines: list, start_idx: int) -> dict:
+        """
+        Markdown 테이블을 table block으로 파싱
+
+        Args:
+            lines: 전체 라인 배열
+            start_idx: 테이블 시작 인덱스
+
+        Returns:
+            table block 딕셔너리
+            {
+                "type": "table",
+                "title": "테이블 제목",
+                "subheading": "설명",
+                "headers": [
+                    {"text": "컬럼1", "value": "col1"},
+                    {"text": "컬럼2", "value": "col2"}
+                ],
+                "items": [
+                    {
+                        "col1": {"value": "데이터1", "bg_color": "none"},
+                        "col2": {"value": "데이터2", "bg_color": "green"}
+                    }
+                ],
+                "legend": [...]
+            }
+        """
+        table_lines = []
+        i = start_idx
+
+        # 테이블 이전에 제목이 있는지 확인 (### 또는 ** 굵은 글씨)
+        title = None
+        subheading = None
+        if start_idx > 0:
+            prev_line = lines[start_idx - 1].strip()
+            if prev_line.startswith('**') and prev_line.endswith('**'):
+                title = prev_line.strip('*').strip()
+            elif prev_line.startswith('###'):
+                title = prev_line.replace('###', '').strip()
+
+        # 테이블 라인 수집
+        while i < len(lines) and lines[i].strip().startswith('|'):
+            table_lines.append(lines[i].strip())
+            i += 1
+
+        if len(table_lines) < 2:
+            # 테이블이 아님 (헤더 + 구분선이 최소)
+            return None
+
+        # 헤더 파싱
+        header_line = table_lines[0]
+        header_cells = [cell.strip() for cell in header_line.split('|')[1:-1]]  # 첫/마지막 빈 셀 제거
+
+        headers = []
+        for cell in header_cells:
+            value = cell.lower().replace(' ', '_').replace('(', '').replace(')', '')
+            headers.append({
+                "text": cell,
+                "value": value
+            })
+
+        # 데이터 행 파싱 (구분선 제외)
+        items = []
+        for row_line in table_lines[2:]:  # 0: header, 1: separator, 2+: data
+            if not row_line or row_line.startswith('|---'):
+                continue
+
+            cells = [cell.strip() for cell in row_line.split('|')[1:-1]]
+            if len(cells) != len(headers):
+                continue
+
+            item = {}
+            for idx, cell in enumerate(cells):
+                header_value = headers[idx]['value']
+                # 셀 값과 배경색 파싱
+                bg_color = self._detect_color_from_text(cell)
+                item[header_value] = {
+                    "value": cell,
+                    "bg_color": bg_color
+                }
+            items.append(item)
+
+        return {
+            "type": "table",
+            "title": title or "표",
+            "subheading": subheading,
+            "headers": headers,
+            "items": items,
+            "legend": self._generate_legend()
+        }
+
+    def _detect_color_from_text(self, text: str) -> str:
+        """
+        텍스트에서 색상 힌트를 감지
+
+        Args:
+            text: 셀 텍스트
+
+        Returns:
+            색상 문자열 (green, yellow, orange, red, none)
+        """
+        # 숫자에서 %를 파싱하여 임계값 기반으로 색상 결정
+        import re
+
+        # 퍼센트 숫자 추출
+        match = re.search(r'(\d+(?:\.\d+)?)\s*%', text)
+        if match:
+            value = float(match.group(1))
+            if value >= 30:
+                return "red"
+            elif value >= 10:
+                return "orange"
+            elif value >= 5:
+                return "yellow"
+            elif value >= 0:
+                return "green"
+
+        # 숫자만 있는 경우 (점수)
+        match = re.search(r'^\s*(\d+(?:\.\d+)?)\s*$', text)
+        if match:
+            value = float(match.group(1))
+            if value >= 70:
+                return "red"
+            elif value >= 50:
+                return "orange"
+            elif value >= 30:
+                return "yellow"
+            else:
+                return "green"
+
+        return "none"
+
+    def _generate_legend(self) -> list:
+        """
+        기본 범례 생성
+
+        Returns:
+            범례 배열
+        """
+        return [
+            {"color": "green", "label": "낮음"},
+            {"color": "yellow", "label": "보통"},
+            {"color": "orange", "label": "높음"},
+            {"color": "red", "label": "매우 높음"}
+        ]
 
     async def delete_report(self) -> dict:
         """Spring Boot API 호환 - 리포트 삭제"""

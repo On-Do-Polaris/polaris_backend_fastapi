@@ -35,6 +35,8 @@ from .state import TCFDReportState
 from ...utils.database import DatabaseManager
 from ..primary_data.additional_data_agent import AdditionalDataAgent
 from ..primary_data.building_characteristics_agent import BuildingCharacteristicsAgent
+from ..primary_data.building_characteristics_loader import BuildingDataLoader
+from ..primary_data.additional_data_loader import AdditionalDataLoader
 
 
 # 유효한 target_year 값들 (보고서에서 사용하는 년도)
@@ -377,6 +379,7 @@ class DataPreprocessingNode:
     ) -> Dict[int, Dict[str, Any]]:
         """
         BuildingCharacteristicsAgent를 사용하여 건물 특성 분석 (청크 단위 배치 처리)
+        + BuildingDataLoader로 raw building data 직접 조회
 
         Args:
             site_data: 사이트 기본 정보 리스트
@@ -384,7 +387,7 @@ class DataPreprocessingNode:
             hazard_results: Hazard 결과 (risk_scores 생성용)
 
         Returns:
-            building_data: Dict[site_id, BC 분석 결과]
+            building_data: Dict[site_id, BC 분석 결과 + raw_data]
         """
         building_data: Dict[int, Dict[str, Any]] = {}
 
@@ -394,6 +397,9 @@ class DataPreprocessingNode:
                 llm_client=self.llm_client,
                 db_url=self.dw_db_url
             )
+
+            # Raw data 조회용 Loader
+            bc_loader = BuildingDataLoader(db_url=self.dw_db_url)
 
             for i in range(0, len(site_data), self.bc_chunk_size):
                 chunk = site_data[i:i + self.bc_chunk_size]
@@ -421,9 +427,24 @@ class DataPreprocessingNode:
                 try:
                     bc_results = await bc_agent.analyze_batch(bc_input)
 
-                    # 결과를 building_data에 저장
+                    # 결과를 building_data에 저장 + raw_data 추가
                     for site_id, result in bc_results.items():
-                        building_data[site_id] = result
+                        # Raw building data 조회 (DB에서 직접)
+                        site_info = next(
+                            (s for s in chunk if s["site_id"] == site_id),
+                            None
+                        )
+                        raw_data = {}
+                        if site_info:
+                            address = site_info.get("site_info", {}).get("address")
+                            if address:
+                                raw_data = bc_loader.fetch_from_db_only(road_address=address) or {}
+
+                        # agent_guidelines + raw_data 합침
+                        building_data[site_id] = {
+                            **result,
+                            "raw_data": raw_data  # 원본 건축물 데이터
+                        }
 
                 except Exception as chunk_error:
                     self.logger.error(f"BC 청크 분석 실패: {chunk_error}", exc_info=True)
@@ -492,6 +513,7 @@ class DataPreprocessingNode:
     ) -> tuple:
         """
         추가 데이터 처리 (AdditionalDataAgent 호출 - DB 조회)
+        + AdditionalDataLoader로 raw additional data 직접 조회
 
         Args:
             site_ids: 사업장 UUID 리스트
@@ -505,12 +527,28 @@ class DataPreprocessingNode:
                 llm_client=self.llm_client,
                 db_url=self.dw_db_url
             )
+
+            # Raw data 조회용 Loader
+            ad_loader = AdditionalDataLoader(db_url=self.dw_db_url)
+
             result = await agent.analyze_from_db(site_ids)
 
             if result.get("status") == "completed":
                 self.logger.info(
                     f"AD 분석 완료: {len(result.get('site_specific_guidelines', {}))}개 사업장 가이드라인 생성"
                 )
+
+                # Raw additional data 조회 (DB에서 직접)
+                raw_data_by_site = {}
+                for site_id in site_ids:
+                    raw_data = ad_loader.fetch_all_for_site(site_id)
+                    if raw_data:
+                        raw_data_by_site[site_id] = raw_data
+
+                # result에 raw_data 추가
+                result["raw_data"] = raw_data_by_site
+                self.logger.info(f"AD raw_data 조회 완료: {len(raw_data_by_site)}개 사업장")
+
                 return result, True  # additional_data, use_additional_data = True
             else:
                 self.logger.warning(

@@ -493,23 +493,48 @@ class BuildingDataFetcher:
         # B. 총괄표제부 (Recap) - 해당 번지의 모든 건물
         recap_list = self._fetch_api("getBrRecapTitleInfo", detail_params) or []
         
-        # C. 층별개요 (Floor) - 모든 건물의 층별 정보 수집
-        all_floors = []
-        for title in title_list:
-            pk = title.get('mgmBldrgstPk')
-            if pk:
-                pk_params = {
-                    "sigunguCd": codes['sigungu_cd'],
-                    "bjdongCd": codes['bjdong_cd'],
-                    "mgmBldrgstPk": pk
-                }
-                floors = self._fetch_api("getBrFlrOulnInfo", pk_params, fetch_all_pages=True) or []
-                all_floors.extend(floors)
-        
-        # 3. 다중 건물 데이터 집계
-        # 주소 정보 추출 (통일된 키 이름 사용)
+        # C. 층별개요 (Floor) - 지번(bun/ji) 기반 조회
+        # 해당 번지의 건물만 조회 (법정동 전체 1000건이 아닌 해당 번지만)
+        floors_raw = self._fetch_api("getBrFlrOulnInfo", detail_params, fetch_all_pages=True) or []
+        self.logger.info(f"층별개요 조회: {len(floors_raw)}건 (지번: {bun}-{ji})")
+
+        # 3. 주소 매칭 전략: 도로명 우선 → 지번 fallback
         jibun_address = addr_info.get('jibun_addr', '미상')
         road_address = addr_info.get('road_addr', '')
+
+        def is_address_match(user_addr: str, api_addr: str) -> bool:
+            """주소 단어 비교로 매칭 확인 (숫자 포함 단어가 모두 일치하면 매칭)"""
+            if not user_addr or not api_addr:
+                return False
+            user_words = set(user_addr.replace('(', ' ').replace(')', ' ').split())
+            api_words = set(api_addr.replace('(', ' ').replace(')', ' ').split())
+            # 핵심 단어 = 숫자 포함 (도로명+번호, 건물번호)
+            key_words = [w for w in user_words if any(c.isdigit() for c in w)]
+            return all(w in api_words for w in key_words) if key_words else False
+
+        # 표제부 필터링: 도로명 매칭 → 실패시 지번 기반 전체 사용
+        matched_title = [t for t in title_list if is_address_match(road_address, t.get('newPlatPlc', ''))]
+        if matched_title:
+            title_list = matched_title
+            self.logger.info(f"표제부: 도로명 주소 매칭 {len(title_list)}건")
+        else:
+            # 도로명 매칭 실패 → 지번(bun/ji) 기반 데이터 그대로 사용
+            self.logger.info(f"표제부: 도로명 매칭 실패 → 지번 기반 {len(title_list)}건 사용")
+
+        # 층별개요 필터링: 도로명 매칭 → 실패시 표제부 건물과 동일 주소만
+        matched_floors = [f for f in floors_raw if is_address_match(road_address, f.get('newPlatPlc', ''))]
+        if matched_floors:
+            all_floors = matched_floors
+            self.logger.info(f"층별개요: 도로명 주소 매칭 {len(all_floors)}건")
+        else:
+            # 도로명 매칭 실패 → 표제부 건물과 동일한 주소의 층별 데이터만
+            if title_list:
+                title_addr = title_list[0].get('newPlatPlc', '')
+                all_floors = [f for f in floors_raw if f.get('newPlatPlc', '') == title_addr]
+                self.logger.info(f"층별개요: 표제부 건물 기준 필터링 {len(all_floors)}건 (주소: {title_addr})")
+            else:
+                all_floors = []
+                self.logger.warning("층별개요: 표제부 데이터 없음")
         
         # 구조 종류 집계
         structure_types = list(set(t.get('strctCdNm', '') for t in title_list if t.get('strctCdNm')))

@@ -31,7 +31,7 @@ except ImportError:
 		return decorator
 
 from ..agents import (
-	DataCollectionAgent,
+	# DataCollectionAgent,        # 삭제됨 (Node 0에서 DB 직접 조회)
 	# VulnerabilityAnalysisAgent,  # 삭제됨 (ModelOps가 V 계산)
 	# Physical Risk Score Agents,  # 삭제됨 (ModelOps가 H×E×V 계산)
 	# AAL Analysis Agents,         # 삭제됨 (ModelOps가 AAL 계산)
@@ -44,7 +44,7 @@ from ..agents import (
 	FinalizerNode
 )
 
-from ..agents.data_processing.building_characteristics_agent import BuildingCharacteristicsAgent
+from ..agents.primary_data.building_characteristics_agent import BuildingCharacteristicsAgent
 
 # Scratch Space Manager 초기화 (TTL 4시간)
 scratch_manager = ScratchSpaceManager(base_path="./scratch", default_ttl_hours=4)

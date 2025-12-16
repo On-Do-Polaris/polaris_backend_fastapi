@@ -1,0 +1,64 @@
+graph TB
+    subgraph Input
+        START([🔵 시작<br/>site_ids: List int<br/>excel_file: str optional<br/>user_id: int])
+    end
+
+    subgraph "Phase 1: Data Collection"
+        N0["<b>Node 0: Data Loading</b><br/>─────────────────<br/>▸ DB 직접 쿼리 8 사업장<br/>▸ Building Characteristics Agent<br/>▸ Additional Data Agent 조건부<br/><br/>📤 sites_data, building_guidelines, excel_guidelines"]
+
+        N1["<b>Node 1: Template Loading</b><br/>─────────────────<br/>▸ RAG 엔진<br/>▸ TCFD 구조 로딩<br/>▸ 스타일 참조<br/><br/>📤 tcfd_structure, style_references, citations"]
+    end
+
+    subgraph "Phase 2: Analysis Layer"
+        N2A["<b>Node 2-A: Scenario Analysis</b><br/>─────────────────<br/>▸ 4개 시나리오 AAL 계산<br/>▸ 8개 사업장 병렬 처리<br/><br/>📊 TableBlock 생성<br/>시나리오별 AAL 비교표<br/><br/>📤 scenarios, scenario_table"]
+
+        N2B["<b>Node 2-B: Impact Analysis</b><br/>─────────────────<br/>▸ Top 5 리스크 영향 분석<br/>▸ 5개 리스크 병렬 처리<br/><br/>📝 TextBlock 생성 5개<br/>P1~P5 영향 분석<br/><br/>📤 top_5_risks, impact_blocks"]
+
+        N2C["<b>Node 2-C: Mitigation Strategies</b><br/>─────────────────<br/>▸ Top 5 리스크 대응 방안<br/>▸ 5개 리스크 병렬 처리<br/><br/>📝 TextBlock 생성 5개<br/>P1~P5 대응 전략<br/><br/>📤 mitigation_strategies, mitigation_blocks"]
+    end
+
+    subgraph "Phase 3: Formatting Layer"
+        N3["<b>Node 3: Strategy Section</b><br/>─────────────────<br/>▸ Node 2-A/B/C 결과 조립<br/>▸ Executive Summary 생성<br/><br/>🔥 HeatmapTableBlock 생성<br/>사업장별 리스크 AAL 분포<br/><br/>📤 strategy_section Section"]
+    end
+
+    subgraph "Phase 4: Validation & Composition"
+        N4["<b>Node 4: Validator</b><br/>─────────────────<br/>▸ TCFD 7대 원칙 검증<br/>▸ 누락 섹션 체크<br/>▸ 1회 재생성 필요시<br/><br/>📤 validated_sections, validation_result"]
+
+        N5["<b>Node 5: Composer</b><br/>─────────────────<br/>▸ Risk Management 템플릿<br/>▸ Governance 하드코딩<br/>▸ Appendix 하드코딩<br/>▸ Metrics & Targets<br/><br/>📈 LineChartBlock 생성<br/>AAL 추이 차트 2024-2100<br/><br/>▸ 목차 생성<br/>▸ 전체 조립<br/><br/>📤 report TCFDReport"]
+    end
+
+    subgraph "Phase 5: Finalization"
+        N6["<b>Node 6: Finalizer</b><br/>─────────────────<br/>▸ JSONB DB 저장<br/>▸ 사업장-보고서 관계 저장<br/><br/>📤 success, report_id, download_url"]
+    end
+
+    subgraph Output
+        END([🟢 완료<br/>report_id: int<br/>download_url: str])
+    end
+
+    START --> N0
+    N0 --> N1
+    N1 --> N2A
+    N2A --> N2B
+    N2B --> N2C
+    N2C --> N3
+    N3 --> N4
+    N4 --> N5
+    N5 --> N6
+    N6 --> END
+
+    style START fill:#4CAF50,stroke:#2E7D32,stroke-width:3px,color:#fff
+    style END fill:#2196F3,stroke:#1565C0,stroke-width:3px,color:#fff
+
+    style N0 fill:#E3F2FD,stroke:#1976D2,stroke-width:2px
+    style N1 fill:#FFF3E0,stroke:#F57C00,stroke-width:2px
+
+    style N2A fill:#F3E5F5,stroke:#7B1FA2,stroke-width:2px
+    style N2B fill:#F3E5F5,stroke:#7B1FA2,stroke-width:2px
+    style N2C fill:#F3E5F5,stroke:#7B1FA2,stroke-width:2px
+
+    style N3 fill:#E8F5E9,stroke:#388E3C,stroke-width:2px
+
+    style N4 fill:#FFF9C4,stroke:#F9A825,stroke-width:2px
+    style N5 fill:#FFEBEE,stroke:#C62828,stroke-width:2px
+
+    style N6 fill:#FCE4EC,stroke:#AD1457,stroke-width:2px

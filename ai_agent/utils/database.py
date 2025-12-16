@@ -730,6 +730,7 @@ class DatabaseManager:
         self,
         latitude: float,
         longitude: float,
+        target_years: Optional[List[str]] = None,
         risk_type: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
@@ -738,6 +739,8 @@ class DatabaseManager:
         Args:
             latitude: Latitude
             longitude: Longitude
+            target_years: List of target years (e.g., ["2025", "2030", "2030s"]).
+                         If None, returns all years.
             risk_type: Optional risk type filter (e.g., 'TYPHOON', 'INLAND_FLOOD')
                       If None, returns all 9 risk types
 
@@ -749,35 +752,41 @@ class DatabaseManager:
                 latitude,
                 longitude,
                 risk_type,
-                hazard_score,
-                hazard_score_100,
-                hazard_level,
-                calculated_at
+                target_year,
+                ssp126_score_100,
+                ssp245_score_100,
+                ssp370_score_100,
+                ssp585_score_100
             FROM hazard_results
             WHERE latitude = %s AND longitude = %s
         """
-        params = [latitude, longitude]
+        params: List[Any] = [latitude, longitude]
+
+        if target_years:
+            placeholders = ', '.join(['%s'] * len(target_years))
+            query += f" AND target_year IN ({placeholders})"
+            params.extend(target_years)
 
         if risk_type:
             query += " AND risk_type = %s"
             params.append(risk_type)
 
-        query += " ORDER BY risk_type"
+        query += " ORDER BY target_year, risk_type"
 
         return self.execute_query(query, tuple(params))
 
     def fetch_exposure_results(
         self,
-        latitude: float,
-        longitude: float,
+        site_id: str,
+        target_years: Optional[List[str]] = None,
         risk_type: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Fetch Exposure Score results from ModelOps calculations
 
         Args:
-            latitude: Latitude
-            longitude: Longitude
+            site_id: Site UUID
+            target_years: List of target years. If None, returns all years.
             risk_type: Optional risk type filter
 
         Returns:
@@ -785,36 +794,42 @@ class DatabaseManager:
         """
         query = """
             SELECT
+                site_id,
                 latitude,
                 longitude,
                 risk_type,
-                exposure_score,
-                calculated_at
+                target_year,
+                exposure_score
             FROM exposure_results
-            WHERE latitude = %s AND longitude = %s
+            WHERE site_id = %s
         """
-        params = [latitude, longitude]
+        params: List[Any] = [site_id]
+
+        if target_years:
+            placeholders = ', '.join(['%s'] * len(target_years))
+            query += f" AND target_year IN ({placeholders})"
+            params.extend(target_years)
 
         if risk_type:
             query += " AND risk_type = %s"
             params.append(risk_type)
 
-        query += " ORDER BY risk_type"
+        query += " ORDER BY target_year, risk_type"
 
         return self.execute_query(query, tuple(params))
 
     def fetch_vulnerability_results(
         self,
-        latitude: float,
-        longitude: float,
+        site_id: str,
+        target_years: Optional[List[str]] = None,
         risk_type: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Fetch Vulnerability Score results from ModelOps calculations
 
         Args:
-            latitude: Latitude
-            longitude: Longitude
+            site_id: Site UUID
+            target_years: List of target years. If None, returns all years.
             risk_type: Optional risk type filter
 
         Returns:
@@ -822,21 +837,27 @@ class DatabaseManager:
         """
         query = """
             SELECT
+                site_id,
                 latitude,
                 longitude,
                 risk_type,
-                vulnerability_score,
-                calculated_at
+                target_year,
+                vulnerability_score
             FROM vulnerability_results
-            WHERE latitude = %s AND longitude = %s
+            WHERE site_id = %s
         """
-        params = [latitude, longitude]
+        params: List[Any] = [site_id]
+
+        if target_years:
+            placeholders = ', '.join(['%s'] * len(target_years))
+            query += f" AND target_year IN ({placeholders})"
+            params.extend(target_years)
 
         if risk_type:
             query += " AND risk_type = %s"
             params.append(risk_type)
 
-        query += " ORDER BY risk_type"
+        query += " ORDER BY target_year, risk_type"
 
         return self.execute_query(query, tuple(params))
 
@@ -844,8 +865,8 @@ class DatabaseManager:
         self,
         latitude: float,
         longitude: float,
-        risk_type: Optional[str] = None,
-        scenario: Optional[str] = None
+        target_years: Optional[List[str]] = None,
+        risk_type: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Fetch Probability P(H) results from ModelOps calculations
@@ -853,8 +874,8 @@ class DatabaseManager:
         Args:
             latitude: Latitude
             longitude: Longitude
+            target_years: List of target years. If None, returns all years.
             risk_type: Optional risk type filter
-            scenario: Optional scenario filter ('ssp1', 'ssp2', 'ssp3', 'ssp5')
 
         Returns:
             List of probability results with bin probabilities and AAL
@@ -864,88 +885,97 @@ class DatabaseManager:
                 latitude,
                 longitude,
                 risk_type,
-                scenario,
-                bin_probabilities,
-                aal,
-                calculated_at
+                target_year,
+                ssp126_aal,
+                ssp245_aal,
+                ssp370_aal,
+                ssp585_aal,
+                ssp126_bin_probs,
+                ssp245_bin_probs,
+                ssp370_bin_probs,
+                ssp585_bin_probs
             FROM probability_results
             WHERE latitude = %s AND longitude = %s
         """
-        params = [latitude, longitude]
+        params: List[Any] = [latitude, longitude]
+
+        if target_years:
+            placeholders = ', '.join(['%s'] * len(target_years))
+            query += f" AND target_year IN ({placeholders})"
+            params.extend(target_years)
 
         if risk_type:
             query += " AND risk_type = %s"
             params.append(risk_type)
 
-        if scenario:
-            query += " AND scenario = %s"
-            params.append(scenario)
-
-        query += " ORDER BY risk_type, scenario"
+        query += " ORDER BY target_year, risk_type"
 
         return self.execute_query(query, tuple(params))
 
     def fetch_aal_scaled_results(
         self,
-        latitude: float,
-        longitude: float,
-        risk_type: Optional[str] = None,
-        scenario: Optional[str] = None
+        site_id: str,
+        target_years: Optional[List[str]] = None,
+        risk_type: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Fetch final AAL results (scaled by vulnerability) from ModelOps
 
         Args:
-            latitude: Latitude
-            longitude: Longitude
+            site_id: Site UUID
+            target_years: List of target years. If None, returns all years.
             risk_type: Optional risk type filter
-            scenario: Optional scenario filter ('ssp1', 'ssp2', 'ssp3', 'ssp5')
 
         Returns:
             List of AAL results with base and final AAL values
         """
         query = """
             SELECT
+                site_id,
                 latitude,
                 longitude,
                 risk_type,
-                scenario,
-                base_aal,
-                vulnerability_score,
-                final_aal,
-                calculated_at
+                target_year,
+                ssp126_final_aal,
+                ssp245_final_aal,
+                ssp370_final_aal,
+                ssp585_final_aal
             FROM aal_scaled_results
-            WHERE latitude = %s AND longitude = %s
+            WHERE site_id = %s
         """
-        params = [latitude, longitude]
+        params: List[Any] = [site_id]
+
+        if target_years:
+            placeholders = ', '.join(['%s'] * len(target_years))
+            query += f" AND target_year IN ({placeholders})"
+            params.extend(target_years)
 
         if risk_type:
             query += " AND risk_type = %s"
             params.append(risk_type)
 
-        if scenario:
-            query += " AND scenario = %s"
-            params.append(scenario)
-
-        query += " ORDER BY risk_type, scenario"
+        query += " ORDER BY target_year, risk_type"
 
         return self.execute_query(query, tuple(params))
 
     def fetch_all_modelops_results(
         self,
+        site_id: str,
         latitude: float,
         longitude: float,
-        risk_type: Optional[str] = None,
-        scenario: Optional[str] = None
+        target_years: Optional[List[str]] = None,
+        risk_type: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Fetch all ModelOps calculation results for a location
 
         Args:
+            site_id: Site UUID from application DB
             latitude: Latitude
             longitude: Longitude
+            target_years: List of target years (e.g., ["2025", "2030", "2030s"]).
+                         If None, returns all years.
             risk_type: Optional risk type filter
-            scenario: Optional scenario filter ('ssp1', 'ssp2', 'ssp3', 'ssp5')
 
         Returns:
             Dictionary containing all ModelOps results:
@@ -956,11 +986,11 @@ class DatabaseManager:
             - aal_scaled_results: Final AAL (scaled by V)
         """
         return {
-            'hazard_results': self.fetch_hazard_results(latitude, longitude, risk_type),
-            'exposure_results': self.fetch_exposure_results(latitude, longitude, risk_type),
-            'vulnerability_results': self.fetch_vulnerability_results(latitude, longitude, risk_type),
-            'probability_results': self.fetch_probability_results(latitude, longitude, risk_type, scenario),
-            'aal_scaled_results': self.fetch_aal_scaled_results(latitude, longitude, risk_type, scenario)
+            'hazard_results': self.fetch_hazard_results(latitude, longitude, target_years, risk_type),
+            'exposure_results': self.fetch_exposure_results(site_id, target_years, risk_type),
+            'vulnerability_results': self.fetch_vulnerability_results(site_id, target_years, risk_type),
+            'probability_results': self.fetch_probability_results(latitude, longitude, target_years, risk_type),
+            'aal_scaled_results': self.fetch_aal_scaled_results(site_id, target_years, risk_type)
         }
 
     # ==================== Batch Jobs Tracking ====================
@@ -1043,3 +1073,349 @@ class DatabaseManager:
         params.append(limit)
 
         return self.execute_query(query, tuple(params))
+
+    # ==================== Building Aggregate Cache Queries ====================
+
+    def fetch_building_aggregate_cache(
+        self,
+        sigungu_cd: str,
+        bjdong_cd: str,
+        bun: str,
+        ji: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Fetch cached building aggregate data by address codes
+
+        Args:
+            sigungu_cd: 시군구 코드 (5자리)
+            bjdong_cd: 법정동 코드 (5자리)
+            bun: 번 (4자리)
+            ji: 지 (4자리)
+
+        Returns:
+            Building aggregate data or None if not found
+        """
+        query = """
+            SELECT
+                cache_id,
+                sigungu_cd,
+                bjdong_cd,
+                bun,
+                ji,
+                jibun_address,
+                road_address,
+                building_count,
+                structure_types,
+                purpose_types,
+                max_ground_floors,
+                max_underground_floors,
+                min_underground_floors,
+                buildings_with_seismic,
+                buildings_without_seismic,
+                oldest_approval_date,
+                newest_approval_date,
+                oldest_building_age_years,
+                total_floor_area_sqm,
+                total_building_area_sqm,
+                floor_details,
+                floor_purpose_types,
+                cached_at,
+                updated_at,
+                data_quality_score
+            FROM building_aggregate_cache
+            WHERE sigungu_cd = %s
+              AND bjdong_cd = %s
+              AND bun = %s
+              AND ji = %s
+            ORDER BY cached_at DESC
+            LIMIT 1
+        """
+        results = self.execute_query(query, (sigungu_cd, bjdong_cd, bun, ji))
+        return results[0] if results else None
+
+    def save_building_aggregate_cache(
+        self,
+        sigungu_cd: str,
+        bjdong_cd: str,
+        bun: str,
+        ji: str,
+        building_data: Dict[str, Any]
+    ) -> bool:
+        """
+        Save or update building aggregate data to cache
+
+        Args:
+            sigungu_cd: 시군구 코드
+            bjdong_cd: 법정동 코드
+            bun: 번
+            ji: 지
+            building_data: Building data from BuildingDataFetcher
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            import json
+            from psycopg2.extras import Json
+
+            # building_data에서 필요한 값 추출
+            physical_specs = building_data.get('physical_specs', {})
+            meta = building_data.get('meta', {})
+            floor_details = building_data.get('floor_details', [])
+
+            # 구조 유형 추출
+            structure = physical_specs.get('structure', '')
+            structure_types = {structure: 1} if structure else {}
+
+            # 용도 유형 추출
+            main_purpose = physical_specs.get('main_purpose', '')
+            purpose_types = {main_purpose: 1} if main_purpose else {}
+
+            # 층수 정보
+            floors = physical_specs.get('floors', {})
+            max_ground_floors = floors.get('ground', 0)
+            max_underground_floors = floors.get('max_underground', 0)
+            min_underground_floors = floors.get('min_underground', 0)
+
+            # 내진 설계 정보
+            seismic = physical_specs.get('seismic', {})
+            buildings_with_seismic = seismic.get('buildings_with_design', 0)
+            buildings_without_seismic = seismic.get('buildings_without_design', 0)
+
+            # 연식 정보
+            age_info = physical_specs.get('age', {})
+            oldest_building_age = age_info.get('years', 0)
+
+            # 면적 정보
+            area = physical_specs.get('area', {})
+            total_floor_area = area.get('total_floor_area', 0)
+            total_building_area = area.get('building_area', 0)
+
+            # 층별 용도 유형 집계
+            floor_purpose_types = {}
+            for floor in floor_details:
+                usage = floor.get('usage_main', '')
+                if usage:
+                    floor_purpose_types[usage] = floor_purpose_types.get(usage, 0) + 1
+
+            # UPSERT 쿼리 (존재하면 업데이트, 없으면 삽입)
+            query = """
+                INSERT INTO building_aggregate_cache (
+                    sigungu_cd, bjdong_cd, bun, ji,
+                    jibun_address, road_address,
+                    building_count,
+                    structure_types, purpose_types,
+                    max_ground_floors, max_underground_floors, min_underground_floors,
+                    buildings_with_seismic, buildings_without_seismic,
+                    oldest_building_age_years,
+                    total_floor_area_sqm, total_building_area_sqm,
+                    floor_details, floor_purpose_types,
+                    cached_at, updated_at
+                ) VALUES (
+                    %s, %s, %s, %s,
+                    %s, %s,
+                    %s,
+                    %s, %s,
+                    %s, %s, %s,
+                    %s, %s,
+                    %s,
+                    %s, %s,
+                    %s, %s,
+                    NOW(), NOW()
+                )
+                ON CONFLICT (sigungu_cd, bjdong_cd, bun, ji)
+                DO UPDATE SET
+                    jibun_address = EXCLUDED.jibun_address,
+                    road_address = EXCLUDED.road_address,
+                    building_count = EXCLUDED.building_count,
+                    structure_types = EXCLUDED.structure_types,
+                    purpose_types = EXCLUDED.purpose_types,
+                    max_ground_floors = EXCLUDED.max_ground_floors,
+                    max_underground_floors = EXCLUDED.max_underground_floors,
+                    min_underground_floors = EXCLUDED.min_underground_floors,
+                    buildings_with_seismic = EXCLUDED.buildings_with_seismic,
+                    buildings_without_seismic = EXCLUDED.buildings_without_seismic,
+                    oldest_building_age_years = EXCLUDED.oldest_building_age_years,
+                    total_floor_area_sqm = EXCLUDED.total_floor_area_sqm,
+                    total_building_area_sqm = EXCLUDED.total_building_area_sqm,
+                    floor_details = EXCLUDED.floor_details,
+                    floor_purpose_types = EXCLUDED.floor_purpose_types,
+                    updated_at = NOW(),
+                    api_call_count = building_aggregate_cache.api_call_count + 1
+            """
+
+            params = (
+                sigungu_cd, bjdong_cd, bun, ji,
+                meta.get('jibun_address', ''),
+                meta.get('road_address', '') or meta.get('address', ''),
+                1,  # building_count (단일 건물 기준)
+                Json(structure_types),
+                Json(purpose_types),
+                max_ground_floors,
+                max_underground_floors,
+                min_underground_floors,
+                buildings_with_seismic,
+                buildings_without_seismic,
+                oldest_building_age,
+                total_floor_area,
+                total_building_area,
+                Json(floor_details),
+                Json(floor_purpose_types)
+            )
+
+            self.execute_update(query, params)
+            self.logger.info(f"Building cache saved: {sigungu_cd}-{bjdong_cd}-{bun}-{ji}")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to save building cache: {e}")
+            return False
+
+    def convert_cache_to_building_data(
+        self,
+        cache_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Convert building_aggregate_cache format to BuildingDataFetcher format
+
+        Args:
+            cache_data: Data from building_aggregate_cache table
+
+        Returns:
+            Building data in BuildingDataFetcher format
+        """
+        if not cache_data:
+            return {}
+
+        # 구조 유형 추출 (가장 많은 것)
+        structure_types = cache_data.get('structure_types', {})
+        main_structure = max(structure_types.keys(), key=lambda k: structure_types[k]) if structure_types else ''
+
+        # 용도 유형 추출
+        purpose_types = cache_data.get('purpose_types', {})
+        main_purpose = max(purpose_types.keys(), key=lambda k: purpose_types[k]) if purpose_types else ''
+
+        return {
+            'meta': {
+                'jibun_address': cache_data.get('jibun_address', ''),
+                'road_address': cache_data.get('road_address', ''),
+                'address': cache_data.get('road_address') or cache_data.get('jibun_address', ''),
+                'data_source': 'building_aggregate_cache'
+            },
+            'physical_specs': {
+                'structure': main_structure,
+                'main_purpose': main_purpose,
+                'floors': {
+                    'ground': cache_data.get('max_ground_floors', 0),
+                    'max_underground': cache_data.get('max_underground_floors', 0),
+                    'min_underground': cache_data.get('min_underground_floors', 0)
+                },
+                'seismic': {
+                    'applied': 'Y' if cache_data.get('buildings_with_seismic', 0) > 0 else 'N',
+                    'buildings_with_design': cache_data.get('buildings_with_seismic', 0),
+                    'buildings_without_design': cache_data.get('buildings_without_seismic', 0)
+                },
+                'age': {
+                    'years': cache_data.get('oldest_building_age_years', 0)
+                },
+                'area': {
+                    'total_floor_area': float(cache_data.get('total_floor_area_sqm', 0) or 0),
+                    'building_area': float(cache_data.get('total_building_area_sqm', 0) or 0)
+                }
+            },
+            'floor_details': cache_data.get('floor_details', []),
+            'transition_specs': {}
+        }
+
+    # ==================== Site Additional Data Queries ====================
+
+    def save_additional_data(
+        self,
+        site_id: str,
+        data_category: str,
+        structured_data: Dict[str, Any],
+        metadata: Dict[str, Any] = None
+    ) -> bool:
+        """
+        Save additional data to site_additional_data table
+
+        Args:
+            site_id: Site UUID
+            data_category: Data category (energy, power, insurance, etc.)
+            structured_data: Parsed data (text dump)
+            metadata: File metadata (optional)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            from psycopg2.extras import Json
+
+            query = """
+                INSERT INTO site_additional_data
+                (site_id, data_category, structured_data, metadata, uploaded_at)
+                VALUES (%s, %s, %s, %s, NOW())
+            """
+
+            params = (
+                site_id,
+                data_category,
+                Json(structured_data),
+                Json(metadata or {})
+            )
+
+            self.execute_update(query, params)
+            self.logger.info(f"Additional data saved: site_id={site_id[:8]}..., category={data_category}")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to save additional data: {e}")
+            return False
+
+    def fetch_additional_data(
+        self,
+        site_id: str,
+        data_category: str = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch additional data from site_additional_data table
+
+        Args:
+            site_id: Site UUID
+            data_category: Data category filter (None for all categories)
+
+        Returns:
+            List of additional data records
+        """
+        if data_category:
+            query = """
+                SELECT
+                    id,
+                    site_id,
+                    data_category,
+                    metadata->>'file_name' as file_name,
+                    structured_data,
+                    metadata,
+                    uploaded_at
+                FROM site_additional_data
+                WHERE site_id = %s AND data_category = %s
+                ORDER BY uploaded_at DESC
+            """
+            params = (site_id, data_category)
+        else:
+            query = """
+                SELECT
+                    id,
+                    site_id,
+                    data_category,
+                    metadata->>'file_name' as file_name,
+                    structured_data,
+                    metadata,
+                    uploaded_at
+                FROM site_additional_data
+                WHERE site_id = %s
+                ORDER BY data_category, uploaded_at DESC
+            """
+            params = (site_id,)
+
+        return self.execute_query(query, params)

@@ -1,5 +1,8 @@
+import logging
 from uuid import UUID, uuid4
 from typing import Optional
+from fastapi import HTTPException
+from typing import List, Dict
 
 from src.core.config import settings
 from src.schemas.simulation import (
@@ -10,15 +13,15 @@ from src.schemas.simulation import (
     CandidateResult,
     PhysicalRiskScores,
     AALScores,
-    SiteData,
-    YearlyData,
 )
 from src.schemas.common import SSPScenario
 
 # ai_agent 호출
 from ai_agent import SKAXPhysicalRiskAnalyzer
 from ai_agent.config.settings import load_config
+from utils.region_mapper import REGION_COORD_MAP  # {"11010": {"lat": 37.5, "lng": 127.0}}
 
+from ai_agent.utils.database import DatabaseManager
 
 class SimulationService:
     """시뮬레이션 서비스 - ai_agent를 사용하여 시뮬레이션 수행"""
@@ -26,6 +29,7 @@ class SimulationService:
     def __init__(self):
         """서비스 초기화"""
         self._analyzer = None
+        self.logger = logging.getLogger("api.services.simulation")
 
     def _get_analyzer(self) -> SKAXPhysicalRiskAnalyzer:
         """ai_agent 분석기 인스턴스 반환 (lazy initialization)"""
@@ -192,48 +196,122 @@ class SimulationService:
             return None
 
     async def run_climate_simulation(
-        self, request: ClimateSimulationRequest
-    ) -> ClimateSimulationResponse:
-        """Spring Boot API 호환 - 기후 시뮬레이션"""
-        if settings.USE_MOCK_DATA:
-            yearly_data = []
+            self, request: ClimateSimulationRequest
+        ) -> ClimateSimulationResponse:
+            """
+            [DB 연동] 기후 시뮬레이션 실행
+            1. 행정구역별(주요 지점) Hazard 점수 조회 (hazard_results)
+            2. 사업장별(Site ID) AAL 조회 (aal_scaled_results)
+            """
+            self.logger.info(f"[SIMULATION] 시뮬레이션 시작: scenario={request.scenario}, hazard={request.hazard_type}")
 
-            # 시작 연도부터 10년간 데이터 생성
-            for year in range(request.start_year, request.start_year + 30, 10):
-                sites = []
-                for i, site_id in enumerate(request.site_ids):
-                    # 시나리오에 따른 점수 증가율
-                    scenario_factor = {
-                        SSPScenario.SSP1_26: 0.01,
-                        SSPScenario.SSP2_45: 0.02,
-                        SSPScenario.SSP3_70: 0.03,
-                        SSPScenario.SSP5_85: 0.04,
-                    }.get(request.scenario, 0.02)
+            try:
+                db = DatabaseManager()
+                
+                # 1. 시나리오에 따른 동적 컬럼명 결정 (예: ssp585_score_100, ssp585_final_aal)
+                # request.scenario가 Enum인 경우 문자열 처리
+                scenario_str = str(request.scenario.value) if hasattr(request.scenario, "value") else str(request.scenario)
+                # "SSP5-8.5" -> "ssp585" 변환
+                prefix = scenario_str.lower().replace("ssp", "ssp").replace("-", "").replace(".", "").replace("_", "")
+                if "ssp" not in prefix: prefix = "ssp585" # fallback
+                
+                score_col = f"{prefix}_score_100"
+                aal_col = f"{prefix}_final_aal"
 
-                    years_from_start = year - request.start_year
-                    base_score = 65 + (i * 5)  # 사업장별 기본 점수
-                    risk_score = min(100, int(base_score * (1 + scenario_factor * years_from_start / 10)))
+                # =========================================================
+                # Step A. 사업장(Site) AAL 조회
+                # =========================================================
+                site_aals_map = {}
+                
+                if request.site_ids:
+                    # UUID 리스트를 문자열 튜플로 변환
+                    site_ids_tuple = tuple(str(sid) for sid in request.site_ids)
+                    
+                    query_site = f"""
+                        SELECT 
+                            site_id, 
+                            target_year, 
+                            {aal_col} as aal_value
+                        FROM aal_scaled_results
+                        WHERE site_id IN %s
+                        AND risk_type = %s
+                        AND target_year BETWEEN %s AND %s
+                    """
+                    
+                    # DBManager execute_query 사용
+                    site_rows = db.execute_query(query_site, (site_ids_tuple, request.hazard_type, request.start_year, request.end_year))
+                    
+                    for row in site_rows:
+                        s_id = str(row['site_id']) # UUID -> str
+                        year = str(row['target_year'])
+                        val = float(row['aal_value'] or 0.0)
 
-                    sites.append(SiteData(
-                        siteId=site_id,
-                        siteName=f"사업장 {i + 1}",
-                        riskScore=risk_score,
-                        localAverageTemperature=14.5 + (scenario_factor * years_from_start),
-                    ))
+                        if s_id not in site_aals_map:
+                            site_aals_map[s_id] = {}
+                        site_aals_map[s_id][year] = val
 
-                # 전국 평균 기온
-                national_avg_temp = 14.5 + (scenario_factor * (year - request.start_year))
+                # =========================================================
+                # Step B. 행정구역(Region) 점수 조회 (좌표 기반)
+                # =========================================================
+                region_scores_map = {}
+                
+                # 1. 매퍼에서 좌표 리스트 추출
+                # (lat, lng) -> region_code 역매핑
+                coord_to_code = {}
+                coords_list = []
+                
+                for code, coord in REGION_COORD_MAP.items():
+                    lat, lng = coord["lat"], coord["lng"]
+                    coord_to_code[(lat, lng)] = code
+                    coords_list.append(f"({lat}, {lng})")
+                
+                if coords_list:
+                    # 좌표가 많으므로 IN 절 문자열 생성
+                    coords_in_sql = ", ".join(coords_list)
+                    
+                    query_region = f"""
+                        SELECT 
+                            latitude, 
+                            longitude, 
+                            target_year, 
+                            {score_col} as score
+                        FROM hazard_results
+                        WHERE risk_type = %s
+                        AND target_year BETWEEN %s AND %s
+                        AND (latitude, longitude) IN ({coords_in_sql})
+                    """
+                    
+                    region_rows = db.execute_query(query_region, (request.hazard_type, request.start_year, request.end_year))
+                    
+                    for row in region_rows:
+                        r_lat = float(row['latitude'])
+                        r_lon = float(row['longitude'])
+                        year = str(row['target_year'])
+                        score = float(row['score'] or 0.0)
+                        
+                        # 좌표로 지역 코드 찾기 (정확한 일치 가정)
+                        # 부동소수점 오차 방지를 위해 Decimal을 쓰거나, 
+                        # 조회된 값을 그대로 매퍼의 키와 비교해야 할 수도 있음.
+                        # 여기서는 간단히 tuple 매칭 시도
+                        r_code = coord_to_code.get((r_lat, r_lon))
+                        
+                        # 만약 직접 매칭이 안되면 근사치 검색 로직이 필요할 수 있음
+                        # (여기선 생략하고, 정확히 일치하는 데이터만 매핑)
+                        
+                        if r_code:
+                            if r_code not in region_scores_map:
+                                region_scores_map[r_code] = {}
+                            region_scores_map[r_code][year] = score
 
-                yearly_data.append(YearlyData(
-                    year=year,
-                    nationalAverageTemperature=round(national_avg_temp, 1),
-                    sites=sites,
-                ))
+                # =========================================================
+                # Step C. 응답 반환
+                # =========================================================
+                return ClimateSimulationResponse(
+                    regionScores=region_scores_map,
+                    siteAALs=site_aals_map
+                )
 
-            return ClimateSimulationResponse(
-                scenario=request.scenario,
-                riskType=request.hazard_type,
-                yearlyData=yearly_data,
-            )
-
-        return None
+            except Exception as e:
+                self.logger.error(f"[SIMULATION] 시뮬레이션 실패: {e}", exc_info=True)
+                # 에러 발생 시 빈 결과라도 반환하거나 HTTPException 발생
+                raise HTTPException(status_code=500, detail=f"Simulation failed: {str(e)}")

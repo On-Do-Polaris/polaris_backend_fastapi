@@ -1423,3 +1423,87 @@ class DatabaseManager:
             params = (site_id,)
 
         return self.execute_query(query, params)
+
+    # ==================== Reports Queries (Application DB) ====================
+
+    def save_report(
+        self,
+        user_id: str,
+        report_content: Dict[str, Any]
+    ) -> Optional[str]:
+        """
+        Save TCFD report to reports table (Application DB)
+
+        Args:
+            user_id: User UUID
+            report_content: Full report JSON (JSONB)
+
+        Returns:
+            report_id (UUID string) if successful, None otherwise
+        """
+        try:
+            from psycopg2.extras import Json
+
+            query = """
+                INSERT INTO reports (user_id, report_content)
+                VALUES (%s, %s)
+                RETURNING id
+            """
+
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(query, (user_id, Json(report_content)))
+                result = cursor.fetchone()
+                cursor.close()
+
+                if result:
+                    report_id = str(result[0])
+                    self.logger.info(f"Report saved: {report_id}")
+                    return report_id
+                return None
+
+        except Exception as e:
+            self.logger.error(f"Failed to save report: {e}")
+            return None
+
+    def fetch_report(self, report_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch report by ID
+
+        Args:
+            report_id: Report UUID
+
+        Returns:
+            Report data or None if not found
+        """
+        query = """
+            SELECT id, user_id, report_content
+            FROM reports
+            WHERE id = %s
+        """
+        results = self.execute_query(query, (report_id,))
+        return results[0] if results else None
+
+    def fetch_reports_by_user(
+        self,
+        user_id: str,
+        limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch reports by user ID
+
+        Args:
+            user_id: User UUID
+            limit: Maximum number of reports
+
+        Returns:
+            List of reports
+        """
+        query = """
+            SELECT id, user_id, report_content
+            FROM reports
+            WHERE user_id = %s
+            ORDER BY id DESC
+            LIMIT %s
+        """
+        return self.execute_query(query, (user_id, limit))

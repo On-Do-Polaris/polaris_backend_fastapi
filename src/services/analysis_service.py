@@ -230,44 +230,42 @@ class AnalysisService:
 
             # Step 1: ModelOps API 트리거 (모든 사업장을 한 번에 처리)
             # building_info는 null로 처리 (요구사항)
-            building_info = {}
-            asset_info = {'total_asset_value': 50000000000}  # 기본값
+            building_info = None
+            asset_info = {
+                'total_value': 50000000000,
+                'insurance_coverage_rate': 0.3
+            }
 
-            # 모든 사업장의 site_id 수집
-            site_ids = [str(site.id) for site in request.sites]
+            # 모든 사업장의 위치 정보를 sites 딕셔너리로 구성
+            sites_dict = {}
+            for site in request.sites:
+                sites_dict[str(site.id)] = {
+                    'latitude': site.latitude,
+                    'longitude': site.longitude
+                }
 
-            # 첫 번째 사업장의 위치를 대표 위치로 사용 (또는 중심점 계산)
-            # TODO: 필요시 여러 사업장의 중심점 계산 로직 추가
-            representative_site = request.sites[0]
-            latitude = representative_site.latitude
-            longitude = representative_site.longitude
-
-            # 1-1. calculate API 호출 (동기) - 모든 site_id 리스트 전달
-            self.logger.info(f"  [ModelOps] calculate API 호출: site_ids={site_ids}")
+            # 1-1. calculate API 호출 (동기) - 다중 사업장 병렬 처리
+            self.logger.info(f"  [ModelOps] calculate API 호출: {len(sites_dict)}개 사업장")
             calculate_result = modelops_client.calculate_site_risk(
-                latitude=latitude,
-                longitude=longitude,
-                site_ids=site_ids,
+                sites=sites_dict,
                 building_info=building_info,
                 asset_info=asset_info
             )
-            self.logger.info(f"  [ModelOps] calculate 완료: {calculate_result.get('calculated_at')}")
+            self.logger.info(f"  [ModelOps] calculate 완료: {calculate_result.get('status')}, {calculate_result.get('calculated_at')}")
 
-            # 1-2. recommend-locations API 호출 (비동기 트리거) - 모든 site_id 리스트 전달
-            # candidate_grids 생성: 대표 위치 주변 격자 생성 (반경 50km 내 100개 격자)
-            candidate_grids = self._generate_candidate_grids(latitude, longitude, radius_km=50, count=100)
-
-            self.logger.info(f"  [ModelOps] recommend-locations API 트리거: site_ids={site_ids}, batch_id={job_id}, grids={len(candidate_grids)}")
+            # 1-2. recommend-locations API 호출 (비동기 트리거) - 다중 사업장 병렬 처리
+            # candidate_grids는 None으로 전달하여 ModelOps가 고정 위치 사용하도록 함
+            self.logger.info(f"  [ModelOps] recommend-locations API 트리거: {len(sites_dict)}개 사업장, batch_id={job_id}")
             # 비동기 트리거만 하고 결과는 기다리지 않음 (요구사항)
             try:
                 modelops_client.recommend_relocation_sites(
-                    candidate_grids=candidate_grids,
+                    sites=sites_dict,
+                    candidate_grids=None,  # None이면 ModelOps가 고정 위치 사용
                     building_info=building_info,
-                    site_ids=site_ids,
                     batch_id=str(job_id),
                     asset_info=asset_info,
                     max_candidates=3,
-                    ssp_scenario="ssp2",
+                    ssp_scenario="SSP245",
                     target_year=2040
                 )
                 self.logger.info(f"  [ModelOps] recommend-locations 트리거 완료")
@@ -323,6 +321,9 @@ class AnalysisService:
                 # 둘 다 완료되면 status='done' 설정
                 self._update_job_in_db(job_id, status='done', progress=100, results=agent_result, error=error)
                 self.logger.info(f"[BACKGROUND] 모든 작업 완료 (Agent + Recommendation): job_id={job_id}")
+
+                # Spring Boot API 호출 (userId 전송)
+                await self._notify_springboot_completion(job_id, request.user_id)
             else:
                 # Agent만 완료, Recommendation 대기 중
                 self._update_job_in_db(job_id, status='ing', progress=90, results=agent_result, error=error)
@@ -332,28 +333,6 @@ class AnalysisService:
             self.logger.error(f"[BACKGROUND] 다중 사업장 분석 실패: job_id={job_id}, error={str(e)}", exc_info=True)
             error = {"code": "ANALYSIS_FAILED", "message": str(e)}
             self._update_job_in_db(job_id, status='failed', progress=100, error=error)
-
-    def _generate_candidate_grids(self, center_lat: float, center_lon: float, radius_km: float, count: int) -> List[Dict[str, float]]:
-        """후보지 격자 생성 (중심점 주변 랜덤 샘플링)"""
-        import random
-        import math
-
-        grids = []
-        for _ in range(count):
-            # 랜덤 거리와 각도 생성
-            distance = random.uniform(0, radius_km)
-            angle = random.uniform(0, 2 * math.pi)
-
-            # 위경도 변환 (간단한 근사식)
-            delta_lat = (distance / 111.0) * math.cos(angle)
-            delta_lon = (distance / (111.0 * math.cos(math.radians(center_lat)))) * math.sin(angle)
-
-            grids.append({
-                'latitude': center_lat + delta_lat,
-                'longitude': center_lon + delta_lon
-            })
-
-        return grids
 
     async def _run_agent_multiple_analysis_wrapper(
         self,
@@ -1180,6 +1159,22 @@ class AnalysisService:
             self.logger.error(f"Failed to get latest job: {e}")
             return None
 
+    async def _notify_springboot_completion(self, job_id: UUID, user_id: Optional[UUID]):
+        """Spring Boot API 호출 헬퍼 메서드"""
+        try:
+            if user_id:
+                from ai_agent.services import get_springboot_client
+                springboot_client = get_springboot_client()
+
+                self.logger.info(f"[SPRINGBOOT] API 호출: job_id={job_id}, user_id={user_id}")
+                springboot_client.notify_analysis_completion(user_id)
+                self.logger.info(f"[SPRINGBOOT] API 호출 성공: job_id={job_id}")
+            else:
+                self.logger.warning(f"[SPRINGBOOT] user_id가 없습니다: job_id={job_id}")
+        except Exception as e:
+            self.logger.error(f"[SPRINGBOOT] API 호출 실패: job_id={job_id}, error={e}", exc_info=True)
+            # API 호출 실패해도 전체 프로세스는 계속 진행
+
     async def mark_modelops_recommendation_completed(self, batch_id: UUID):
         """ModelOps 서버에서 후보지 추천 완료 시 호출하는 메서드"""
         self.logger.info(f"[MODELOPS] 후보지 추천 완료 알림 수신: batch_id={batch_id}")
@@ -1216,6 +1211,10 @@ class AnalysisService:
             results = job.get('results')
             self._update_job_in_db(batch_id, status='done', progress=100, results=results)
             self.logger.info(f"[MODELOPS] 모든 작업 완료: batch_id={batch_id}")
+
+            # Spring Boot API 호출 (userId 전송)
+            user_id = job.get('created_by')
+            await self._notify_springboot_completion(batch_id, user_id)
         else:
             self.logger.info(f"[MODELOPS] Recommendation 완료, Agent 대기 중: batch_id={batch_id}")
 

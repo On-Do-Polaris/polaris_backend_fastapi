@@ -21,17 +21,43 @@ class DatabaseManager:
     Connects to skala_datawarehouse (port 5433) by default
     """
 
-    def __init__(self, database_url: Optional[str] = None):
+    def __init__(
+        self,
+        db_host: Optional[str] = None,
+        db_port: Optional[str] = None,
+        db_name: Optional[str] = None,
+        db_user: Optional[str] = None,
+        db_password: Optional[str] = None
+    ):
         """
         Initialize DatabaseManager
 
         Args:
-            database_url: PostgreSQL connection URL (from env if not provided)
-                         Default: Datawarehouse (port 5433)
+            db_host: Database host (from env if not provided)
+            db_port: Database port (from env if not provided)
+            db_name: Database name (from env if not provided)
+            db_user: Database user (from env if not provided)
+            db_password: Database password (from env if not provided)
         """
-        self.database_url = database_url or os.getenv('DATABASE_URL')
-        if not self.database_url:
-            raise ValueError("DATABASE_URL is not set")
+        # Get database connection parameters from environment or arguments
+        self.db_host = db_host or os.getenv('DB_HOST')
+        self.db_port = db_port or os.getenv('DB_PORT', '5433')
+        self.db_name = db_name or os.getenv('DB_NAME')
+        self.db_user = db_user or os.getenv('DB_USER')
+        self.db_password = db_password or os.getenv('DB_PASSWORD')
+
+        # Validate required parameters
+        if not all([self.db_host, self.db_name, self.db_user, self.db_password]):
+            raise ValueError(
+                "Database connection parameters not set. "
+                "Please set DB_HOST, DB_NAME, DB_USER, and DB_PASSWORD environment variables."
+            )
+
+        # Build connection URL
+        self.database_url = (
+            f"postgresql://{self.db_user}:{self.db_password}"
+            f"@{self.db_host}:{self.db_port}/{self.db_name}"
+        )
 
         self.logger = logging.getLogger(__name__)
 
@@ -1533,3 +1559,88 @@ class DatabaseManager:
             LIMIT %s
         """
         return self.execute_query(query, (user_id, limit))
+    # ==================== Candidate Sites Queries ====================
+
+    def fetch_top_candidates_by_aal(
+        self,
+        site_id: str,
+        limit: int = 3
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch top candidate sites by lowest AAL (종합 AAL 기준)
+
+        Args:
+            site_id: Reference site UUID
+            limit: Number of candidates to return (default: 3)
+
+        Returns:
+            List of top candidate sites ordered by lowest AAL
+        """
+        query = """
+            SELECT
+                id as candidate_id,
+                name,
+                road_address,
+                jibun_address,
+                latitude,
+                longitude,
+                risk_score,
+                risk_level,
+                risks,
+                aal,
+                aal_by_risk,
+                advantages,
+                disadvantages
+            FROM candidate_sites
+            WHERE is_active = true
+                AND site_id = %s
+                AND aal IS NOT NULL
+            ORDER BY aal ASC
+            LIMIT %s
+        """
+        return self.execute_query(query, (site_id, limit))
+
+    def fetch_candidate_by_location(
+        self,
+        latitude: float,
+        longitude: float,
+        tolerance: float = 0.0001
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Fetch candidate site by coordinates (within tolerance)
+
+        Args:
+            latitude: Latitude
+            longitude: Longitude
+            tolerance: Coordinate matching tolerance (default: 0.0001 degrees ~11m)
+
+        Returns:
+            Candidate site data or None if not found
+        """
+        query = """
+            SELECT
+                id as candidate_id,
+                name,
+                road_address,
+                jibun_address,
+                latitude,
+                longitude,
+                risk_score,
+                risk_level,
+                risks,
+                aal,
+                aal_by_risk,
+                advantages,
+                disadvantages
+            FROM candidate_sites
+            WHERE is_active = true
+                AND latitude BETWEEN %s AND %s
+                AND longitude BETWEEN %s AND %s
+            LIMIT 1
+        """
+        results = self.execute_query(
+            query,
+            (latitude - tolerance, latitude + tolerance,
+             longitude - tolerance, longitude + tolerance)
+        )
+        return results[0] if results else None

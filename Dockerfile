@@ -21,8 +21,30 @@ RUN python3.11 -m pip install uv
 COPY pyproject.toml .
 COPY requirements.txt .
 
-# Install dependencies using uv with explicit target directory
+# Install CPU-only PyTorch and sentence-transformers (to avoid GPU version with Triton)
+# Force CPU-only version by using PyTorch's CPU wheel index
+RUN uv pip install --python /usr/bin/python3.11 \
+    --index-url https://download.pytorch.org/whl/cpu \
+    --extra-index-url https://pypi.org/simple \
+    torch torchvision torchaudio sentence-transformers==2.3.1
+
+# Remove Triton if accidentally installed (GPU-only library)
+RUN python3.11 -m pip uninstall -y triton 2>/dev/null || true && \
+    rm -rf /usr/local/lib/python3.11/dist-packages/triton* 2>/dev/null || true
+
+# Install other dependencies
+# PyTorch CPU version is already installed and will not be reinstalled
 RUN uv pip install --python /usr/bin/python3.11 -r requirements.txt
+
+# Final cleanup: Remove Triton again if any dependency brought it back
+RUN python3.11 -m pip uninstall -y triton 2>/dev/null || true && \
+    rm -rf /usr/local/lib/python3.11/dist-packages/triton* 2>/dev/null || true
+
+# Clean up build stage caches to reduce layer size
+RUN rm -rf /root/.cache/pip /root/.cache/uv /tmp/* /var/tmp/* && \
+    find /usr/local/lib/python3.11/dist-packages -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && \
+    find /usr/local/lib/python3.11/dist-packages -type f -name "*.pyc" -delete 2>/dev/null || true && \
+    find /usr/local/lib/python3.11/dist-packages -type f -name "*.pyo" -delete 2>/dev/null || true
 
 # Production stage
 FROM ubuntu:22.04 AS production

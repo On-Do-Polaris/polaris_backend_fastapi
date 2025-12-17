@@ -94,6 +94,9 @@ jobs:
               -e MODELOPS_URL='${{ secrets.MODELOPS_URL }}' \
               -e MODELOPS_BASE_URL='${{ secrets.MODELOPS_BASE_URL }}' \
               -e SPRING_BOOT_BASE_URL='${{ secrets.SPRING_BOOT_BASE_URL }}' \
+              -e QDRANT_HOST='${{ secrets.QDRANT_HOST }}' \
+              -e QDRANT_PORT='${{ secrets.QDRANT_PORT }}' \
+              -e QDRANT_STORAGE_PATH='${{ secrets.QDRANT_STORAGE_PATH }}' \
               ${IMAGE}
 
             # Health check - 컨테이너가 준비될 때까지 대기

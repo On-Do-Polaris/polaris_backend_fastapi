@@ -1,0 +1,281 @@
+{
+  "report_id": "tcfd_report_20251216_163321",
+  "meta": {
+    "title": "TCFD 기후 리스크 보고서"
+  },
+  "sections": [
+    {
+      "section_id": "governance",
+      "title": "1. Governance",
+      "blocks": [
+        {
+          "type": "text",
+          "subheading": "1.1 이사회의 감독",
+          "content": "✅ [Case 1] type=text + subheading 있음 → 목차에 포함\n\n이사회는 기후 관련 리스크 및 기회에 대한 감독 책임을 가지고 있습니다."
+        },
+        {
+          "type": "text",
+          "content": "✅ [Case 2] type=text + subheading 없음 → 목차에서 제외\n\n이 텍스트는 소제목이 없으므로 목차에 나타나지 않습니다. 단순히 본문 내용으로만 표시됩니다."
+        },
+        {
+          "type": "table",
+          "title": "이사회 구성 현황",
+          "subheading": "1.2 이사회 구성",
+          "headers": [
+            { "text": "직책", "value": "position" },
+            { "text": "이름", "value": "name" }
+          ],
+          "items": [
+            { "position": "의장", "name": "홍길동" },
+            { "position": "위원", "name": "김철수" }
+          ]
+        },
+        {
+          "type": "text",
+          "subheading": "1.3 경영진의 역할",
+          "content": "✅ [Case 1] type=text + subheading 있음 → 목차에 포함\n\n경영진은 기후 관련 리스크를 평가하고 관리합니다."
+        },
+        {
+          "type": "table",
+          "title": "경영진 보고 체계",
+          "headers": [
+            { "text": "역할", "value": "role" },
+            { "text": "주기", "value": "frequency" }
+          ],
+          "items": [
+            { "role": "CFO", "frequency": "분기" },
+            { "role": "CRO", "frequency": "월간" }
+          ]
+        }
+      ]
+    },
+    {
+      "section_id": "strategy",
+      "title": "2. Strategy",
+      "blocks": [
+        {
+          "type": "text",
+          "subheading": "Executive Summary",
+          "content": "✅ [Case 1] type=text + subheading 있음 → 목차에 포함\n\n기후 변화는 우리의 포트폴리오에 중대한 영향을 미치고 있습니다. 총 8개 사업장에 대한 분석 결과, 포트폴리오 전체의 연평균 손실(AAL)은 52.9%로 평가되었습니다."
+        },
+        {
+          "type": "table",
+          "title": "사업장별 물리적 리스크 AAL 분포",
+          "subheading": "2.1 사업장별 리스크 히트맵",
+          "headers": [
+            { "text": "사업장", "value": "site" },
+            { "text": "하천범람", "value": "riverine_flood" },
+            { "text": "태풍", "value": "typhoon" },
+            { "text": "Total AAL", "value": "total_aal" }
+          ],
+          "items": [
+            {
+              "site": "SK 판교캠퍼스",
+              "riverine_flood": { "value": "7.2%", "bg_color": "yellow" },
+              "typhoon": { "value": "11.4%", "bg_color": "orange" },
+              "total_aal": { "value": "52.9%", "bg_color": "red" }
+            },
+            {
+              "site": "부산 물류센터",
+              "riverine_flood": { "value": "18.2%", "bg_color": "orange" },
+              "typhoon": { "value": "25.1%", "bg_color": "orange" },
+              "total_aal": { "value": "68.4%", "bg_color": "red" }
+            }
+          ],
+          "legend": [
+            { "color": "gray", "label": "0-3% (낮음)" },
+            { "color": "yellow", "label": "3-10% (중간)" },
+            { "color": "orange", "label": "10-30% (높음)" },
+            { "color": "red", "label": "30%+ (매우 높음)" }
+          ]
+        },
+        {
+          "type": "text",
+          "content": "✅ [Case 2] type=text + subheading 없음 → 목차에서 제외\n\n위 히트맵에서 볼 수 있듯이, 부산 물류센터는 가장 높은 물리적 리스크에 노출되어 있습니다. 이 텍스트는 소제목이 없으므로 목차에 나타나지 않습니다."
+        },
+        {
+          "type": "text",
+          "subheading": "2.2 시나리오 분석 결과",
+          "content": "✅ [Case 1] type=text + subheading 있음 → 목차에 포함\n\nIPCC SSP 시나리오를 기반으로 2024년부터 2100년까지의 AAL 추이를 분석하였습니다."
+        },
+        {
+          "type": "table",
+          "title": "시나리오별 AAL 추이 (%)",
+          "headers": [
+            { "text": "시나리오", "value": "scenario" },
+            { "text": "2024", "value": "year_2024" },
+            { "text": "2050", "value": "year_2050" },
+            { "text": "2100", "value": "year_2100" }
+          ],
+          "items": [
+            {
+              "scenario": "SSP1-2.6",
+              "year_2024": "52.9%",
+              "year_2050": "48.1%",
+              "year_2100": "45.0%"
+            },
+            {
+              "scenario": "SSP5-8.5",
+              "year_2024": "52.9%",
+              "year_2050": "78.2%",
+              "year_2100": "92.5%"
+            }
+          ]
+        },
+        {
+          "type": "table",
+          "title": "리스크별 재무 영향 추정",
+          "subheading": "2.3 재무 영향 분석",
+          "headers": [
+            { "text": "리스크", "value": "risk" },
+            { "text": "10년 예상 손실", "value": "loss" }
+          ],
+          "items": [
+            { "risk": "하천범람", "loss": "450억원" },
+            { "risk": "태풍", "loss": "380억원" }
+          ]
+        },
+        {
+          "type": "text",
+          "content": "✅ [Case 2] type=text + subheading 없음 → 목차에서 제외\n\n이러한 재무 영향은 보험으로 일부 커버할 수 있으나, 근본적인 리스크 저감 전략이 필요합니다."
+        }
+      ]
+    },
+    {
+      "section_id": "risk_management",
+      "title": "3. Risk Management",
+      "blocks": [
+        {
+          "type": "text",
+          "subheading": "3.1 리스크 식별 및 평가",
+          "content": "✅ [Case 1] type=text + subheading 있음 → 목차에 포함\n\n우리는 체계적인 기후 리스크 평가 프레임워크를 운영하고 있습니다."
+        },
+        {
+          "type": "table",
+          "title": "리스크 평가 프로세스",
+          "headers": [
+            { "text": "단계", "value": "step" },
+            { "text": "설명", "value": "description" }
+          ],
+          "items": [
+            { "step": "1", "description": "리스크 식별" },
+            { "step": "2", "description": "노출도 평가" },
+            { "step": "3", "description": "취약성 평가" }
+          ]
+        },
+        {
+          "type": "text",
+          "content": "✅ [Case 2] type=text + subheading 없음 → 목차에서 제외\n\n각 단계는 정량적 지표와 정성적 평가를 결합하여 수행됩니다."
+        },
+        {
+          "type": "table",
+          "title": "Top 5 리스크 대응 전략",
+          "subheading": "3.2 리스크별 완화 전략",
+          "headers": [
+            { "text": "순위", "value": "rank" },
+            { "text": "리스크", "value": "risk" },
+            { "text": "AAL", "value": "aal" },
+            { "text": "대응 전략", "value": "strategy" }
+          ],
+          "items": [
+            {
+              "rank": "1",
+              "risk": "하천범람",
+              "aal": "18.2%",
+              "strategy": "방수벽 설치, 침수 감지 시스템"
+            },
+            {
+              "rank": "2",
+              "risk": "태풍",
+              "aal": "11.4%",
+              "strategy": "내풍 구조 보강, 비상 대응 매뉴얼"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "subheading": "3.3 전사적 리스크 관리 통합",
+          "content": "✅ [Case 1] type=text + subheading 있음 → 목차에 포함\n\n기후 리스크는 전사적 리스크 관리(ERM) 체계에 통합되어 관리됩니다."
+        },
+        {
+          "type": "text",
+          "content": "✅ [Case 2] type=text + subheading 없음 → 목차에서 제외\n\n분기별 리스크 보고서에는 기후 리스크가 필수 항목으로 포함되며, 이사회가 검토합니다."
+        }
+      ]
+    },
+    {
+      "section_id": "metrics",
+      "title": "4. Metrics and Targets",
+      "blocks": [
+        {
+          "type": "text",
+          "subheading": "4.1 핵심 지표: AAL",
+          "content": "✅ [Case 1] type=text + subheading 있음 → 목차에 포함\n\n우리는 연평균 손실(AAL)을 물리적 리스크의 핵심 지표로 사용합니다."
+        },
+        {
+          "type": "table",
+          "title": "AAL 현황 및 목표",
+          "headers": [
+            { "text": "항목", "value": "item" },
+            { "text": "2024 (현재)", "value": "current" },
+            { "text": "2030 (목표)", "value": "target" }
+          ],
+          "items": [
+            {
+              "item": "포트폴리오 전체",
+              "current": "52.9%",
+              "target": "37.0%"
+            },
+            { "item": "감축 목표", "current": "-", "target": "30% 감축" }
+          ]
+        },
+        {
+          "type": "text",
+          "content": "✅ [Case 2] type=text + subheading 없음 → 목차에서 제외\n\n목표 달성을 위해 단계적 이행 계획을 수립하였습니다."
+        },
+        {
+          "type": "table",
+          "title": "사업장별 AAL 목표",
+          "subheading": "4.2 사업장별 감축 목표",
+          "headers": [
+            { "text": "사업장", "value": "site" },
+            { "text": "현재", "value": "current" },
+            { "text": "목표", "value": "target" },
+            { "text": "감축률", "value": "reduction" }
+          ],
+          "items": [
+            {
+              "site": "SK 판교캠퍼스",
+              "current": "52.9%",
+              "target": "35.0%",
+              "reduction": "-34%"
+            },
+            {
+              "site": "부산 물류센터",
+              "current": "68.4%",
+              "target": "45.0%",
+              "reduction": "-34%"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "subheading": "4.3 모니터링 체계",
+          "content": "✅ [Case 1] type=text + subheading 있음 → 목차에 포함\n\n기후 리스크 지표는 분기별로 모니터링되며 이사회에 보고됩니다."
+        },
+        {
+          "type": "table",
+          "title": "모니터링 지표",
+          "headers": [
+            { "text": "지표", "value": "metric" },
+            { "text": "주기", "value": "frequency" }
+          ],
+          "items": [
+            { "metric": "AAL 변화 추이", "frequency": "분기" },
+            { "metric": "리스크별 노출도", "frequency": "반기" }
+          ]
+        }
+      ]
+    }
+  ]
+}

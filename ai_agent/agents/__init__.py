@@ -25,16 +25,16 @@ from .primary_data import (
 # Physical Risk Score Agents (9개) - 삭제됨
 # AAL Analysis Agents (9개) - 삭제됨
 
-# Report Generation Agents (7개)
-from .report_generation import (
-    ReportAnalysisAgent,
-    ImpactAnalysisAgent,
-    StrategyGenerationAgent,
-    ReportComposerAgent,
-    ValidationAgent,
-    RefinerAgent,
-    FinalizerNode
-)
+# Report Generation Agents (7개) - DEPRECATED: tcfd_report로 대체
+# from .report_generation import (
+#     ReportAnalysisAgent,
+#     ImpactAnalysisAgent,
+#     StrategyGenerationAgent,
+#     ReportComposerAgent,
+#     ValidationAgent,
+#     RefinerAgent,
+#     FinalizerNode
+# )
 
 
 
@@ -42,12 +42,5 @@ __all__ = [
     # Primary Data (2개)
     'BuildingCharacteristicsAgent',
     'AdditionalDataAgent',
-    # Report Generation (7개)
-    'ReportAnalysisAgent',
-    'ImpactAnalysisAgent',
-    'StrategyGenerationAgent',
-    'ReportComposerAgent',
-    'ValidationAgent',
-    'RefinerAgent',
-    'FinalizerNode',
+    # Report Generation -> tcfd_report로 대체됨
 ]

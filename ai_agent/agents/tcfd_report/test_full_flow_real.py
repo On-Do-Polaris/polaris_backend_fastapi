@@ -37,15 +37,18 @@ async def run_full_flow_with_real_data():
     from langchain_openai import ChatOpenAI
     from .node_0_data_preprocessing import DataPreprocessingNode
 
-    # 실제 테스트 사이트 ID
+    # 실제 테스트 사이트 ID (DB에 있는 UUID)
     site_ids = [
-        "22222222-2222-2222-2222-222222222222",  # SK 판교캠퍼스
-        "44444444-4444-4444-4444-444444444444",  # SK u-타워
+        "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",  # SK 판교캠퍼스
+        "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",  # 부산 물류센터
     ]
 
-    # DB URL
-    app_db_url = "postgresql://skala:skala1234@localhost:5555/application"
-    dw_db_url = "postgresql://skala:skala1234@localhost:5555/datawarehouse"
+    # DB URL (.env에서 로드)
+    import os
+    from dotenv import load_dotenv
+    load_dotenv()
+    app_db_url = os.getenv("APPLICATION_DATABASE_URL")
+    dw_db_url = os.getenv("DATAWAREHOUSE_DATABASE_URL")
 
     # LLM 클라이언트 (모든 노드에서 공유)
     llm_client = ChatOpenAI(model="gpt-4o-mini", temperature=0.3)
@@ -63,8 +66,8 @@ async def run_full_flow_with_real_data():
         target_years=["2025", "2030", "2050s"]
     )
 
-    # State에서 데이터 추출
-    site_data_raw = state.get("site_data", [])
+    # State에서 데이터 추출 (키 이름: sites_data)
+    site_data_raw = state.get("sites_data", [])
     building_data = state.get("building_data", {})
     additional_data = state.get("additional_data", {})
     hazard_results = state.get("hazard_results", [])
@@ -124,7 +127,7 @@ async def run_full_flow_with_real_data():
     # ========== Step 1: Node 1 - Template Loading ==========
     print("\n[Step 1] Node 1: Template Loading 실행...")
 
-    from .node_1_template_loading_v2 import TemplateLoadingNode
+    from .node_1_template_loading import TemplateLoadingNode
 
     node_1 = TemplateLoadingNode(llm_client=llm_client)
 
@@ -140,7 +143,7 @@ async def run_full_flow_with_real_data():
     # ========== Step 2: Node 2-A - Scenario Analysis ==========
     print("\n[Step 2] Node 2-A: Scenario Analysis 실행...")
 
-    from .node_2a_scenario_analysis_v2 import ScenarioAnalysisNode
+    from .node_2a_scenario_analysis import ScenarioAnalysisNode
 
     node_2a = ScenarioAnalysisNode(llm_client=llm_client)
 
@@ -156,7 +159,7 @@ async def run_full_flow_with_real_data():
     # ========== Step 3: Node 2-B - Impact Analysis ==========
     print("\n[Step 3] Node 2-B: Impact Analysis 실행...")
 
-    from .node_2b_impact_analysis_v2 import ImpactAnalysisNode
+    from .node_2b_impact_analysis import ImpactAnalysisNode
 
     node_2b = ImpactAnalysisNode(llm_client=llm_client)
 
@@ -182,7 +185,7 @@ async def run_full_flow_with_real_data():
     # ========== Step 4: Node 2-C - Mitigation Strategies ==========
     print("\n[Step 4] Node 2-C: Mitigation Strategies 실행...")
 
-    from .node_2c_mitigation_strategies_v2 import MitigationStrategiesNode
+    from .node_2c_mitigation_strategies import MitigationStrategiesNode
 
     node_2c = MitigationStrategiesNode(llm_client=llm_client)
 
@@ -204,7 +207,7 @@ async def run_full_flow_with_real_data():
     # ========== Step 5: Node 3 - Strategy Section ==========
     print("\n[Step 5] Node 3: Strategy Section 실행...")
 
-    from .node_3_strategy_section_v2 import StrategySectionNode
+    from .node_3_strategy_section import StrategySectionNode
 
     node_3 = StrategySectionNode(llm_client=llm_client)
 
@@ -228,7 +231,7 @@ async def run_full_flow_with_real_data():
     # ========== Step 6: Node 4 - Validator ==========
     print("\n[Step 6] Node 4: Validator 실행...")
 
-    from .node_4_validator_v2 import ValidatorNode
+    from .node_4_validator import ValidatorNode
 
     node_4 = ValidatorNode(llm_client=llm_client)
 
@@ -248,7 +251,7 @@ async def run_full_flow_with_real_data():
     # ========== Step 7: Node 5 - Composer ==========
     print("\n[Step 7] Node 5: Composer 실행...")
 
-    from .node_5_composer_v2 import ComposerNode
+    from .node_5_composer import ComposerNode
 
     node_5 = ComposerNode(llm_client=llm_client)
 
@@ -265,17 +268,20 @@ async def run_full_flow_with_real_data():
 
     print(f"  ✅ report sections: {len(sections)}개")
 
-    # ========== Step 8: Node 6 - Finalizer (Mock) ==========
-    print("\n[Step 8] Node 6: Finalizer 실행 (DB 저장 생략)...")
+    # ========== Step 8: Node 6 - Finalizer (Real DB) ==========
+    print("\n[Step 8] Node 6: Finalizer 실행 (Real DB 저장)...")
 
-    from .node_6_finalizer_v2 import FinalizerNode
+    from .node_6_finalizer import FinalizerNode
 
-    node_6 = FinalizerNode(db_session=None)
+    node_6 = FinalizerNode(app_db_url=app_db_url)
+
+    # 테스트 유저 ID
+    test_user_id = "11111111-1111-1111-1111-111111111111"
 
     result_6 = await node_6.execute(
         report=report,
-        user_id=1,
-        site_ids=[1, 2]
+        user_id=test_user_id,
+        site_ids=site_ids
     )
 
     print(f"  ✅ Finalizer 완료: success={result_6.get('success', False)}")

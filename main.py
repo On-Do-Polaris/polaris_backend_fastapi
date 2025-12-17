@@ -17,6 +17,24 @@ from src.routes import (
     dashboard_router,
     past_router
 )
+
+# Health Check Router (GCP 배포용)
+try:
+    from ai_agent.api.health_router import router as health_router
+    HEALTH_ROUTER_AVAILABLE = True
+except ImportError:
+    HEALTH_ROUTER_AVAILABLE = False
+    health_router = None
+
+# Production Utilities (Graceful Shutdown)
+try:
+    from ai_agent.utils.production_utils import (
+        get_shutdown_handler,
+        get_logger as get_structured_logger
+    )
+    PRODUCTION_UTILS_AVAILABLE = True
+except ImportError:
+    PRODUCTION_UTILS_AVAILABLE = False
 from src.services.report_service import ReportService
 from src.services.analysis_service import AnalysisService
 
@@ -75,6 +93,11 @@ app.include_router(recommendation_router)
 app.include_router(dashboard_router)
 app.include_router(past_router)
 
+# Health Check 라우터 등록 (GCP Cloud Run / Kubernetes용)
+if HEALTH_ROUTER_AVAILABLE and health_router:
+    app.include_router(health_router)
+    logger.info("Health check router registered at /health")
+
 # 정적 파일 서빙 (API 테스트 콘솔)
 try:
     from fastapi.staticfiles import StaticFiles
@@ -100,6 +123,12 @@ async def startup_event():
     logger.info(f"App Version: {settings.APP_VERSION}")
     logger.info(f"CORS allowed origins: {settings.get_cors_origins()}")
     logger.info(f"Log level: {log_level}")
+
+    # Graceful Shutdown 핸들러 설정 (GCP 배포용)
+    if PRODUCTION_UTILS_AVAILABLE:
+        shutdown_handler = get_shutdown_handler()
+        shutdown_handler.setup_signal_handlers()
+        logger.info("Graceful shutdown handler initialized")
 
     # Initialize app-level services (singletons for resource pooling)
     report_service_instance = ReportService()

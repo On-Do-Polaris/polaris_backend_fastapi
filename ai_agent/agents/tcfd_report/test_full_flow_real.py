@@ -37,15 +37,18 @@ async def run_full_flow_with_real_data():
     from langchain_openai import ChatOpenAI
     from .node_0_data_preprocessing import DataPreprocessingNode
 
-    # 실제 테스트 사이트 ID
+    # 실제 테스트 사이트 ID (DB에 있는 UUID)
     site_ids = [
-        "22222222-2222-2222-2222-222222222222",  # SK 판교캠퍼스
-        "44444444-4444-4444-4444-444444444444",  # SK u-타워
+        "11111111-1111-1111-1111-111111111111",  # 테스트 서울본사
+        "22222222-2222-2222-2222-222222222222",  # 테스트 부산공장
     ]
 
-    # DB URL
-    app_db_url = "postgresql://skala:skala1234@localhost:5555/application"
-    dw_db_url = "postgresql://skala:skala1234@localhost:5555/datawarehouse"
+    # DB URL (.env에서 로드)
+    import os
+    from dotenv import load_dotenv
+    load_dotenv()
+    app_db_url = os.getenv("APPLICATION_DATABASE_URL")
+    dw_db_url = os.getenv("DATABASE_URL")
 
     # LLM 클라이언트 (모든 노드에서 공유)
     llm_client = ChatOpenAI(model="gpt-4o-mini", temperature=0.3)
@@ -63,8 +66,8 @@ async def run_full_flow_with_real_data():
         target_years=["2025", "2030", "2050s"]
     )
 
-    # State에서 데이터 추출
-    site_data_raw = state.get("site_data", [])
+    # State에서 데이터 추출 (키 이름: sites_data)
+    site_data_raw = state.get("sites_data", [])
     building_data = state.get("building_data", {})
     additional_data = state.get("additional_data", {})
     hazard_results = state.get("hazard_results", [])

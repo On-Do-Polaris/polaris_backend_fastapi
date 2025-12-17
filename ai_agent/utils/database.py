@@ -1382,23 +1382,27 @@ class DatabaseManager:
 
         Args:
             site_id: Site UUID
-            data_category: Data category filter (None for all categories)
+            data_category: Data category filter (None for all - uses metadata.inferred_category)
 
         Returns:
             List of additional data records
+
+        Note:
+            data_category 컬럼이 테이블에서 제거됨 (v05)
+            카테고리 필터링은 metadata->>'inferred_category'를 사용
         """
         if data_category:
             query = """
                 SELECT
                     id,
                     site_id,
-                    data_category,
+                    metadata->>'inferred_category' as data_category,
                     metadata->>'file_name' as file_name,
                     structured_data,
                     metadata,
                     uploaded_at
                 FROM site_additional_data
-                WHERE site_id = %s AND data_category = %s
+                WHERE site_id = %s AND metadata->>'inferred_category' = %s
                 ORDER BY uploaded_at DESC
             """
             params = (site_id, data_category)
@@ -1407,14 +1411,14 @@ class DatabaseManager:
                 SELECT
                     id,
                     site_id,
-                    data_category,
+                    metadata->>'inferred_category' as data_category,
                     metadata->>'file_name' as file_name,
                     structured_data,
                     metadata,
                     uploaded_at
                 FROM site_additional_data
                 WHERE site_id = %s
-                ORDER BY data_category, uploaded_at DESC
+                ORDER BY uploaded_at DESC
             """
             params = (site_id,)
 

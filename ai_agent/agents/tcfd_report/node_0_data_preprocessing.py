@@ -88,7 +88,7 @@ class DataPreprocessingNode:
             bc_chunk_size: BC 분석 시 청크 크기 (기본 5, API Rate Limit 고려)
         """
         self.app_db_url = app_db_url or os.getenv('APPLICATION_DATABASE_URL')
-        self.dw_db_url = dw_db_url or os.getenv('DATABASE_URL')
+        self.dw_db_url = dw_db_url or os.getenv('DATAWAREHOUSE_DATABASE_URL')
 
         if not self.app_db_url:
             raise ValueError("APPLICATION_DATABASE_URL is not set")
@@ -359,7 +359,7 @@ class DataPreprocessingNode:
             latitude = site['site_info']['latitude']
             longitude = site['site_info']['longitude']
 
-            # DatabaseManager의 fetch_all_modelops_results 사용
+            # DatabaseManager의 fetch_all_modelops_results 사용 (AAL은 datawarehouse에 있음)
             results = self.dw_db.fetch_all_modelops_results(
                 site_id=site_id,
                 latitude=latitude,

@@ -23,3 +23,16 @@ class HealthCheckResponse(BaseModel):
 
     class Config:
         populate_by_name = True
+
+
+class DatabaseHealthCheckResponse(BaseModel):
+    status: str
+    database_url_configured: bool = Field(..., alias="databaseUrlConfigured")
+    database_connection: str = Field(..., alias="databaseConnection")
+    batch_jobs_table_accessible: bool = Field(..., alias="batchJobsTableAccessible")
+    batch_jobs_count: int = Field(..., alias="batchJobsCount")
+    error_message: str | None = Field(None, alias="errorMessage")
+    timestamp: datetime
+
+    class Config:
+        populate_by_name = True

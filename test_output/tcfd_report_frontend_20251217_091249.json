@@ -1,0 +1,308 @@
+{
+  "report_id": "tcfd_report_20251217_091249",
+  "meta": {
+    "title": "TCFD 보고서",
+    "generated_at": "2025-12-17T09:12:49.066838",
+    "site_count": 8,
+    "total_aal": 91.8
+  },
+  "sections": [
+    {
+      "section_id": "governance",
+      "title": "1. Governance",
+      "blocks": [
+        {
+          "type": "text",
+          "subheading": "1.1 이사회의 감독",
+          "content": "이사회는 '전략·ESG위원회'를 통해 기후변화 전략 방향과 이행 계획을 검토하고 리스크를 감독합니다.\n\n**주요 감독 활동:**\n- **정기 보고**: 분기별로 ESG 대응 현황, 공시/규제 동향 등의 안건을 논의합니다.\n- **전략 승인**: 기후 관련 주요 투자 및 Net Zero 이행 계획을 검토하고 승인합니다.\n- **성과 보상 연계**: CEO 및 임원의 KPI에 Net Zero, RE100, TCFD 정보 공개 성과를 반영하여 보상과 연계합니다.\n\n전략·ESG위원회는 사외이사를 중심으로 구성되어 있으며, 외부 전문가 자문을 통해 최신 기후 과학 및 정책 동향을 반영하고 있습니다."
+        },
+        {
+          "type": "text",
+          "subheading": "1.2 경영진의 역할",
+          "content": "경영진은 기후 관련 리스크 및 기회를 일상적인 경영 활동에 통합하며, 다음과 같은 역할을 수행합니다.\n\n**경영진 체계:**\n- **CEO**: 환경사업위원회 위원장을 겸직하며 주요 안건을 결정합니다.\n- **CSO(Chief Sustainability Officer)**: 기후 리스크 관리 실무를 총괄합니다.\n- **사업부 리스크 담당자**: CSO와 협력하여 통합 대응 전략을 실행합니다.\n\n**보고 체계:**\n- 분기별 기후 리스크 현황을 이사회에 보고합니다.\n- 중대한 기후 이벤트 발생 시 즉시 보고 및 대응 절차를 가동합니다."
+        }
+      ]
+    },
+    {
+      "section_id": "strategy",
+      "title": "2. Strategy",
+      "blocks": [
+        {
+          "type": "text",
+          "subheading": "Executive Summary",
+          "content": "기후 변화는 우리의 포트폴리오에 중대한 영향을 미치고 있습니다. 총 8개 사업장에 대한 분석 결과, 포트폴리오 전체의 연평균 손실(AAL)은 52.9%로 평가되었습니다."
+        },
+        {
+          "type": "table",
+          "title": "사업장별 물리적 리스크 AAL 분포",
+          "subheading": "2.1 사업장별 리스크 히트맵",
+          "headers": [
+            {
+              "text": "사업장",
+              "value": "site"
+            },
+            {
+              "text": "하천범람",
+              "value": "river_flood"
+            },
+            {
+              "text": "태풍",
+              "value": "typhoon"
+            },
+            {
+              "text": "도시홍수",
+              "value": "urban_flood"
+            },
+            {
+              "text": "Total AAL",
+              "value": "total_aal"
+            }
+          ],
+          "items": [
+            {
+              "site": "SK 판교캠퍼스",
+              "river_flood": {
+                "value": "13.4%",
+                "bg_color": "orange"
+              },
+              "urban_flood": {
+                "value": "11.1%",
+                "bg_color": "orange"
+              },
+              "typhoon": {
+                "value": "10.9%",
+                "bg_color": "orange"
+              },
+              "total_aal": {
+                "value": "35.4%",
+                "bg_color": "orange"
+              }
+            },
+            {
+              "site": "부산 물류센터",
+              "river_flood": {
+                "value": "6.6%",
+                "bg_color": "yellow"
+              },
+              "urban_flood": {
+                "value": "14.6%",
+                "bg_color": "orange"
+              },
+              "typhoon": {
+                "value": "14.6%",
+                "bg_color": "orange"
+              },
+              "total_aal": {
+                "value": "35.8%",
+                "bg_color": "orange"
+              }
+            },
+            {
+              "site": "대전 R&D센터",
+              "river_flood": {
+                "value": "10.0%",
+                "bg_color": "orange"
+              },
+              "urban_flood": {
+                "value": "10.3%",
+                "bg_color": "orange"
+              },
+              "typhoon": {
+                "value": "14.4%",
+                "bg_color": "orange"
+              },
+              "total_aal": {
+                "value": "34.7%",
+                "bg_color": "orange"
+              }
+            },
+            {
+              "site": "인천 공장",
+              "river_flood": {
+                "value": "9.6%",
+                "bg_color": "yellow"
+              },
+              "urban_flood": {
+                "value": "10.2%",
+                "bg_color": "orange"
+              },
+              "typhoon": {
+                "value": "6.1%",
+                "bg_color": "yellow"
+              },
+              "total_aal": {
+                "value": "25.9%",
+                "bg_color": "orange"
+              }
+            },
+            {
+              "site": "광주 지점",
+              "river_flood": {
+                "value": "5.5%",
+                "bg_color": "yellow"
+              },
+              "urban_flood": {
+                "value": "10.6%",
+                "bg_color": "orange"
+              },
+              "typhoon": {
+                "value": "12.9%",
+                "bg_color": "orange"
+              },
+              "total_aal": {
+                "value": "29.0%",
+                "bg_color": "orange"
+              }
+            }
+          ],
+          "legend": [
+            {
+              "color": "gray",
+              "label": "0-3% (낮음)"
+            },
+            {
+              "color": "yellow",
+              "label": "3-10% (중간)"
+            },
+            {
+              "color": "orange",
+              "label": "10-30% (높음)"
+            },
+            {
+              "color": "red",
+              "label": "30%+ (매우 높음)"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "subheading": "2.2 시나리오 분석 결과",
+          "content": "IPCC SSP 시나리오를 기반으로 2026년부터 2100년까지의 AAL 추이를 분석하였습니다. SSP1-2.6(저탄소) 시나리오에서는 AAL이 점차 감소하지만, SSP5-8.5(최악) 시나리오에서는 2100년까지 AAL이 125%까지 증가할 것으로 예상됩니다."
+        }
+      ]
+    },
+    {
+      "section_id": "risk_management",
+      "title": "3. Risk Management",
+      "blocks": [
+        {
+          "type": "text",
+          "subheading": "3.1 리스크 식별 및 평가 프로세스",
+          "content": "우리는 다음과 같은 체계적인 프로세스를 통해 기후 관련 리스크를 식별하고 평가합니다:\n\n1. **리스크 식별**: 9개 물리적 리스크(하천 홍수, 태풍, 도시 홍수, 극심한 고온, 해수면 상승, 가뭄, 물부족, 산불, 극심한 한파)를 IPCC 기후 시나리오(SSP1-2.6, SSP2-4.5, SSP3-7.0, SSP5-8.5) 기반으로 분석합니다.\n2. **리스크 평가**: H×E×V 프레임워크(Hazard × Exposure × Vulnerability)를 활용하여 각 사업장의 리스크를 정량화하고, AAL(Annual Average Loss)을 산출합니다.\n3. **우선순위 결정**: AAL 기준으로 Top 5 리스크를 선정하고, 재무적 영향도를 평가합니다.\n\n이 프로세스는 연 1회 정기적으로 수행되며, 중대한 기후 이벤트 발생 시 즉시 재평가를 실시합니다."
+        },
+        {
+          "type": "text",
+          "subheading": "3.2 전사적 리스크 관리 체계(ERM) 통합",
+          "content": "기후 관련 리스크는 전사적 리스크 관리(ERM) 체계에 통합되어 있습니다.\n\n**통합 관리 체계:**\n- **리스크 위원회**: 분기별로 기후 리스크를 검토하고 대응 전략을 승인합니다.\n- **통합 보고**: 기후 리스크는 재무 리스크, 운영 리스크와 함께 통합 보고되며, 경영진 및 이사회에 정기적으로 보고됩니다.\n- **모니터링**: 실시간 모니터링 시스템을 통해 기후 리스크 지표를 추적하고, 임계값 초과 시 즉시 대응 절차가 작동합니다.\n\n**내부 탄소 가격(ICP) 제도:**\n- 투자 의사결정 시 ICP(톤당 50,000원~100,000원)를 적용하여 기후 비용을 내재화합니다.\n- 신규 사업장 설립 시 기후 리스크 AAL과 ICP를 종합 평가하여 투자 적정성을 검토합니다.\n\nERM 시스템은 기후 리스크를 재무적 중요도(AAL)와 전략적 중요도(사업 연속성)로 평가하여 우선순위를 결정합니다."
+        },
+        {
+          "type": "text",
+          "subheading": "3.3 주요 대응 전략 요약",
+          "content": "우리는 다음과 같은 기후 리스크 대응 전략을 수립하고 있습니다:\n\n\n**P1. 하천 홍수** (우선순위: 높음)\n- river_flood 대응 매뉴얼 수립\n\n**P2. 도시 홍수** (우선순위: 높음)\n- urban_flood 대응 매뉴얼 수립\n\n**P3. 태풍** (우선순위: 높음)\n- typhoon 대응 매뉴얼 수립\n\n상세한 대응 전략은 Strategy 섹션에서 확인하실 수 있습니다."
+        }
+      ]
+    },
+    {
+      "section_id": "metrics_targets",
+      "title": "4. Metrics and Targets",
+      "blocks": [
+        {
+          "type": "text",
+          "subheading": "4.1 주요 지표: 연평균 손실(AAL)",
+          "content": "우리는 기후 관련 재무 영향을 측정하기 위해 AAL(Annual Average Loss)을 핵심 지표로 사용합니다.\n\nAAL은 각 리스크가 발생할 확률과 예상 손실액을 곱하여 산출한 연평균 손실액으로, 장기적인 재무 계획 수립 및 보험 전략 수립에 활용됩니다.\n\n**AAL 산출 방식:**\n- AAL = Σ (리스크 발생 확률 × 예상 손실액)\n- 9개 물리적 리스크에 대해 개별 AAL을 산출 후 포트폴리오 AAL 집계\n- 4개 기후 시나리오별로 2025년~2100년 AAL 추이 분석"
+        },
+        {
+          "type": "table",
+          "title": "포트폴리오 AAL 추이 (2025-2100)",
+          "subheading": "AAL 추이",
+          "headers": [
+            {
+              "text": "시나리오",
+              "value": "scenario"
+            },
+            {
+              "text": "2025",
+              "value": "year_2025"
+            },
+            {
+              "text": "2030",
+              "value": "year_2030"
+            },
+            {
+              "text": "2040",
+              "value": "year_2040"
+            },
+            {
+              "text": "2050",
+              "value": "year_2050"
+            },
+            {
+              "text": "2100",
+              "value": "year_2100"
+            }
+          ],
+          "items": [
+            {
+              "scenario": "SSP1-2.6 (저탄소 시나리오)",
+              "year_2025": "45.0%",
+              "year_2030": "43.0%",
+              "year_2040": "40.0%",
+              "year_2050": "38.0%",
+              "year_2100": "35.0%"
+            },
+            {
+              "scenario": "SSP2-4.5 (중간 시나리오)",
+              "year_2025": "48.0%",
+              "year_2030": "52.0%",
+              "year_2040": "58.0%",
+              "year_2050": "65.0%",
+              "year_2100": "72.0%"
+            },
+            {
+              "scenario": "SSP3-7.0 (높은 배출 시나리오)",
+              "year_2025": "50.0%",
+              "year_2030": "58.0%",
+              "year_2040": "70.0%",
+              "year_2050": "82.0%",
+              "year_2100": "95.0%"
+            },
+            {
+              "scenario": "SSP5-8.5 (최악 시나리오)",
+              "year_2025": "52.0%",
+              "year_2030": "65.0%",
+              "year_2040": "85.0%",
+              "year_2050": "105.0%",
+              "year_2100": "125.0%"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "subheading": "4.3 목표 및 이행 계획",
+          "content": "다음과 같은 기후 관련 목표를 설정하고 이행하고 있습니다.\n\n**1. 단기 목표 (2026년)**\n- Top 5 리스크 AAL 10% 감소\n- 우선순위 대응 조치 실행 (침수 방지 시설, 비상 대응 매뉴얼)\n- 분기별 AAL 모니터링 및 진행 상황 보고\n\n**2. 중기 목표 (2030년)**\n- 포트폴리오 AAL 25% 감소\n- RE100 달성: 재생에너지 100% 사용\n- 구조적 리스크 저감 투자 (방수벽, 냉각 시스템 업그레이드)\n- 신규 사업장 기후 회복력 기준 적용\n\n**3. 장기 목표 (2040년)**\n- Net Zero 2040 달성: Scope 1, 2 온실가스 배출 넷제로\n- Scope 3 배출 50% 감축 (2019년 대비)\n- 고위험 사업장 재배치 또는 기후 적응 완료\n\n**4. 궁극적 목표 (2050년)**\n- 기후 중립 포트폴리오 달성\n- Scope 3 포함 전 가치사슬 넷제로\n- 탄소 네거티브 사업 모델 전환\n\n이러한 목표는 정기적으로 검토되며, IPCC 최신 보고서 및 국가 NDC 변화에 따라 조정됩니다."
+        }
+      ]
+    },
+    {
+      "section_id": "appendix",
+      "title": "5. Appendix",
+      "blocks": [
+        {
+          "type": "text",
+          "subheading": "A1. 시나리오 설명",
+          "content": "본 보고서에서 사용한 기후 시나리오는 IPCC의 SSP(Shared Socioeconomic Pathways)를 기반으로 합니다:\n\n- **SSP1-2.6 (저탄소 시나리오)**: 지속 가능한 발전 경로, 2100년 온도 상승 1.5-2°C. 강력한 기후 정책과 재생에너지 전환으로 탄소 배출이 빠르게 감소하는 시나리오입니다.\n\n- **SSP2-4.5 (중간 시나리오)**: 현재 정책 기조 유지, 2100년 온도 상승 2-3°C. 점진적인 기후 정책 강화와 기술 발전이 이루어지는 중간 경로 시나리오입니다.\n\n- **SSP3-7.0 (높은 배출 시나리오)**: 지역 경쟁 및 분열 경로, 2100년 온도 상승 3-4°C. 기후 정책 협력 실패와 화석연료 의존 지속으로 배출이 증가하는 시나리오입니다.\n\n- **SSP5-8.5 (최악 시나리오)**: 화석연료 의존 경로, 2100년 온도 상승 4-5°C. 기후 정책 부재와 화석연료 사용 급증으로 최대 배출이 발생하는 시나리오입니다."
+        },
+        {
+          "type": "text",
+          "subheading": "A2. 리스크 정의",
+          "content": "본 보고서에서 평가한 9개 물리적 리스크는 다음과 같습니다:\n\n1. **하천 홍수 (River Flood)**: 하천 범람으로 인한 침수 피해\n2. **태풍 (Typhoon)**: 강풍 및 폭우로 인한 피해\n3. **도시 홍수 (Urban Flood)**: 내수 범람으로 인한 침수\n4. **극심한 고온 (Extreme Heat)**: 폭염으로 인한 운영 중단 및 냉방 부하 증가\n5. **해수면 상승 (Sea Level Rise)**: 해안 침수 및 염해\n6. **가뭄 (Drought)**: 수자원 부족으로 인한 운영 차질\n7. **물부족 (Water Stress)**: 장기적 물 공급 불안정\n8. **산불 (Wildfire)**: 산림 화재로 인한 피해\n9. **극심한 한파 (Extreme Cold)**: 극저온으로 인한 시설 동파 및 운영 중단"
+        },
+        {
+          "type": "text",
+          "subheading": "A3. 방법론",
+          "content": "본 보고서는 다음과 같은 방법론을 사용했습니다:\n\n**1. H×E×V 프레임워크**\n- Hazard(위험): 기후 이벤트의 강도 및 빈도\n- Exposure(노출): 사업장의 지리적 위치 및 자산 규모\n- Vulnerability(취약성): 물리적 방어 시설 및 대응 역량\n- 종합 리스크 = H × E × V\n\n**2. AAL 산출**\n- 각 리스크의 발생 확률과 예상 손실액을 곱하여 연평균 손실액 계산\n- 포트폴리오 AAL = Σ (사업장별 AAL × 자산 가중치)\n\n**3. 시나리오 분석**\n- 4개 기후 시나리오별로 2025년~2100년 AAL 추이 분석\n- IPCC AR6 및 국가 기후 시나리오 데이터 활용\n\n**4. 대응 전략 수립**\n- Top 5 리스크에 대해 단기(2026), 중기(2026-2030), 장기(2020-2050년대) 대응 전략 수립\n- 비용-효과 분석을 통한 우선순위 결정"
+        }
+      ]
+    }
+  ]
+}

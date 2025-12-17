@@ -1,12 +1,13 @@
 from uuid import uuid4, UUID
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 import os
 import shutil
 from pathlib import Path
+import logging
 
 from src.core.config import settings
 from src.schemas.reports import (
@@ -16,31 +17,29 @@ from src.schemas.reports import (
     ReportPage,
 )
 
-# ai_agent 호출
-from ai_agent import SKAXPhysicalRiskAnalyzer
-from ai_agent.config.settings import load_config
+# NEW: tcfd_report 파이프라인 사용 (report_generation 폴더 의존성 제거)
+# DEPRECATED: SKAXPhysicalRiskAnalyzer (report_generation 의존)
 
 
 class ReportService:
-    """리포트 서비스 - ai_agent의 LLM을 사용하여 리포트 생성"""
+    """리포트 서비스 - tcfd_report 파이프라인을 사용하여 TCFD 리포트 생성"""
 
     def __init__(self):
         """서비스 초기화"""
-        self._analyzer = None
         self._report_results = {}  # report_id별 결과 캐시
         self._user_reports = {}  # user_id → [report_ids] 매핑 (In-Memory)
         self._additional_data = {}  # user_id → Spring Boot 추가 데이터 (In-Memory)
         self._executor = ThreadPoolExecutor(max_workers=4)  # 비동기 실행용 Thread Pool
-
-    def _get_analyzer(self) -> SKAXPhysicalRiskAnalyzer:
-        """ai_agent 분석기 인스턴스 반환 (lazy initialization)"""
-        if self._analyzer is None:
-            config = load_config()
-            self._analyzer = SKAXPhysicalRiskAnalyzer(config)
-        return self._analyzer
+        self.logger = logging.getLogger("api.services.report")
 
     async def create_report(self, request: CreateReportRequest) -> dict:
-        """Spring Boot API 호환 - 리포트 생성"""
+        """
+        Spring Boot API 호환 - TCFD 리포트 생성
+
+        NEW: tcfd_report 파이프라인 사용 (Node 0-6)
+        - report_generation 폴더 의존성 제거됨
+        - LangGraph 기반 워크플로우 실행
+        """
         if settings.USE_MOCK_DATA:
             return {
                 "success": True,
@@ -48,82 +47,158 @@ class ReportService:
                 "siteId": str(request.site_id) if request.site_id else None,
             }
 
-        # 실제 ai_agent 호출하여 리포트 생성
+        # 실제 tcfd_report 파이프라인 호출
         try:
-            analyzer = self._get_analyzer()
-
+            # site_ids 준비 (단일 또는 다중)
+            site_ids = []
             if request.site_id:
-                target_location = {
-                    'latitude': 37.5665,  # 실제로는 DB에서 조회
-                    'longitude': 126.9780,
-                    'name': f'Site-{request.site_id}'
+                site_ids = [str(request.site_id)]
+            elif hasattr(request, 'site_ids') and request.site_ids:
+                site_ids = [str(sid) for sid in request.site_ids]
+
+            if not site_ids:
+                return {
+                    "success": False,
+                    "message": "site_id 또는 site_ids가 필요합니다.",
                 }
 
-                building_info = {
-                    'building_age': 20,
-                    'has_seismic_design': True,
-                    'fire_access': True
-                }
+            user_id = getattr(request, 'user_id', None)
 
-                asset_info = {
-                    'total_asset_value': 50000000000,
-                    'insurance_coverage_rate': 0.7
-                }
+            # tcfd_report 파이프라인 실행
+            result = await self._run_tcfd_pipeline(
+                site_ids=site_ids,
+                user_id=str(user_id) if user_id else None
+            )
 
-                analysis_params = {
-                    'time_horizon': '2050',
-                    'analysis_period': '2025-2050'
-                }
+            if result.get('success'):
+                report_id = result.get('report_id')
 
-                # Language 파라미터 전달
-                language = request.language.value if request.language else 'ko'
+                # 캐시에 저장
+                if report_id:
+                    self._report_results[UUID(report_id)] = {
+                        'site_id': request.site_id,
+                        'user_id': user_id,
+                        'result': result,
+                        'created_at': datetime.now()
+                    }
 
-                # 비동기 실행: 동기 함수를 별도 스레드에서 실행하여 이벤트 루프 블로킹 방지
-                loop = asyncio.get_event_loop()
-                analyze_func = partial(
-                    analyzer.analyze,
-                    target_location,
-                    building_info,
-                    asset_info,
-                    analysis_params,
-                    language=language
-                )
-                result = await loop.run_in_executor(self._executor, analyze_func)
-
-                # 리포트 ID 생성 및 결과 캐싱
-                report_id = uuid4()
-                user_id = getattr(request, 'user_id', None)  # userId 추출 (나중에 스키마 추가)
-
-                self._report_results[report_id] = {
-                    'site_id': request.site_id,
-                    'user_id': user_id,
-                    'result': result,
-                    'created_at': datetime.now()
-                }
-
-                # userId → reportId 매핑 저장
-                if user_id:
-                    if user_id not in self._user_reports:
-                        self._user_reports[user_id] = []
-                    self._user_reports[user_id].append(report_id)
+                    # userId → reportId 매핑 저장
+                    if user_id:
+                        if user_id not in self._user_reports:
+                            self._user_reports[user_id] = []
+                        self._user_reports[user_id].append(UUID(report_id))
 
                 return {
                     "success": True,
-                    "message": "리포트가 생성되었습니다.",
-                    "siteId": str(request.site_id),
-                    "reportId": str(report_id),
+                    "message": "TCFD 리포트가 생성되었습니다.",
+                    "siteId": str(request.site_id) if request.site_id else None,
+                    "reportId": report_id,
                     "userId": str(user_id) if user_id else None
                 }
-
-            return {
-                "success": True,
-                "message": "전체 사업장 리포트가 생성되었습니다.",
-            }
+            else:
+                return {
+                    "success": False,
+                    "message": result.get('error', '리포트 생성 실패'),
+                }
 
         except Exception as e:
+            self.logger.error(f"TCFD 리포트 생성 실패: {e}", exc_info=True)
             return {
                 "success": False,
                 "message": str(e),
+            }
+
+    async def _run_tcfd_pipeline(self, site_ids: List[str], user_id: Optional[str] = None) -> dict:
+        """
+        tcfd_report 파이프라인 실행 (Node 0-6)
+
+        Args:
+            site_ids: 사업장 ID 리스트
+            user_id: 사용자 ID (선택)
+
+        Returns:
+            {
+                'success': bool,
+                'report_id': str,
+                'error': str (실패 시)
+            }
+        """
+        try:
+            from ai_agent.agents.tcfd_report.workflow import create_tcfd_workflow
+            from ai_agent.agents.tcfd_report.state import TCFDReportState
+            from ai_agent.utils.database import DatabaseManager
+            from langchain_openai import ChatOpenAI
+            from qdrant_client import QdrantClient
+
+            self.logger.info(f"[TCFD] 파이프라인 시작: site_ids={site_ids}, user_id={user_id}")
+
+            # 의존성 초기화
+            app_db_url = os.environ.get('APPLICATION_DATABASE_URL')
+            db_session = DatabaseManager(app_db_url) if app_db_url else None
+
+            llm = ChatOpenAI(
+                model="gpt-4o",
+                temperature=0.7,
+                api_key=os.environ.get('OPENAI_API_KEY')
+            )
+
+            # Qdrant 클라이언트 (없으면 None으로 전달)
+            try:
+                qdrant_client = QdrantClient(
+                    host=os.environ.get('QDRANT_HOST', 'localhost'),
+                    port=int(os.environ.get('QDRANT_PORT', 6333))
+                )
+            except Exception as e:
+                self.logger.warning(f"[TCFD] Qdrant 연결 실패 (RAG 비활성화): {e}")
+                qdrant_client = None
+
+            # 초기 상태 설정
+            initial_state: TCFDReportState = {
+                "site_ids": site_ids,
+                "user_id": user_id,
+                "target_years": list(range(2024, 2024 + 9)),  # 9년
+                "errors": [],
+                "current_step": "initialized"
+            }
+
+            # 워크플로우 생성 및 실행
+            workflow = create_tcfd_workflow(db_session, llm, qdrant_client)
+
+            # 비동기 실행
+            loop = asyncio.get_event_loop()
+            final_state = await loop.run_in_executor(
+                self._executor,
+                lambda: workflow.invoke(initial_state)
+            )
+
+            # 결과 확인
+            if final_state.get('errors'):
+                self.logger.error(f"[TCFD] 파이프라인 오류: {final_state['errors']}")
+                return {
+                    'success': False,
+                    'error': '; '.join(final_state['errors'])
+                }
+
+            report_id = final_state.get('report_id')
+            self.logger.info(f"[TCFD] 파이프라인 완료: report_id={report_id}")
+
+            return {
+                'success': True,
+                'report_id': report_id,
+                'final_state': final_state
+            }
+
+        except ImportError as e:
+            self.logger.error(f"[TCFD] 모듈 import 실패: {e}")
+            return {
+                'success': False,
+                'error': f"tcfd_report 모듈 로드 실패: {e}"
+            }
+        except Exception as e:
+            self.logger.error(f"[TCFD] 파이프라인 실행 실패: {e}", exc_info=True)
+            return {
+                'success': False,
+                'error': str(e)
             }
 
     async def get_report_web_view(self, report_id: str) -> dict:

@@ -30,19 +30,30 @@ except ImportError:
 			return func
 		return decorator
 
-from ..agents import (
-	# DataCollectionAgent,        # 삭제됨 (Node 0에서 DB 직접 조회)
-	# VulnerabilityAnalysisAgent,  # 삭제됨 (ModelOps가 V 계산)
-	# Physical Risk Score Agents,  # 삭제됨 (ModelOps가 H×E×V 계산)
-	# AAL Analysis Agents,         # 삭제됨 (ModelOps가 AAL 계산)
-	ReportAnalysisAgent,
-	ImpactAnalysisAgent,
-	StrategyGenerationAgent,
-	ReportComposerAgent,
-	ValidationAgent,
-	RefinerAgent,
-	FinalizerNode
-)
+# DEPRECATED: report_generation agents are replaced by tcfd_report pipeline
+# 조건부 import - 폴더가 없어도 오류 방지
+try:
+	from ..agents.report_generation import (
+		ReportAnalysisAgent,
+		ImpactAnalysisAgent,
+		StrategyGenerationAgent,
+		ReportComposerAgent,
+		ValidationAgent,
+		RefinerAgent,
+		FinalizerNode
+	)
+	REPORT_GENERATION_AVAILABLE = True
+except ImportError:
+	# report_generation 폴더가 없으면 더미 클래스 사용
+	ReportAnalysisAgent = None
+	ImpactAnalysisAgent = None
+	StrategyGenerationAgent = None
+	ReportComposerAgent = None
+	ValidationAgent = None
+	RefinerAgent = None
+	FinalizerNode = None
+	REPORT_GENERATION_AVAILABLE = False
+	print("[WARNING] report_generation 모듈을 찾을 수 없습니다. tcfd_report 파이프라인을 사용하세요.")
 
 from ..agents.primary_data.building_characteristics_agent import BuildingCharacteristicsAgent
 
@@ -1141,9 +1152,16 @@ def finalization_node(state: SuperAgentState, config: Any) -> Dict:
 		}
 
 		# FinalizerNode 실행
-		from ai_agent.agents.report_generation.finalizer_node_7 import FinalizerInput
-		finalizer_input_obj = FinalizerInput(**finalizer_input)
-		finalizer_output = finalizer.run(finalizer_input_obj)
+		try:
+			from ai_agent.agents.report_generation.finalizer_node_7 import FinalizerInput
+			finalizer_input_obj = FinalizerInput(**finalizer_input)
+			finalizer_output = finalizer.run(finalizer_input_obj)
+		except ImportError:
+			print("[ERROR] report_generation 모듈을 찾을 수 없습니다. tcfd_report 파이프라인을 사용하세요.")
+			return {
+				'finalization_status': 'failed',
+				'errors': ['report_generation 모듈이 없습니다. tcfd_report 파이프라인을 사용하세요.']
+			}
 
 		# 출력 경로 저장
 		output_paths = {

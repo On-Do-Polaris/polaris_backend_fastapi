@@ -305,7 +305,7 @@ class AdditionalDataLoader:
                 'total_rows': sum(s.get('row_count', 0) for s in data.get('sheets', []))
             }
 
-            # 4. DB에 저장 (data_category 필드 제거됨)
+            # 4. DB에 저장
             self.db_manager.save_additional_data(
                 site_id=site_id,
                 structured_data=data,

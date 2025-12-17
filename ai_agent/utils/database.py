@@ -1288,42 +1288,65 @@ class DatabaseManager:
             return {}
 
         # 구조 유형 추출 (가장 많은 것)
+        # DB에 list 또는 dict로 저장될 수 있음
         structure_types = cache_data.get('structure_types', {})
-        main_structure = max(structure_types.keys(), key=lambda k: structure_types[k]) if structure_types else ''
+        if isinstance(structure_types, list):
+            # list인 경우: 첫 번째 요소 사용
+            main_structure = structure_types[0] if structure_types else ''
+        elif isinstance(structure_types, dict):
+            # dict인 경우: 가장 많은 것 선택
+            main_structure = max(structure_types.keys(), key=lambda k: structure_types[k]) if structure_types else ''
+        else:
+            main_structure = ''
 
         # 용도 유형 추출
         purpose_types = cache_data.get('purpose_types', {})
-        main_purpose = max(purpose_types.keys(), key=lambda k: purpose_types[k]) if purpose_types else ''
+        if isinstance(purpose_types, list):
+            main_purpose = purpose_types[0] if purpose_types else ''
+        elif isinstance(purpose_types, dict):
+            main_purpose = max(purpose_types.keys(), key=lambda k: purpose_types[k]) if purpose_types else ''
+        else:
+            main_purpose = ''
+
+        # NULL 값 처리 헬퍼
+        def safe_int(val, default=0):
+            return val if val is not None else default
+
+        def safe_float(val, default=0.0):
+            return float(val) if val is not None else default
+
+        buildings_with_seismic = safe_int(cache_data.get('buildings_with_seismic'))
+        buildings_without_seismic = safe_int(cache_data.get('buildings_without_seismic'))
 
         return {
             'meta': {
-                'jibun_address': cache_data.get('jibun_address', ''),
-                'road_address': cache_data.get('road_address', ''),
-                'address': cache_data.get('road_address') or cache_data.get('jibun_address', ''),
+                'jibun_address': cache_data.get('jibun_address', '') or '',
+                'road_address': cache_data.get('road_address', '') or '',
+                'address': cache_data.get('road_address') or cache_data.get('jibun_address', '') or '',
                 'data_source': 'building_aggregate_cache'
             },
             'physical_specs': {
                 'structure': main_structure,
                 'main_purpose': main_purpose,
                 'floors': {
-                    'ground': cache_data.get('max_ground_floors', 0),
-                    'max_underground': cache_data.get('max_underground_floors', 0),
-                    'min_underground': cache_data.get('min_underground_floors', 0)
+                    'ground': safe_int(cache_data.get('max_ground_floors')),
+                    'max_underground': safe_int(cache_data.get('max_underground_floors')),
+                    'min_underground': safe_int(cache_data.get('min_underground_floors'))
                 },
                 'seismic': {
-                    'applied': 'Y' if cache_data.get('buildings_with_seismic', 0) > 0 else 'N',
-                    'buildings_with_design': cache_data.get('buildings_with_seismic', 0),
-                    'buildings_without_design': cache_data.get('buildings_without_seismic', 0)
+                    'applied': 'Y' if buildings_with_seismic > 0 else 'N',
+                    'buildings_with_design': buildings_with_seismic,
+                    'buildings_without_design': buildings_without_seismic
                 },
                 'age': {
-                    'years': cache_data.get('oldest_building_age_years', 0)
+                    'years': safe_int(cache_data.get('oldest_building_age_years'))
                 },
                 'area': {
-                    'total_floor_area': float(cache_data.get('total_floor_area_sqm', 0) or 0),
-                    'building_area': float(cache_data.get('total_building_area_sqm', 0) or 0)
+                    'total_floor_area': safe_float(cache_data.get('total_floor_area_sqm')),
+                    'building_area': safe_float(cache_data.get('total_building_area_sqm'))
                 }
             },
-            'floor_details': cache_data.get('floor_details', []),
+            'floor_details': cache_data.get('floor_details') or [],
             'transition_specs': {}
         }
 
@@ -1332,18 +1355,18 @@ class DatabaseManager:
     def save_additional_data(
         self,
         site_id: str,
-        data_category: str,
         structured_data: Dict[str, Any],
-        metadata: Dict[str, Any] = None
+        metadata: Dict[str, Any] = None,
+        data_category: str = None  # deprecated, stored in metadata
     ) -> bool:
         """
         Save additional data to site_additional_data table
 
         Args:
             site_id: Site UUID
-            data_category: Data category (energy, power, insurance, etc.)
             structured_data: Parsed data (text dump)
-            metadata: File metadata (optional)
+            metadata: File metadata (optional, category stored here)
+            data_category: DEPRECATED - use metadata['inferred_category']
 
         Returns:
             True if successful, False otherwise
@@ -1351,21 +1374,24 @@ class DatabaseManager:
         try:
             from psycopg2.extras import Json
 
+            # data_category는 metadata에 저장
+            if data_category and metadata:
+                metadata['data_category'] = data_category
+
             query = """
                 INSERT INTO site_additional_data
-                (site_id, data_category, structured_data, metadata, uploaded_at)
-                VALUES (%s, %s, %s, %s, NOW())
+                (site_id, structured_data, metadata, uploaded_at)
+                VALUES (%s, %s, %s, NOW())
             """
 
             params = (
                 site_id,
-                data_category,
                 Json(structured_data),
                 Json(metadata or {})
             )
 
             self.execute_update(query, params)
-            self.logger.info(f"Additional data saved: site_id={site_id[:8]}..., category={data_category}")
+            self.logger.info(f"Additional data saved: site_id={site_id[:8]}...")
             return True
 
         except Exception as e:

@@ -388,6 +388,16 @@ class AnalysisService:
                 self.logger.warning(f"[TCFD] Qdrant 연결 실패 (RAG 비활성화): {e}")
                 qdrant_client = None
 
+            # Application DB 연결 (TCFD 리포트 저장용)
+            from ai_agent.utils.database import DatabaseManager
+            app_db = DatabaseManager(
+                db_host=os.environ.get('APPLICATION_DB_HOST'),
+                db_port=os.environ.get('APPLICATION_DB_PORT', '5432'),
+                db_name=os.environ.get('APPLICATION_DB_NAME'),
+                db_user=os.environ.get('APPLICATION_DB_USER'),
+                db_password=os.environ.get('APPLICATION_DB_PASSWORD')
+            )
+
             # 초기 상태 설정
             initial_state: TCFDReportState = {
                 "site_ids": site_ids,
@@ -397,20 +407,13 @@ class AnalysisService:
                 "current_step": "initialized"
             }
 
-            # 워크플로우 생성
-            workflow = create_tcfd_workflow(self.db, llm, qdrant_client)
+            # 워크플로우 생성 (Application DB 전달)
+            workflow = create_tcfd_workflow(app_db, llm, qdrant_client)
 
-            # 워크플로우 실행 (동기 함수를 비동기로 래핑)
-            # 백그라운드 태스크 내에서 실행되므로 blocking 허용
-            loop = asyncio.get_event_loop()
-
-            # ThreadPoolExecutor를 사용하여 LangGraph 워크플로우 실행
-            # (LangGraph는 동기 함수이므로 별도 스레드에서 실행)
-            self.logger.info(f"[TCFD] 워크플로우 실행 중... (백그라운드 스레드)")
-            final_state = await loop.run_in_executor(
-                None,  # 기본 ThreadPoolExecutor 사용
-                lambda: workflow.invoke(initial_state)
-            )
+            # 워크플로우 실행 (비동기 호출)
+            # 모든 노드가 async 함수이므로 ainvoke 사용
+            self.logger.info(f"[TCFD] 워크플로우 실행 중...")
+            final_state = await workflow.ainvoke(initial_state)
 
             # 결과 확인
             if final_state.get('errors'):

@@ -181,19 +181,13 @@ async def node_0_func(state: TCFDReportState) -> TCFDReportState:
 
     from .node_0_data_preprocessing import DataPreprocessingNode
     from .llm_output_logger import reset_logger, get_logger
-    import os
 
     # LLM Output Logger 초기화 (새 세션 시작)
     reset_logger()
     logger = get_logger()
 
-    # DB URL 환경변수에서 가져오기
-    app_db_url = os.getenv('APPLICATION_DATABASE_URL')
-    dw_db_url = os.getenv('DATABASE_URL')
-
+    # DataPreprocessingNode는 환경변수에서 직접 DB 접속 정보를 가져옴
     node = DataPreprocessingNode(
-        app_db_url=app_db_url,
-        dw_db_url=dw_db_url,
         llm_client=_llm
     )
 

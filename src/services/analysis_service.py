@@ -348,35 +348,89 @@ class AnalysisService:
         language: str = 'ko'
     ) -> dict:
         """
-        ai_agent의 다중 사업장 분석 메소드 래퍼 (비동기)
-        Agent에 analyze_multiple_sites 메소드가 있다고 가정
-        """
-        analyzer = self._get_analyzer()
-        loop = asyncio.get_event_loop()
-        
-        # assumed Agent's method is synchronous
-        # TODO: The actual agent method might be named 'analyze_integrated'.
-        # For now, we assume 'analyze_multiple_sites' exists or will exist.
-        if not hasattr(analyzer, 'analyze_multiple_sites'):
-            # Fallback or error if the method doesn't exist yet
-            self.logger.error("Agent method 'analyze_multiple_sites' not found. This needs to be implemented in the agent.")
-            raise NotImplementedError("Agent method 'analyze_multiple_sites' is not implemented.")
+        TCFD Report Workflow 실행 (백그라운드, 비동기)
 
-        result = await loop.run_in_executor(
-            None,
-            analyzer.analyze_multiple_sites, # Assumed new method
-            target_locations,
-            building_infos,
-            asset_infos,
-            analysis_params,
-            user_id,
-            hazard_types,
-            priority,
-            options,
-            additional_data,
-            language
-        )
-        return result
+        이 메서드는 _run_multi_analysis_background 내에서 호출되며,
+        이미 백그라운드 태스크로 실행 중입니다.
+        """
+        try:
+            from ai_agent.agents.tcfd_report.workflow import create_tcfd_workflow
+            from ai_agent.agents.tcfd_report.state import TCFDReportState
+            from langchain_openai import ChatOpenAI
+            from qdrant_client import QdrantClient
+            import os
+
+            self.logger.info(f"[TCFD] 워크플로우 시작: {len(target_locations)}개 사업장")
+
+            # site_ids 추출
+            site_ids = [loc['id'] for loc in target_locations]
+
+            # 의존성 초기화
+            llm = ChatOpenAI(
+                model="gpt-4o",
+                temperature=0.7,
+                api_key=os.environ.get('OPENAI_API_KEY')
+            )
+
+            # Qdrant 클라이언트 (없으면 None으로 전달)
+            try:
+                qdrant_client = QdrantClient(
+                    host=os.environ.get('QDRANT_HOST', 'localhost'),
+                    port=int(os.environ.get('QDRANT_PORT', 6333))
+                )
+            except Exception as e:
+                self.logger.warning(f"[TCFD] Qdrant 연결 실패 (RAG 비활성화): {e}")
+                qdrant_client = None
+
+            # 초기 상태 설정
+            initial_state: TCFDReportState = {
+                "site_ids": site_ids,
+                "user_id": str(user_id) if user_id else None,
+                # target_years는 Node 0에서 자동 설정 (2026~2030 + 2020s~2050s)
+                "errors": [],
+                "current_step": "initialized"
+            }
+
+            # 워크플로우 생성
+            workflow = create_tcfd_workflow(self.db, llm, qdrant_client)
+
+            # 워크플로우 실행 (동기 함수를 비동기로 래핑)
+            # 백그라운드 태스크 내에서 실행되므로 blocking 허용
+            loop = asyncio.get_event_loop()
+
+            # ThreadPoolExecutor를 사용하여 LangGraph 워크플로우 실행
+            # (LangGraph는 동기 함수이므로 별도 스레드에서 실행)
+            self.logger.info(f"[TCFD] 워크플로우 실행 중... (백그라운드 스레드)")
+            final_state = await loop.run_in_executor(
+                None,  # 기본 ThreadPoolExecutor 사용
+                lambda: workflow.invoke(initial_state)
+            )
+
+            # 결과 확인
+            if final_state.get('errors'):
+                self.logger.error(f"[TCFD] 워크플로우 오류: {final_state['errors']}")
+                return {
+                    'workflow_status': 'failed',
+                    'errors': final_state['errors']
+                }
+
+            report_id = final_state.get('report_id')
+            success = final_state.get('success', False)
+            self.logger.info(f"[TCFD] 워크플로우 완료: report_id={report_id}, success={success}")
+
+            return {
+                'workflow_status': 'completed',
+                'report_id': report_id,
+                'success': success,
+                'final_state': final_state
+            }
+
+        except Exception as e:
+            self.logger.error(f"[TCFD] 워크플로우 실행 실패: {e}", exc_info=True)
+            return {
+                'workflow_status': 'failed',
+                'errors': [str(e)]
+            }
 
 
     # async def enhance_analysis(

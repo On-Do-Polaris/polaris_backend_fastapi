@@ -81,23 +81,53 @@ class DataPreprocessingNode:
         두 개의 DB 연결 + LLM 클라이언트 초기화
 
         Args:
-            app_db_url: Application DB URL (SpringBoot DB)
-            dw_db_url: Datawarehouse DB URL (FastAPI + ModelOps DB)
+            app_db_url: DEPRECATED - 환경변수로 조합
+            dw_db_url: DEPRECATED - 환경변수로 조합
             llm_client: LLM 클라이언트 (BC, AD에 전달)
             max_concurrent_sites: DB 조회 시 동시 처리 최대 사업장 수 (기본 10)
             bc_chunk_size: BC 분석 시 청크 크기 (기본 5, API Rate Limit 고려)
         """
-        self.app_db_url = app_db_url or os.getenv('APPLICATION_DATABASE_URL')
-        self.dw_db_url = dw_db_url or os.getenv('DATAWAREHOUSE_DATABASE_URL')
+        # Application DB 환경변수 (Spring Boot DB)
+        app_db_host = os.getenv('APPLICATION_DB_HOST')
+        app_db_port = os.getenv('APPLICATION_DB_PORT', '5432')
+        app_db_name = os.getenv('APPLICATION_DB_NAME')
+        app_db_user = os.getenv('APPLICATION_DB_USER')
+        app_db_password = os.getenv('APPLICATION_DB_PASSWORD')
 
-        if not self.app_db_url:
-            raise ValueError("APPLICATION_DATABASE_URL is not set")
-        if not self.dw_db_url:
-            raise ValueError("DATABASE_URL is not set")
+        if not all([app_db_host, app_db_name, app_db_user, app_db_password]):
+            raise ValueError(
+                "Application DB connection parameters not set. "
+                "Please set APPLICATION_DB_HOST, APPLICATION_DB_NAME, APPLICATION_DB_USER, and APPLICATION_DB_PASSWORD."
+            )
 
-        # DB 매니저 초기화
-        self.app_db = DatabaseManager(self.app_db_url)
-        self.dw_db = DatabaseManager(self.dw_db_url)
+        # Datawarehouse DB 환경변수
+        dw_db_host = os.getenv('DB_HOST')
+        dw_db_port = os.getenv('DB_PORT', '5433')
+        dw_db_name = os.getenv('DB_NAME')
+        dw_db_user = os.getenv('DB_USER')
+        dw_db_password = os.getenv('DB_PASSWORD')
+
+        if not all([dw_db_host, dw_db_name, dw_db_user, dw_db_password]):
+            raise ValueError(
+                "Datawarehouse DB connection parameters not set. "
+                "Please set DB_HOST, DB_NAME, DB_USER, and DB_PASSWORD."
+            )
+
+        # DB 매니저 초기화 (환경변수로 초기화)
+        self.app_db = DatabaseManager(
+            db_host=app_db_host,
+            db_port=app_db_port,
+            db_name=app_db_name,
+            db_user=app_db_user,
+            db_password=app_db_password
+        )
+        self.dw_db = DatabaseManager(
+            db_host=dw_db_host,
+            db_port=dw_db_port,
+            db_name=dw_db_name,
+            db_user=dw_db_user,
+            db_password=dw_db_password
+        )
 
         # LLM 클라이언트 저장
         self.llm_client = llm_client

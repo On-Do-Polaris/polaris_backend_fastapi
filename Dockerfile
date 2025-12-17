@@ -23,14 +23,22 @@ COPY requirements.txt .
 
 # Install CPU-only PyTorch and sentence-transformers (to avoid GPU version with Triton)
 # Force CPU-only version by using PyTorch's CPU wheel index
-RUN PIP_INDEX_URL=https://download.pytorch.org/whl/cpu \
-    PIP_EXTRA_INDEX_URL=https://pypi.org/simple \
-    uv pip install --python /usr/bin/python3.11 \
+RUN uv pip install --python /usr/bin/python3.11 \
+    --index-url https://download.pytorch.org/whl/cpu \
+    --extra-index-url https://pypi.org/simple \
     torch torchvision torchaudio sentence-transformers==2.3.1
+
+# Remove Triton if accidentally installed (GPU-only library)
+RUN python3.11 -m pip uninstall -y triton 2>/dev/null || true && \
+    rm -rf /usr/local/lib/python3.11/dist-packages/triton* 2>/dev/null || true
 
 # Install other dependencies
 # PyTorch CPU version is already installed and will not be reinstalled
 RUN uv pip install --python /usr/bin/python3.11 -r requirements.txt
+
+# Final cleanup: Remove Triton again if any dependency brought it back
+RUN python3.11 -m pip uninstall -y triton 2>/dev/null || true && \
+    rm -rf /usr/local/lib/python3.11/dist-packages/triton* 2>/dev/null || true
 
 # Clean up build stage caches to reduce layer size
 RUN rm -rf /root/.cache/pip /root/.cache/uv /tmp/* /var/tmp/* && \

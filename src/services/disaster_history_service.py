@@ -21,7 +21,9 @@ class DisasterHistoryService:
 
     def __init__(self):
         """서비스 초기화"""
-        self.db = DatabaseManager(database_url=settings.DATABASE_URL)
+        # DatabaseManager는 환경변수에서 개별 파라미터를 조합
+        # settings.DATABASE_URL 대신 개별 환경변수 사용
+        self.db = DatabaseManager()
 
     async def get_disaster_history(
         self, filters: DisasterHistoryFilter

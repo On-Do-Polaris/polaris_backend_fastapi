@@ -244,14 +244,20 @@ class AnalysisService:
                     'longitude': site.longitude
                 }
 
-            # 1-1. calculate API 호출 (동기) - 다중 사업장 병렬 처리
-            self.logger.info(f"  [ModelOps] calculate API 호출: {len(sites_dict)}개 사업장")
-            calculate_result = modelops_client.calculate_site_risk(
-                sites=sites_dict,
-                building_info=building_info,
-                asset_info=asset_info
-            )
-            self.logger.info(f"  [ModelOps] calculate 완료: {calculate_result.get('status')}, {calculate_result.get('calculated_at')}")
+            # 1-1. calculate API 호출 (비동기 트리거)
+            # 몇 시간 걸릴 수 있으므로 트리거만 하고 결과를 기다리지 않음
+            # TCFD Agent가 DB에서 데이터를 체크하면서 대기
+            self.logger.info(f"  [ModelOps] calculate API 트리거: {len(sites_dict)}개 사업장")
+            try:
+                calculate_result = modelops_client.calculate_site_risk(
+                    sites=sites_dict,
+                    building_info=building_info,
+                    asset_info=asset_info
+                )
+                self.logger.info(f"  [ModelOps] calculate 트리거 완료: {calculate_result.get('status')}")
+            except Exception as e:
+                # 트리거 실패해도 Agent는 계속 진행 (DB 체크 로직이 있음)
+                self.logger.warning(f"  [ModelOps] calculate 트리거 실패: {str(e)}")
 
             # 1-2. recommend-locations API 호출 (비동기 트리거) - 다중 사업장 병렬 처리
             # candidate_grids는 None으로 전달하여 ModelOps가 고정 위치 사용하도록 함
@@ -382,6 +388,16 @@ class AnalysisService:
                 self.logger.warning(f"[TCFD] Qdrant 연결 실패 (RAG 비활성화): {e}")
                 qdrant_client = None
 
+            # Application DB 연결 (TCFD 리포트 저장용)
+            from ai_agent.utils.database import DatabaseManager
+            app_db = DatabaseManager(
+                db_host=os.environ.get('APPLICATION_DB_HOST'),
+                db_port=os.environ.get('APPLICATION_DB_PORT', '5432'),
+                db_name=os.environ.get('APPLICATION_DB_NAME'),
+                db_user=os.environ.get('APPLICATION_DB_USER'),
+                db_password=os.environ.get('APPLICATION_DB_PASSWORD')
+            )
+
             # 초기 상태 설정
             initial_state: TCFDReportState = {
                 "site_ids": site_ids,
@@ -391,20 +407,13 @@ class AnalysisService:
                 "current_step": "initialized"
             }
 
-            # 워크플로우 생성
-            workflow = create_tcfd_workflow(self.db, llm, qdrant_client)
+            # 워크플로우 생성 (Application DB 전달)
+            workflow = create_tcfd_workflow(app_db, llm, qdrant_client)
 
-            # 워크플로우 실행 (동기 함수를 비동기로 래핑)
-            # 백그라운드 태스크 내에서 실행되므로 blocking 허용
-            loop = asyncio.get_event_loop()
-
-            # ThreadPoolExecutor를 사용하여 LangGraph 워크플로우 실행
-            # (LangGraph는 동기 함수이므로 별도 스레드에서 실행)
-            self.logger.info(f"[TCFD] 워크플로우 실행 중... (백그라운드 스레드)")
-            final_state = await loop.run_in_executor(
-                None,  # 기본 ThreadPoolExecutor 사용
-                lambda: workflow.invoke(initial_state)
-            )
+            # 워크플로우 실행 (비동기 호출)
+            # 모든 노드가 async 함수이므로 ainvoke 사용
+            self.logger.info(f"[TCFD] 워크플로우 실행 중...")
+            final_state = await workflow.ainvoke(initial_state)
 
             # 결과 확인
             if final_state.get('errors'):

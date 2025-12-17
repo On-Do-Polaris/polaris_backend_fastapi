@@ -133,8 +133,14 @@ class ReportService:
             self.logger.info(f"[TCFD] 파이프라인 시작: site_ids={site_ids}, user_id={user_id}")
 
             # 의존성 초기화
-            app_db_url = os.environ.get('APPLICATION_DATABASE_URL')
-            db_session = DatabaseManager(app_db_url) if app_db_url else None
+            # Application DB 접속 (reports 테이블 저장용)
+            db_session = DatabaseManager(
+                db_host=os.environ.get('APPLICATION_DB_HOST'),
+                db_port=os.environ.get('APPLICATION_DB_PORT', '5432'),
+                db_name=os.environ.get('APPLICATION_DB_NAME'),
+                db_user=os.environ.get('APPLICATION_DB_USER'),
+                db_password=os.environ.get('APPLICATION_DB_PASSWORD')
+            )
 
             llm = ChatOpenAI(
                 model="gpt-4o",

@@ -366,14 +366,21 @@ class DataPreprocessingNode:
     async def _load_single_site_modelops(
         self,
         site: Dict[str, Any],
-        target_years: Optional[List[str]] = None
+        target_years: Optional[List[str]] = None,
+        max_wait_seconds: Optional[int] = None,  # None이면 무한정 대기
+        poll_interval: int = 30  # 30초마다 체크
     ) -> Optional[Dict[str, List[Dict]]]:
         """
         단일 사업장 ModelOps 결과 조회 (5개 테이블)
 
+        ModelOps calculate API가 몇 시간 걸릴 수 있으므로,
+        결과가 DB에 저장될 때까지 주기적으로 체크합니다.
+
         Args:
             site: 사이트 정보 Dict
             target_years: 분석 목표 연도 리스트 (None이면 전체)
+            max_wait_seconds: 최대 대기 시간 (초, None이면 무한정 대기)
+            poll_interval: 폴링 간격 (초, 기본 30초)
 
         Returns:
             {
@@ -384,28 +391,65 @@ class DataPreprocessingNode:
                 'probability_results': [...]
             }
         """
-        try:
-            site_id = str(site['site_id'])
-            latitude = site['site_info']['latitude']
-            longitude = site['site_info']['longitude']
+        import time
 
-            # DatabaseManager의 fetch_all_modelops_results 사용 (AAL은 datawarehouse에 있음)
-            results = self.dw_db.fetch_all_modelops_results(
-                site_id=site_id,
-                latitude=latitude,
-                longitude=longitude,
-                target_years=target_years,
-                risk_type=None  # 모든 리스크 타입 조회
-            )
+        site_id = str(site['site_id'])
+        latitude = site['site_info']['latitude']
+        longitude = site['site_info']['longitude']
 
-            return results
+        start_time = time.time()
+        attempt = 0
 
-        except Exception as e:
-            self.logger.error(
-                f"사업장 {site['site_id']} ModelOps 결과 조회 실패: {e}",
-                exc_info=True
-            )
-            return None
+        while True:
+            attempt += 1
+            elapsed = time.time() - start_time
+
+            try:
+                # DatabaseManager의 fetch_all_modelops_results 사용
+                results = self.dw_db.fetch_all_modelops_results(
+                    site_id=site_id,
+                    latitude=latitude,
+                    longitude=longitude,
+                    target_years=target_years,
+                    risk_type=None  # 모든 리스크 타입 조회
+                )
+
+                # 결과가 있는지 확인 (최소한 AAL 결과가 있어야 함)
+                if results and results.get('aal_scaled_results'):
+                    self.logger.info(
+                        f"사업장 {site_id} ModelOps 결과 조회 성공 "
+                        f"(시도 {attempt}회, {elapsed:.1f}초 소요)"
+                    )
+                    return results
+
+                # 결과가 없으면 대기
+                # max_wait_seconds가 None이면 무한정 대기
+                if max_wait_seconds is not None and elapsed >= max_wait_seconds:
+                    self.logger.error(
+                        f"사업장 {site_id} ModelOps 결과 대기 시간 초과 "
+                        f"({max_wait_seconds}초). 데이터가 준비되지 않았습니다."
+                    )
+                    return None
+
+                # 폴링 간격만큼 대기
+                wait_status = "무한정 대기" if max_wait_seconds is None else f"{max_wait_seconds - elapsed:.0f}초 남음"
+                self.logger.info(
+                    f"사업장 {site_id} ModelOps 결과 대기 중... "
+                    f"(시도 {attempt}회, {elapsed:.1f}초 경과, {wait_status}, {poll_interval}초 후 재시도)"
+                )
+                await asyncio.sleep(poll_interval)
+
+            except Exception as e:
+                self.logger.error(
+                    f"사업장 {site_id} ModelOps 결과 조회 실패 (시도 {attempt}회): {e}",
+                    exc_info=True
+                )
+
+                # 에러 발생 시에도 대기 시간 체크
+                if max_wait_seconds is not None and elapsed >= max_wait_seconds:
+                    return None
+
+                await asyncio.sleep(poll_interval)
 
     # ==================== BC Agent 실행 ====================
 

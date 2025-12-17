@@ -70,9 +70,15 @@ jobs:
           sudo rm -rf /opt/ghc
           sudo rm -rf /usr/local/share/boost
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/hostedtoolcache
 
-          echo "Docker 이미지 정리 중..."
-          docker image prune -af || true
+          echo "APT 캐시 정리 중..."
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+
+          echo "Docker 시스템 전체 정리 중..."
+          docker system prune -af --volumes || true
 
           echo "디스크 사용량 (정리 후):"
           df -h

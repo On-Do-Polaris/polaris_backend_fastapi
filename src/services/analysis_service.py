@@ -313,15 +313,21 @@ class AnalysisService:
                     'longitude': site.longitude
                 }
 
+            # ModelOps에 보낼 연도 리스트 생성 (2021~2100 + 장기년도)
+            target_years_for_modelops = [str(year) for year in range(2021, 2101)]  # 2021~2100
+            target_years_for_modelops.extend(['2020s', '2030s', '2040s', '2050s'])  # 장기년도 추가
+            self.logger.info(f"  [ModelOps] target_years 생성 완료: {len(target_years_for_modelops)}개 연도 (2021-2100 + 장기년도)")
+
             # 1-1. calculate API 호출 (비동기 트리거)
             # 몇 시간 걸릴 수 있으므로 트리거만 하고 결과를 기다리지 않음
             # TCFD Agent가 DB에서 데이터를 체크하면서 대기
-            self.logger.info(f"  [ModelOps] calculate API 트리거: {len(sites_dict)}개 사업장")
+            self.logger.info(f"  [ModelOps] calculate API 트리거: {len(sites_dict)}개 사업장, {len(target_years_for_modelops)}개 연도")
             try:
                 calculate_result = modelops_client.calculate_site_risk(
                     sites=sites_dict,
                     building_info=building_info,
-                    asset_info=asset_info
+                    asset_info=asset_info,
+                    target_years=target_years_for_modelops
                 )
                 self.logger.info(f"  [ModelOps] calculate 트리거 완료: {calculate_result.get('status')}")
             except Exception as e:

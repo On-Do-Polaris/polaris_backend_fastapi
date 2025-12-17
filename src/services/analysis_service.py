@@ -321,6 +321,9 @@ class AnalysisService:
                 # 둘 다 완료되면 status='done' 설정
                 self._update_job_in_db(job_id, status='done', progress=100, results=agent_result, error=error)
                 self.logger.info(f"[BACKGROUND] 모든 작업 완료 (Agent + Recommendation): job_id={job_id}")
+
+                # Spring Boot API 호출 (userId 전송)
+                await self._notify_springboot_completion(job_id, request.user_id)
             else:
                 # Agent만 완료, Recommendation 대기 중
                 self._update_job_in_db(job_id, status='ing', progress=90, results=agent_result, error=error)
@@ -1156,6 +1159,22 @@ class AnalysisService:
             self.logger.error(f"Failed to get latest job: {e}")
             return None
 
+    async def _notify_springboot_completion(self, job_id: UUID, user_id: Optional[UUID]):
+        """Spring Boot API 호출 헬퍼 메서드"""
+        try:
+            if user_id:
+                from ai_agent.services import get_springboot_client
+                springboot_client = get_springboot_client()
+
+                self.logger.info(f"[SPRINGBOOT] API 호출: job_id={job_id}, user_id={user_id}")
+                springboot_client.notify_analysis_completion(user_id)
+                self.logger.info(f"[SPRINGBOOT] API 호출 성공: job_id={job_id}")
+            else:
+                self.logger.warning(f"[SPRINGBOOT] user_id가 없습니다: job_id={job_id}")
+        except Exception as e:
+            self.logger.error(f"[SPRINGBOOT] API 호출 실패: job_id={job_id}, error={e}", exc_info=True)
+            # API 호출 실패해도 전체 프로세스는 계속 진행
+
     async def mark_modelops_recommendation_completed(self, batch_id: UUID):
         """ModelOps 서버에서 후보지 추천 완료 시 호출하는 메서드"""
         self.logger.info(f"[MODELOPS] 후보지 추천 완료 알림 수신: batch_id={batch_id}")
@@ -1194,22 +1213,8 @@ class AnalysisService:
             self.logger.info(f"[MODELOPS] 모든 작업 완료: batch_id={batch_id}")
 
             # Spring Boot API 호출 (userId 전송)
-            try:
-                # created_by에서 userId 추출
-                user_id = job.get('created_by')
-
-                if user_id:
-                    from ai_agent.services import get_springboot_client
-                    springboot_client = get_springboot_client()
-
-                    self.logger.info(f"[MODELOPS] Spring Boot API 호출: user_id={user_id}")
-                    springboot_client.notify_analysis_completion(user_id)
-                    self.logger.info(f"[MODELOPS] Spring Boot API 호출 성공")
-                else:
-                    self.logger.warning(f"[MODELOPS] user_id가 없습니다: batch_id={batch_id}")
-            except Exception as e:
-                self.logger.error(f"[MODELOPS] Spring Boot API 호출 실패: {e}", exc_info=True)
-                # API 호출 실패해도 전체 프로세스는 계속 진행
+            user_id = job.get('created_by')
+            await self._notify_springboot_completion(batch_id, user_id)
         else:
             self.logger.info(f"[MODELOPS] Recommendation 완료, Agent 대기 중: batch_id={batch_id}")
 

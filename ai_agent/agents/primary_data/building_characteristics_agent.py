@@ -63,11 +63,12 @@ class BuildingCharacteristicsAgent:
         - BuildingCharacteristicsAgent: 분석 (DB 조회만 → LLM → 결과) - Node 0 호출
     """
 
-    def __init__(self, llm_client=None, db_url: Optional[str] = None):
+    def __init__(self, llm_client=None, db_url: Optional[str] = None, db_manager=None):
         """
         초기화
         :param llm_client: LLM 클라이언트 인스턴스 (텍스트 생성용)
-        :param db_url: Datawarehouse DB URL (building_aggregate_cache 테이블 접근용)
+        :param db_url: Datawarehouse DB URL (building_aggregate_cache 테이블 접근용) - DEPRECATED
+        :param db_manager: DatabaseManager 인스턴스 (권장)
         """
         self.logger = logger
         self.llm_client = llm_client
@@ -75,7 +76,7 @@ class BuildingCharacteristicsAgent:
         # BuildingDataLoader 초기화 (ETL 담당)
         if BuildingDataLoader:
             try:
-                self.data_loader = BuildingDataLoader(db_url=db_url)
+                self.data_loader = BuildingDataLoader(db_url=db_url, db_manager=db_manager)
                 self.logger.info("BuildingDataLoader 초기화 성공")
             except Exception as e:
                 self.logger.error(f"BuildingDataLoader 초기화 실패: {e}")

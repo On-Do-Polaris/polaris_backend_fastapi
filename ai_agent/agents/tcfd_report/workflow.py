@@ -217,7 +217,7 @@ async def node_1_func(state: TCFDReportState) -> TCFDReportState:
 
     from .node_1_template_loading import TemplateLoadingNode
 
-    node = TemplateLoadingNode(_llm, _qdrant_client)
+    node = TemplateLoadingNode(_llm)
     result = await node.execute(state["sites_data"])
 
     print(f"✅ Node 1 완료: templates={len(result.get('templates', {}))}개")

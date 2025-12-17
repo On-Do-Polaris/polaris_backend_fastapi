@@ -39,7 +39,7 @@ class ModelOpsClient:
 		self,
 		base_url: Optional[str] = None,
 		api_key: Optional[str] = None,
-		timeout: float = 300.0,
+		timeout: float = 1800.0,
 		max_retries: int = 3
 	):
 		"""
@@ -48,7 +48,7 @@ class ModelOpsClient:
 		Args:
 			base_url: ModelOps API Base URL (None인 경우 환경변수 MODELOPS_URL 사용)
 			api_key: API 인증 키 (선택)
-			timeout: 요청 타임아웃 (초) - 기본 300초 (후보지 추천은 시간이 오래 걸림)
+			timeout: 요청 타임아웃 (초) - 기본 1800초 (30분, 후보지 추천은 시간이 오래 걸림)
 			max_retries: 최대 재시도 횟수
 		"""
 		import os
@@ -331,7 +331,7 @@ def get_modelops_client() -> ModelOpsClient:
 		_modelops_client = ModelOpsClient(
 			base_url=base_url,
 			api_key=api_key,
-			timeout=300.0,  # 후보지 추천은 시간이 오래 걸릴 수 있음
+			timeout=1800.0,  # 30분 (후보지 추천은 시간이 오래 걸릴 수 있음)
 			max_retries=3
 		)
 

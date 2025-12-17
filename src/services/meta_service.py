@@ -106,9 +106,14 @@ class MetaService:
         """데이터베이스 헬스체크 - batch_jobs 테이블 접근 테스트"""
         logger = logging.getLogger(__name__)
 
-        # DATABASE_URL 환경변수 확인
-        database_url = os.getenv('DATABASE_URL')
-        database_url_configured = database_url is not None and database_url != ""
+        # DB 환경변수 확인 (DB_HOST, DB_USER, DB_PASSWORD, DB_NAME)
+        db_host = os.getenv('DB_HOST')
+        db_user = os.getenv('DB_USER')
+        db_password = os.getenv('DB_PASSWORD')
+        db_name = os.getenv('DB_NAME')
+
+        # 필수 환경변수가 모두 설정되어 있는지 확인
+        database_url_configured = all([db_host, db_user, db_password, db_name])
 
         # 초기 응답 값
         status = "unhealthy"
@@ -118,7 +123,12 @@ class MetaService:
         error_message = None
 
         if not database_url_configured:
-            error_message = "DATABASE_URL 환경변수가 설정되지 않았습니다."
+            missing = []
+            if not db_host: missing.append("DB_HOST")
+            if not db_user: missing.append("DB_USER")
+            if not db_password: missing.append("DB_PASSWORD")
+            if not db_name: missing.append("DB_NAME")
+            error_message = f"DB 환경변수가 설정되지 않았습니다: {', '.join(missing)}"
         else:
             # DatabaseManager 초기화 및 연결 테스트
             try:
@@ -140,7 +150,7 @@ class MetaService:
                     database_connection = "query_failed"
 
             except ValueError as e:
-                # DATABASE_URL이 설정되지 않은 경우
+                # DB 환경변수가 설정되지 않은 경우
                 error_message = f"DatabaseManager 초기화 실패: {str(e)}"
                 database_connection = "init_failed"
             except Exception as e:

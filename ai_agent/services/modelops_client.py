@@ -85,7 +85,8 @@ class ModelOpsClient:
 		self,
 		sites: Dict[str, Dict[str, float]],
 		building_info: Optional[Dict[str, Any]] = None,
-		asset_info: Optional[Dict[str, Any]] = None
+		asset_info: Optional[Dict[str, Any]] = None,
+		target_years: Optional[List[str]] = None
 	) -> Dict[str, Any]:
 		"""
 		사업장 리스크 계산 요청 (다중 사업장 병렬 처리)
@@ -113,6 +114,8 @@ class ModelOpsClient:
 					"total_value": 50000000000,  # 총 자산 가치 (원)
 					"insurance_coverage_rate": 0.3  # 보험 커버리지 비율 (0~1)
 				}
+			target_years: 계산할 연도 리스트 (선택)
+				예: ["2021", "2022", ..., "2100", "2020s", "2030s", "2040s", "2050s"]
 
 		Returns:
 			{
@@ -124,7 +127,7 @@ class ModelOpsClient:
 				"calculated_at": str  # ISO 8601 형식
 			}
 		"""
-		self.logger.info(f"사업장 리스크 계산 요청: {len(sites)}개 사업장")
+		self.logger.info(f"사업장 리스크 계산 요청: {len(sites)}개 사업장, target_years={len(target_years) if target_years else 'all'}")
 
 		# 유효성 검증
 		if not sites or len(sites) == 0:
@@ -149,6 +152,8 @@ class ModelOpsClient:
 			payload["building_info"] = building_info
 		if asset_info:
 			payload["asset_info"] = asset_info
+		if target_years:
+			payload["target_years"] = target_years
 
 		try:
 			response = self.client.post("/api/site-assessment/calculate", json=payload)

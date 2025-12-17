@@ -24,6 +24,12 @@ COPY requirements.txt .
 # Install dependencies using uv with explicit target directory
 RUN uv pip install --python /usr/bin/python3.11 -r requirements.txt
 
+# Clean up build stage caches to reduce layer size
+RUN rm -rf /root/.cache/pip /root/.cache/uv /tmp/* /var/tmp/* && \
+    find /usr/local/lib/python3.11/dist-packages -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && \
+    find /usr/local/lib/python3.11/dist-packages -type f -name "*.pyc" -delete 2>/dev/null || true && \
+    find /usr/local/lib/python3.11/dist-packages -type f -name "*.pyo" -delete 2>/dev/null || true
+
 # Production stage
 FROM ubuntu:22.04 AS production
 

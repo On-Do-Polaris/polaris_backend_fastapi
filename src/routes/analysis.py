@@ -6,6 +6,8 @@ import logging
 
 from src.schemas.analysis import (
     StartAnalysisRequest,
+    CancelAnalysisRequest,
+    CancelAnalysisResponse,
     # EnhanceAnalysisRequest,
     AnalysisJobStatus,
     PhysicalRiskScoreResponse,
@@ -45,8 +47,32 @@ async def start_analysis(
     """
     if not request.sites:
         raise HTTPException(status_code=400, detail="The 'sites' list cannot be empty.")
-    
+
     return await service.start_analysis_async(request, background_tasks)
+
+
+@router.post("/cancel", response_model=CancelAnalysisResponse, status_code=200)
+async def cancel_analysis(
+    request: CancelAnalysisRequest,
+    api_key: str = Depends(verify_api_key),
+    service: AnalysisService = Depends(get_analysis_service),
+):
+    """
+    실행 중인 분석 작업 강제 중단
+
+    분석이 실행 중인 작업을 즉시 중단합니다.
+    jobId는 /api/analysis/start 호출 시 받은 jobId를 사용합니다.
+    """
+    result = await service.cancel_analysis(request.job_id)
+
+    if not result["success"]:
+        raise HTTPException(status_code=404, detail=result["message"])
+
+    return CancelAnalysisResponse(
+        success=result["success"],
+        message=result["message"],
+        job_id=request.job_id
+    )
 
 
 # @router.get("/status", response_model=AnalysisJobStatus)

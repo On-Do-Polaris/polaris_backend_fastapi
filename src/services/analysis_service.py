@@ -82,6 +82,8 @@ class AnalysisService:
         self._analyzer = None
         self._analysis_results = {}  # (job_id별 Agent 결과 저장)
         self._cached_states = {}  # job_id별 State 캐시 (enhance용)
+        self._running_tasks = {}  # job_id별 실행 중인 asyncio.Task 추적
+        self._cancellation_flags = {}  # job_id별 취소 플래그
         self.logger = logging.getLogger("api.services.analysis")
 
         # batch_jobs 테이블 연동 (jobId 기반 조회용)
@@ -98,6 +100,67 @@ class AnalysisService:
             config = load_config()
             self._analyzer = SKAXPhysicalRiskAnalyzer(config)
         return self._analyzer
+
+    def _cleanup_task(self, job_id: UUID):
+        """Task 완료 시 자동 정리"""
+        if job_id in self._running_tasks:
+            del self._running_tasks[job_id]
+        if job_id in self._cancellation_flags:
+            del self._cancellation_flags[job_id]
+        self.logger.info(f"[CLEANUP] Task 정리 완료: job_id={job_id}")
+
+    def _check_cancellation(self, job_id: UUID) -> bool:
+        """취소 요청 확인"""
+        return self._cancellation_flags.get(job_id, False)
+
+    async def cancel_analysis(self, job_id: UUID) -> dict:
+        """
+        실행 중인 분석 작업 강제 중단
+
+        Args:
+            job_id: 중단할 작업의 ID
+
+        Returns:
+            dict: 취소 결과 (success, message)
+        """
+        self.logger.info(f"[CANCEL] 분석 작업 취소 요청: job_id={job_id}")
+
+        # 실행 중인 Task 확인
+        task = self._running_tasks.get(job_id)
+        if not task:
+            self.logger.warning(f"[CANCEL] 실행 중인 작업을 찾을 수 없음: job_id={job_id}")
+            return {
+                "success": False,
+                "message": f"실행 중인 작업을 찾을 수 없습니다. (job_id: {job_id})"
+            }
+
+        # 취소 플래그 설정
+        self._cancellation_flags[job_id] = True
+
+        # Task 취소
+        task.cancel()
+
+        # DB 상태 업데이트
+        try:
+            self._save_job_to_db(
+                job_id=job_id,
+                user_id=None,
+                site_infos=[],
+                hazard_types=[],
+                priority=Priority.NORMAL,
+                options=None,
+                status="cancelled",
+                progress=0,
+                results={"message": "사용자에 의해 취소됨"}
+            )
+        except Exception as e:
+            self.logger.error(f"[CANCEL] DB 상태 업데이트 실패: {e}")
+
+        self.logger.info(f"[CANCEL] 작업 취소 완료: job_id={job_id}")
+        return {
+            "success": True,
+            "message": f"분석 작업이 성공적으로 취소되었습니다. (job_id: {job_id})"
+        }
 
     def _save_job_to_db(self, job_id: UUID, user_id: Optional[UUID], site_infos: list[SiteInfo], hazard_types: list[str], priority: Priority, options: Optional[AnalysisOptions], status: str, progress: int = 0, results: dict = None):
         """batch_jobs 테이블에 job 저장 (다중 사업장 요청 전체에 대한 단일 Job)"""
@@ -207,7 +270,13 @@ class AnalysisService:
             )
 
         # 백그라운드에서 실제 분석 실행
-        background_tasks.add_task(self._run_multi_analysis_background, job_id, request)
+        # asyncio.Task로 래핑하여 취소 가능하도록 함
+        task = asyncio.create_task(self._run_multi_analysis_background(job_id, request))
+        self._running_tasks[job_id] = task
+        self._cancellation_flags[job_id] = False
+
+        # Task 완료 시 자동 정리를 위한 콜백
+        task.add_done_callback(lambda t: self._cleanup_task(job_id))
 
         # For the response, pick the first site's ID for compatibility with existing clients
         first_site_id = request.sites[0].id if request.sites else uuid4()

@@ -817,23 +817,26 @@ Risk Scores: {self._format_dict(risk_scores) if risk_scores else 'None'}
 </BUILDING_DATA>
 
 <OUTPUT_FORMAT>
-Generate JSON with 2 sections:
+Generate JSON with 3 sections (Hybrid Structure):
 
 {{
   "data_summary": {{
-    "one_liner": "1-sentence building summary",
-    "key_characteristics": ["Characteristic 1", "Characteristic 2", "Characteristic 3"],
+    "one_liner": "1-sentence building summary (max 100 chars)",
+    "key_characteristics": ["Characteristic 1 (max 50 chars)", "Characteristic 2", "Characteristic 3"],
     "risk_exposure_level": "High/Medium/Low"
   }},
 
   "report_guidelines": {{
-    "impact_focus": "Key points for impact analysis (financial/operational/asset)",
-    "mitigation_priorities": "Priority adaptation measures (short/mid/long term)",
+    "impact_focus": "2-3 sentences on financial/operational/asset impacts (max 200 chars)",
+    "mitigation_priorities": "2-3 sentences on adaptation measures: short/mid/long term (max 200 chars)",
     "reporting_tone": "warning/neutral/positive"
-  }}
+  }},
+
+  "detailed_context": "Natural narrative (4-6 paragraphs, 600-800 chars total). Include building age, structure type, seismic design, basement facilities, flood risks, and vulnerability factors. Provide rich contextual analysis for downstream agents."
 }}
 
-**OUTPUT LANGUAGE: All text MUST be in KOREAN.** Only JSON keys in English.
+**OUTPUT LANGUAGE: English.** All text in English for optimal token efficiency.
+**CONSTRAINTS:** Total output 600-1000 characters.
 
 Output pure JSON only. No markdown.
 </OUTPUT_FORMAT>

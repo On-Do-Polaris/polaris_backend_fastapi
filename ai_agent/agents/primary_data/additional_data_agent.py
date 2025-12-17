@@ -1,7 +1,7 @@
 '''
 파일명: additional_data_agent.py
-작성일: 2025-12-16
-버전: v07 (2섹션 JSON 출력 간소화, BC Agent와 구조 통일)
+작성일: 2025-12-17
+버전: v08 (Concrete Quantitative Data - 구체적인 정량 데이터 추출 강화)
 파일 개요: 추가 데이터 분석 에이전트 (보고서 생성용 가이드라인 제공)
 
 역할:
@@ -22,6 +22,8 @@
     - 2025-12-16: v05 - DB 조회만 하도록 수정 (Excel 직접 접근 X)
     - 2025-12-16: v06 - 영어 프롬프트 + 한글 출력 (토큰 효율화)
     - 2025-12-16: v07 - 2섹션 JSON 출력 (data_summary + report_guidelines), BC Agent와 구조 통일
+    - 2025-12-17: v08 - Concrete Quantitative Data: key_data_points에 구체적 수치, 단위, 기간 포함 강제
+                        (e.g., "2024 electricity: 500 kWh/month (+10% YoY)" instead of "High electricity usage")
 '''
 
 from typing import Dict, Any, List, Optional
@@ -324,24 +326,59 @@ Site ID: {site_id}
 {data_json}
 </ADDITIONAL_DATA>
 
+<CRITICAL_REQUIREMENTS>
+**CONCRETE QUANTITATIVE DATA IS ESSENTIAL**
+
+When extracting key_data_points, you MUST provide:
+1. **Specific numerical values** (e.g., "500 kWh", "120 m³", "5 billion KRW")
+2. **Time periods** (e.g., "2024", "Q3 2024", "year-over-year")
+3. **Comparisons/trends** (e.g., "+10% YoY", "peak season", "below threshold")
+4. **Unit-specific details** (e.g., "per month", "annually", "during summer")
+
+❌ WRONG (too abstract):
+- "High electricity usage"
+- "Insurance data available"
+- "Energy consumption tracked"
+
+✅ CORRECT (concrete quantitative):
+- "2024 electricity: 500 kWh/month (+10% YoY)"
+- "Gas consumption: 120 m³ (peak in Jul-Aug)"
+- "No fire insurance (building value: 5B KRW)"
+- "Water usage: 200 tons/month (2024 avg)"
+- "Renewable energy: 30% of total consumption"
+
+**EXTRACT NUMBERS FROM THE DATA** - Don't describe, quantify!
+</CRITICAL_REQUIREMENTS>
+
 <OUTPUT_FORMAT>
-Generate JSON with 2 sections:
+Generate JSON with 3 sections (Hybrid Structure):
 
 {{
   "data_summary": {{
-    "one_liner": "1-sentence data summary",
-    "key_data_points": ["Data point 1", "Data point 2", "Data point 3"],
+    "one_liner": "1-sentence data summary with key figures (max 100 chars)",
+    "key_data_points": [
+      "Concrete data point 1 with numbers and units (max 80 chars)",
+      "Concrete data point 2 with numbers and units",
+      "Concrete data point 3 with numbers and units",
+      "Concrete data point 4 with numbers and units (if available)",
+      "Concrete data point 5 with numbers and units (if available)"
+    ],
     "data_availability": "High/Medium/Low"
   }},
 
   "report_guidelines": {{
-    "scenario_analysis_focus": "Key points for scenario analysis",
-    "impact_analysis_focus": "Key points for impact analysis",
-    "mitigation_focus": "Key points for adaptation strategies"
-  }}
+    "scenario_analysis_focus": "How to use quantitative data in scenario analysis (2-3 sentences, max 200 chars)",
+    "impact_analysis_focus": "How to use quantitative data in impact analysis (2-3 sentences, max 200 chars)",
+    "mitigation_focus": "How to use quantitative data in mitigation strategies (2-3 sentences, max 200 chars)"
+  }},
+
+  "detailed_context": "Natural narrative (4-6 paragraphs, 600-800 chars total). Include specific numbers, trends, and quantitative insights. Provide rich contextual analysis that downstream LLM agents can reference for detailed insights."
 }}
 
-**OUTPUT LANGUAGE: All text MUST be in KOREAN.** Only JSON keys in English.
+**OUTPUT LANGUAGE: English.** All text in English for optimal token efficiency.
+**CONSTRAINTS:** Total output 800-1200 characters.
+
+**PRIORITY:** Focus on extracting concrete numbers, units, time periods, and trends.
 
 Output pure JSON only. No markdown.
 </OUTPUT_FORMAT>

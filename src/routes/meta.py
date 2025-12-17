@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from datetime import datetime
 
-from src.schemas.meta import HazardTypeInfo, HealthCheckResponse
+from src.schemas.meta import HazardTypeInfo, HealthCheckResponse, DatabaseHealthCheckResponse
 from src.services.meta_service import MetaService
 from src.core.auth import verify_api_key
 
@@ -24,3 +24,10 @@ async def health_check():
     """헬스체크"""
     service = MetaService()
     return await service.health_check()
+
+
+@router.get("/health/database", response_model=DatabaseHealthCheckResponse)
+async def database_health_check():
+    """데이터베이스 헬스체크 - batch_jobs 테이블 접근 테스트"""
+    service = MetaService()
+    return await service.database_health_check()

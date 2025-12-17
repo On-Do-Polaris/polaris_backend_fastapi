@@ -1,7 +1,9 @@
 from typing import Optional
 from datetime import datetime
+import os
+import logging
 
-from src.schemas.meta import HazardTypeInfo, HealthCheckResponse
+from src.schemas.meta import HazardTypeInfo, HealthCheckResponse, DatabaseHealthCheckResponse
 
 
 class MetaService:
@@ -97,5 +99,61 @@ class MetaService:
             version="1.0.0",
             agentStatus="ready",
             activeJobs=0,
+            timestamp=datetime.now(),
+        )
+
+    async def database_health_check(self) -> DatabaseHealthCheckResponse:
+        """데이터베이스 헬스체크 - batch_jobs 테이블 접근 테스트"""
+        logger = logging.getLogger(__name__)
+
+        # DATABASE_URL 환경변수 확인
+        database_url = os.getenv('DATABASE_URL')
+        database_url_configured = database_url is not None and database_url != ""
+
+        # 초기 응답 값
+        status = "unhealthy"
+        database_connection = "not_configured"
+        batch_jobs_table_accessible = False
+        batch_jobs_count = 0
+        error_message = None
+
+        if not database_url_configured:
+            error_message = "DATABASE_URL 환경변수가 설정되지 않았습니다."
+        else:
+            # DatabaseManager 초기화 및 연결 테스트
+            try:
+                from ai_agent.utils.database import DatabaseManager
+                db = DatabaseManager()
+                database_connection = "initialized"
+
+                # batch_jobs 테이블 카운트 쿼리
+                query = "SELECT COUNT(*) as count FROM batch_jobs"
+                result = db.execute_query(query, ())
+
+                if result and len(result) > 0:
+                    batch_jobs_count = result[0]['count']
+                    batch_jobs_table_accessible = True
+                    database_connection = "success"
+                    status = "healthy"
+                else:
+                    error_message = "batch_jobs 테이블 조회 결과가 없습니다."
+                    database_connection = "query_failed"
+
+            except ValueError as e:
+                # DATABASE_URL이 설정되지 않은 경우
+                error_message = f"DatabaseManager 초기화 실패: {str(e)}"
+                database_connection = "init_failed"
+            except Exception as e:
+                error_message = f"DB 연결 실패: {str(e)}"
+                database_connection = "connection_failed"
+                logger.error(f"Database health check failed: {e}", exc_info=True)
+
+        return DatabaseHealthCheckResponse(
+            status=status,
+            databaseUrlConfigured=database_url_configured,
+            databaseConnection=database_connection,
+            batchJobsTableAccessible=batch_jobs_table_accessible,
+            batchJobsCount=batch_jobs_count,
+            errorMessage=error_message,
             timestamp=datetime.now(),
         )

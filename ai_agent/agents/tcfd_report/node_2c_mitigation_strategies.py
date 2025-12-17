@@ -255,9 +255,12 @@ class MitigationStrategiesNode:
         # RAG 컨텍스트 조회
         rag_context = await self._get_rag_context(risk_type, risk_name_kr)
 
-        # EXHAUSTIVE 프롬프트 작성
-        prompt = f"""
-<ROLE>
+        # 재실행 여부 확인 및 피드백 헤더 생성
+        is_retry = validation_feedback is not None
+        retry_header = self._build_retry_header(validation_feedback, risk_type) if is_retry else ""
+
+        # EXHAUSTIVE 프롬프트 작성 (재실행 시 피드백 헤더가 최상단에 위치)
+        prompt = f"""{retry_header}<ROLE>
 You are an ELITE climate adaptation strategist specializing in TCFD disclosures.
 Your task is to develop **actionable mitigation strategies** for **{risk_name_kr} ({risk_type})** risk.
 </ROLE>
@@ -337,7 +340,6 @@ Tone: {json.dumps(tone, ensure_ascii=False, indent=2)}
 
 Sample Paragraphs (for style reference):
 {self._format_sample_paragraphs(reusable_paragraphs[:3])}
-{self._format_validation_feedback(validation_feedback)}
 
 </INPUT_DATA>
 
@@ -379,6 +381,23 @@ Generate a **comprehensive mitigation strategy** in Korean as a JSON object with
 - Reflect building characteristics data when provided
 - **⚠️ DO NOT generate specific amounts (KRW), specific quantities (500kW, etc.), specific dimensions (2m, etc.) without provided data**
 - Express costs only as "low-cost/medium-cost/high-cost" levels
+
+**CRITICAL LENGTH REQUIREMENTS:**
+- Total Length: 1,500-2,200 words MINIMUM (comprehensive mitigation strategy)
+- Short-Term Actions: 400-600 words (5-6 detailed actions with explanations)
+- Mid-Term Actions: 400-600 words (4-5 detailed actions with explanations)
+- Long-Term Actions: 300-500 words (3-4 strategic directions with explanations)
+- Priority Justification: 100-150 words
+- Expected Benefit: 100-150 words
+- Implementation Considerations: 150-250 words
+
+⚠️ OUTPUT SHORTER THAN 1,500 WORDS WILL BE REJECTED.
+⚠️ Each action MUST include:
+   - Clear action name
+   - Purpose and rationale
+   - Expected effect/outcome
+   - Cost level (Low/Medium/High)
+   - Implementation approach (2-3 sentences)
 
 </OUTPUT_REQUIREMENTS>
 
@@ -525,8 +544,72 @@ Now, generate the mitigation strategy as a JSON object:
 
         return "\n".join(formatted)
 
+    def _build_retry_header(self, feedback: Dict, risk_type: str) -> str:
+        """
+        재실행 시 프롬프트 최상단에 배치할 강력한 피드백 헤더 생성
+
+        이 헤더는 프롬프트의 맨 앞에 위치하여 LLM이 피드백을 최우선으로 처리하도록 함
+        """
+        node_guidance = feedback.get("node_specific_guidance", {}).get("node_2c_mitigation_strategies", {})
+
+        issues = node_guidance.get("issues", [])
+        suggestions = node_guidance.get("retry_guidance", "")
+        failed_criteria = node_guidance.get("failed_criteria", [])
+
+        # 리스크별 피드백도 확인
+        risk_specific = feedback.get("risk_specific_feedback", {}).get(risk_type, {})
+
+        header = f"""
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    🚨 CRITICAL: RETRY MODE ACTIVATED 🚨                       ║
+║                                                                              ║
+║   이전 출력이 검증에 실패했습니다. 아래 피드백을 반드시 반영하세요.              ║
+║   THE PREVIOUS OUTPUT FAILED VALIDATION. YOU MUST ADDRESS THE FEEDBACK BELOW. ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+<VALIDATION_FAILURE_REPORT>
+
+🔴 FAILED CRITERIA (검증 실패 항목):
+"""
+        if failed_criteria:
+            for i, criterion in enumerate(failed_criteria, 1):
+                header += f"   {i}. {criterion}\n"
+
+        header += "\n🔴 SPECIFIC ISSUES FOUND (발견된 문제점):\n"
+        if issues:
+            for i, issue in enumerate(issues, 1):
+                header += f"   {i}. {issue}\n"
+        else:
+            header += "   - 상세 이슈 정보 없음\n"
+
+        # 리스크별 피드백 추가
+        if risk_specific:
+            header += f"\n🔴 RISK-SPECIFIC ISSUES ({risk_type}):\n"
+            risk_issues = risk_specific.get("issues", [])
+            for i, issue in enumerate(risk_issues, 1):
+                header += f"   {i}. {issue}\n"
+
+        header += "\n🟡 REQUIRED CORRECTIONS (필수 수정사항):\n"
+        if suggestions:
+            header += f"   {suggestions}\n"
+        else:
+            header += "   - 위 실패 항목들을 해결하세요\n"
+
+        header += """
+⚠️ IMPORTANT INSTRUCTIONS FOR THIS RETRY:
+   1. 위 피드백 항목들을 최우선으로 해결하세요
+   2. 이전과 동일한 실수를 반복하지 마세요
+   3. 검증 기준을 충족하는 출력을 생성하세요
+   4. 데이터 없이 구체적 비용(억원)을 추정하지 마세요
+   5. 각 대응 전략은 구체적이고 실행 가능해야 합니다
+
+</VALIDATION_FAILURE_REPORT>
+
+"""
+        return header
+
     def _format_validation_feedback(self, feedback: Optional[Dict]) -> str:
-        """재실행 시 Validator 피드백 포맷팅"""
+        """재실행 시 Validator 피드백 포맷팅 (하위 호환성 유지)"""
         if not feedback:
             return ""
 

@@ -355,28 +355,37 @@ Generate JSON with 3 sections (Hybrid Structure):
 
 {{
   "data_summary": {{
-    "one_liner": "1-sentence data summary with key figures (max 100 chars)",
+    "one_liner": "Comprehensive 1-2 sentence summary (100-150 chars) with PRIMARY quantitative insight. Example: '5 data categories covering 2024 energy (15,000 kWh), insurance (5B KRW gap), and water usage (200 tons/month)'",
     "key_data_points": [
-      "Concrete data point 1 with numbers and units (max 80 chars)",
-      "Concrete data point 2 with numbers and units",
-      "Concrete data point 3 with numbers and units",
-      "Concrete data point 4 with numbers and units (if available)",
-      "Concrete data point 5 with numbers and units (if available)"
+      "MUST provide 5-7 data points, each 60-100 chars with SPECIFIC numbers",
+      "Example: '2024 electricity: 500 kWh/month (+10% YoY, peak in summer)'",
+      "Example: 'Insurance gap: 2B KRW (building value 10B, coverage 8B)'",
+      "Example: 'Gas usage: 120 m³/month (heating season: +40%)'",
+      "Example: 'Renewable energy: 30% of total (solar panels installed 2023)'",
+      "Example: 'Water consumption: 200 tons/month (industrial process: 80%)'",
+      "Example: 'Equipment age: HVAC 12 years, electrical 8 years (maintenance due)'"
     ],
-    "data_availability": "High/Medium/Low"
+    "data_availability": "High/Medium/Low with specific justification"
   }},
 
   "report_guidelines": {{
-    "scenario_analysis_focus": "How to use quantitative data in scenario analysis (2-3 sentences, max 200 chars)",
-    "impact_analysis_focus": "How to use quantitative data in impact analysis (2-3 sentences, max 200 chars)",
-    "mitigation_focus": "How to use quantitative data in mitigation strategies (2-3 sentences, max 200 chars)"
+    "scenario_analysis_focus": "4-6 sentences (250-350 chars) explaining HOW quantitative data informs scenario analysis: which climate scenarios are most relevant given the site's energy profile, operational patterns, and geographic risks. Include specific thresholds and trigger points.",
+    "impact_analysis_focus": "4-6 sentences (250-350 chars) detailing HOW quantitative data feeds impact calculations: financial implications (costs, insurance gaps), operational disruptions (downtime estimates), and asset depreciation risks. Include specific monetary figures when available.",
+    "mitigation_focus": "4-6 sentences (250-350 chars) describing HOW quantitative data shapes mitigation priorities: energy efficiency targets, infrastructure upgrades needed, insurance coverage gaps to address. Include ROI considerations and timeline recommendations."
   }},
 
-  "detailed_context": "Natural narrative (4-6 paragraphs, 600-800 chars total). Include specific numbers, trends, and quantitative insights. Provide rich contextual analysis that downstream LLM agents can reference for detailed insights."
+  "detailed_context": "Comprehensive natural narrative (6-10 paragraphs, 1200-1800 chars). MUST include ALL of the following in detail: (1) Data completeness assessment - what categories are available and what's missing, (2) Energy consumption analysis with specific figures (kWh, m³, trends), (3) Insurance coverage analysis with specific values and gaps, (4) Operational patterns that affect climate vulnerability, (5) Key quantitative insights for each TCFD pillar (Governance, Strategy, Risk Management, Metrics), (6) Data-driven recommendations for downstream report generation. Each paragraph should provide actionable, quantitative insights."
 }}
 
 **OUTPUT LANGUAGE: English.** All text in English for optimal token efficiency.
-**CONSTRAINTS:** Total output 800-1200 characters.
+
+**CRITICAL LENGTH REQUIREMENTS:**
+- Total output: 1500-2500 characters MINIMUM
+- detailed_context: 1200-1800 characters (most critical section)
+- key_data_points: Each item should be 60-100 characters with SPECIFIC numbers, units, and time periods
+- Each report_guidelines field: 250-350 characters with concrete, actionable guidance
+
+⚠️ OUTPUT THAT IS SHORTER THAN 1500 CHARACTERS WILL BE REJECTED. Provide comprehensive, quantitative analysis.
 
 **PRIORITY:** Focus on extracting concrete numbers, units, time periods, and trends.
 

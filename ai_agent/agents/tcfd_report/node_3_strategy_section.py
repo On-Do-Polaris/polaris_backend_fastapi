@@ -404,9 +404,12 @@ class StrategySectionNode:
         # RAG 컨텍스트 조회
         rag_context = await self._get_rag_context()
 
-        # EXHAUSTIVE 프롬프트 작성
-        prompt = f"""
-<ROLE>
+        # 재실행 여부 확인 및 피드백 헤더 생성
+        is_retry = validation_feedback is not None
+        retry_header = self._build_retry_header(validation_feedback) if is_retry else ""
+
+        # EXHAUSTIVE 프롬프트 작성 (재실행 시 피드백 헤더가 최상단에 위치)
+        prompt = f"""{retry_header}<ROLE>
 You are an ELITE climate risk communications specialist for TCFD disclosures.
 Your task is to write a compelling **Executive Summary** that synthesizes
 the entire climate risk analysis into a clear, actionable narrative for {audience}.
@@ -464,7 +467,6 @@ Report Template Context:
 - Formality: {formality}
 - Audience: {audience}
 - Voice: {tone.get('voice', 'data-driven, professional')}
-{self._format_validation_feedback(validation_feedback)}
 
 </INPUT_DATA>
 
@@ -477,39 +479,55 @@ The following are relevant excerpts from benchmark TCFD/ESG reports for referenc
 
 Generate an Executive Summary in Korean that:
 
-1. **Length**: 800-1200 words (detailed report-level summary)
-2. **Structure**:
-   - Opening statement (2-3 sentences)
-   - Key findings (4-5 bullets, 2-3 sentences each)
-   - Strategic response (3-4 sentences)
-   - Stakeholder message (2-3 sentences)
-3. **Tone**: {formality}, {tone.get('voice', 'professional')}
-4. **Data-driven**: Only cite provided figures such as AAL(%), number of sites
-5. **Actionable**: Provide clear response direction (but exclude specific amounts)
+1. **Structure**:
+   - Opening statement (150-200 words): Comprehensive portfolio overview with total AAL and site count
+   - Key findings (600-800 words): 4-5 detailed bullet points with thorough analysis
+   - Strategic response (250-350 words): Detailed mitigation overview across time horizons
+   - Stakeholder message (150-200 words): Comprehensive commitment and communication plan
+2. **Tone**: {formality}, {tone.get('voice', 'professional')}
+3. **Data-driven**: Only cite provided figures such as AAL(%), number of sites
+4. **Actionable**: Provide clear response direction (but exclude specific amounts)
 
 ⚠️ **Hallucination Prevention:**
 - For specific amounts (KRW): state "To be calculated after asset value confirmation"
 - DO NOT generate figures not provided in the data
 - Instead of speculation or assumptions, state "Further analysis required"
 
+**CRITICAL LENGTH REQUIREMENTS:**
+- Total Length: 1,200-1,800 words MINIMUM (comprehensive executive-level summary)
+- Opening Statement: 150-200 words (detailed portfolio context)
+- Key Findings: 600-800 words (4-5 comprehensive bullet points, each 120-160 words)
+- Strategic Response: 250-350 words (thorough mitigation strategy overview)
+- Stakeholder Message: 150-200 words (comprehensive commitment statement)
+
+⚠️ OUTPUT SHORTER THAN 1,200 WORDS WILL BE REJECTED.
+⚠️ Each section MUST provide:
+   - Specific data points from INPUT_DATA
+   - Contextual analysis and interpretation
+   - Clear business implications
+   - Forward-looking statements (where appropriate)
+
 Formatting:
 - Use Markdown (##, ###, bullet points)
 - **Bold** key metrics (AAL %, number of sites)
 - Write each section in sufficient detail (do not end with just 2-3 short sentences)
+- Each bullet point in Key Findings must be 3-4 sentences minimum
 
 </OUTPUT_REQUIREMENTS>
 
 <QUALITY_CHECKLIST>
 Before submitting, verify:
-- [ ] Opening statement clearly states the overall risk level with AAL(%)
+- [ ] Opening statement clearly states the overall risk level with AAL(%) (150-200 words)
 - [ ] Top 3 risks are cited with AAL values from INPUT_DATA
+- [ ] Key Findings section has 4-5 detailed bullets (600-800 words total)
+- [ ] Each Key Finding bullet is 3-4 sentences with specific data
 - [ ] Scenario analysis is summarized (AAL trends by SSP)
-- [ ] Mitigation strategy direction is included (excluding specific amounts)
-- [ ] Stakeholder message conveys commitment to TCFD
+- [ ] Mitigation strategy direction is included (250-350 words, excluding specific amounts)
+- [ ] Stakeholder message conveys commitment to TCFD (150-200 words)
 - [ ] ⚠️ Verify all figures are from INPUT_DATA
 - [ ] ⚠️ Confirm no specific amounts (KRW) are included
 - [ ] ⚠️ Confirm no speculation or assumptions are included
-- [ ] Length is 800-1200 words
+- [ ] ⚠️ TOTAL LENGTH IS 1,200-1,800 WORDS MINIMUM
 - [ ] Tone matches the template requirements
 </QUALITY_CHECKLIST>
 
@@ -742,8 +760,62 @@ Node 2-A 시나리오 분석에서 확인된 바와 같이,
 
         return integrated_blocks
 
+    def _build_retry_header(self, feedback: Dict) -> str:
+        """
+        재실행 시 프롬프트 최상단에 배치할 강력한 피드백 헤더 생성
+
+        이 헤더는 프롬프트의 맨 앞에 위치하여 LLM이 피드백을 최우선으로 처리하도록 함
+        """
+        node_guidance = feedback.get("node_specific_guidance", {}).get("node_3_strategy_section", {})
+
+        issues = node_guidance.get("issues", [])
+        suggestions = node_guidance.get("retry_guidance", "")
+        failed_criteria = node_guidance.get("failed_criteria", [])
+
+        header = """
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    🚨 CRITICAL: RETRY MODE ACTIVATED 🚨                       ║
+║                                                                              ║
+║   이전 출력이 검증에 실패했습니다. 아래 피드백을 반드시 반영하세요.              ║
+║   THE PREVIOUS OUTPUT FAILED VALIDATION. YOU MUST ADDRESS THE FEEDBACK BELOW. ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+<VALIDATION_FAILURE_REPORT>
+
+🔴 FAILED CRITERIA (검증 실패 항목):
+"""
+        if failed_criteria:
+            for i, criterion in enumerate(failed_criteria, 1):
+                header += f"   {i}. {criterion}\n"
+
+        header += "\n🔴 SPECIFIC ISSUES FOUND (발견된 문제점):\n"
+        if issues:
+            for i, issue in enumerate(issues, 1):
+                header += f"   {i}. {issue}\n"
+        else:
+            header += "   - 상세 이슈 정보 없음\n"
+
+        header += "\n🟡 REQUIRED CORRECTIONS (필수 수정사항):\n"
+        if suggestions:
+            header += f"   {suggestions}\n"
+        else:
+            header += "   - 위 실패 항목들을 해결하세요\n"
+
+        header += """
+⚠️ IMPORTANT INSTRUCTIONS FOR THIS RETRY:
+   1. 위 피드백 항목들을 최우선으로 해결하세요
+   2. 이전과 동일한 실수를 반복하지 마세요
+   3. 검증 기준을 충족하는 출력을 생성하세요
+   4. 데이터 없이 구체적 금액(억원)을 추정하지 마세요
+   5. Executive Summary는 800-1200 단어로 작성하세요
+
+</VALIDATION_FAILURE_REPORT>
+
+"""
+        return header
+
     def _format_validation_feedback(self, feedback: Optional[Dict]) -> str:
-        """재실행 시 Validator 피드백 포맷팅"""
+        """재실행 시 Validator 피드백 포맷팅 (하위 호환성 유지)"""
         if not feedback:
             return ""
 

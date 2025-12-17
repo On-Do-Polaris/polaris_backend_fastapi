@@ -366,9 +366,12 @@ class ImpactAnalysisNode:
         # RAG 컨텍스트 조회 (벤치마크 보고서에서 유사 영향 분석 사례 검색)
         rag_context = await self._get_rag_context(risk_type, risk_name_kr)
 
-        # EXHAUSTIVE 프롬프트 작성
-        prompt = f"""
-<ROLE>
+        # 재실행 여부 확인 및 피드백 헤더 생성
+        is_retry = validation_feedback is not None
+        retry_header = self._build_retry_header(validation_feedback, risk_type) if is_retry else ""
+
+        # EXHAUSTIVE 프롬프트 작성 (재실행 시 피드백 헤더가 최상단에 위치)
+        prompt = f"""{retry_header}<ROLE>
 You are an ELITE climate risk impact analyst specializing in TCFD disclosures.
 Your task is to analyze the impact of {risk_name_kr} ({risk_type}) risk
 on the company's operations, assets, and financial performance.
@@ -448,7 +451,6 @@ Sample Paragraphs:
 The following are relevant excerpts from benchmark TCFD/ESG reports for reference on writing style and structure:
 {rag_context}
 </RAG_REFERENCE_CONTEXT>
-{self._format_validation_feedback(validation_feedback)}
 
 </INPUT_DATA>
 
@@ -494,8 +496,20 @@ Formatting:
 - Clearly indicate that data source is INPUT_DATA
 - Mark uncertain information as "추정" (estimated) or "추가 분석 필요" (additional analysis required)
 
-**CRITICAL: Length MUST be 1,200-1,800 words total (report-level detailed analysis required)**
-**Each section must be at least 400 words**
+**CRITICAL LENGTH REQUIREMENTS:**
+- Total Length: 1,800-2,500 words MINIMUM (comprehensive report-level analysis)
+- Financial Impact: 500-700 words (5-7 detailed paragraphs)
+- Operational Impact: 500-700 words (5-7 detailed paragraphs)
+- Asset Impact: 500-700 words (5-7 detailed paragraphs)
+- Summary: 200-300 words (comprehensive synthesis)
+
+⚠️ OUTPUT SHORTER THAN 1,800 WORDS WILL BE REJECTED.
+⚠️ Each section MUST provide in-depth analysis with:
+   - Specific data points from INPUT_DATA
+   - Multiple sub-topics within each impact category
+   - Clear cause-effect relationships
+   - Actionable insights for risk management
+
 **⚠️ DO NOT generate unprovided information (insurance, specific amounts, quarterly schedules, etc.)**
 
 </OUTPUT_REQUIREMENTS>
@@ -775,8 +789,72 @@ Now, generate the impact analysis as a JSON object with keys:
             print(f"⚠️  RAG 조회 실패: {e}")
             return "RAG context unavailable - proceed with provided data only."
 
+    def _build_retry_header(self, feedback: Dict, risk_type: str) -> str:
+        """
+        재실행 시 프롬프트 최상단에 배치할 강력한 피드백 헤더 생성
+
+        이 헤더는 프롬프트의 맨 앞에 위치하여 LLM이 피드백을 최우선으로 처리하도록 함
+        """
+        node_guidance = feedback.get("node_specific_guidance", {}).get("node_2b_impact_analysis", {})
+
+        issues = node_guidance.get("issues", [])
+        suggestions = node_guidance.get("retry_guidance", "")
+        failed_criteria = node_guidance.get("failed_criteria", [])
+
+        # 리스크별 피드백도 확인
+        risk_specific = feedback.get("risk_specific_feedback", {}).get(risk_type, {})
+
+        header = f"""
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    🚨 CRITICAL: RETRY MODE ACTIVATED 🚨                       ║
+║                                                                              ║
+║   이전 출력이 검증에 실패했습니다. 아래 피드백을 반드시 반영하세요.              ║
+║   THE PREVIOUS OUTPUT FAILED VALIDATION. YOU MUST ADDRESS THE FEEDBACK BELOW. ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+<VALIDATION_FAILURE_REPORT>
+
+🔴 FAILED CRITERIA (검증 실패 항목):
+"""
+        if failed_criteria:
+            for i, criterion in enumerate(failed_criteria, 1):
+                header += f"   {i}. {criterion}\n"
+
+        header += "\n🔴 SPECIFIC ISSUES FOUND (발견된 문제점):\n"
+        if issues:
+            for i, issue in enumerate(issues, 1):
+                header += f"   {i}. {issue}\n"
+        else:
+            header += "   - 상세 이슈 정보 없음\n"
+
+        # 리스크별 피드백 추가
+        if risk_specific:
+            header += f"\n🔴 RISK-SPECIFIC ISSUES ({risk_type}):\n"
+            risk_issues = risk_specific.get("issues", [])
+            for i, issue in enumerate(risk_issues, 1):
+                header += f"   {i}. {issue}\n"
+
+        header += "\n🟡 REQUIRED CORRECTIONS (필수 수정사항):\n"
+        if suggestions:
+            header += f"   {suggestions}\n"
+        else:
+            header += "   - 위 실패 항목들을 해결하세요\n"
+
+        header += """
+⚠️ IMPORTANT INSTRUCTIONS FOR THIS RETRY:
+   1. 위 피드백 항목들을 최우선으로 해결하세요
+   2. 이전과 동일한 실수를 반복하지 마세요
+   3. 검증 기준을 충족하는 출력을 생성하세요
+   4. 데이터 없이 구체적 금액(억원)을 추정하지 마세요
+   5. 불확실한 정보는 "추가 분석 필요"로 표기하세요
+
+</VALIDATION_FAILURE_REPORT>
+
+"""
+        return header
+
     def _format_validation_feedback(self, feedback: Optional[Dict]) -> str:
-        """재실행 시 Validator 피드백 포맷팅"""
+        """재실행 시 Validator 피드백 포맷팅 (하위 호환성 유지)"""
         if not feedback:
             return ""
 

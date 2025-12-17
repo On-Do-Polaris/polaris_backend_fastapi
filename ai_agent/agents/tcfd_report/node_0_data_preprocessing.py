@@ -474,14 +474,14 @@ class DataPreprocessingNode:
         building_data: Dict[int, Dict[str, Any]] = {}
 
         try:
-            # DB URL 전달 (building_aggregate_cache 테이블 접근용)
+            # DatabaseManager 전달 (building_aggregate_cache 테이블 접근용)
             bc_agent = BuildingCharacteristicsAgent(
                 llm_client=self.llm_client,
-                db_url=self.dw_db_url
+                db_manager=self.dw_db
             )
 
             # Raw data 조회용 Loader
-            bc_loader = BuildingDataLoader(db_url=self.dw_db_url)
+            bc_loader = BuildingDataLoader(db_manager=self.dw_db)
 
             for i in range(0, len(site_data), self.bc_chunk_size):
                 chunk = site_data[i:i + self.bc_chunk_size]
@@ -731,10 +731,10 @@ class DataPreprocessingNode:
             (additional_data: Dict, use_additional_data: bool)
         """
         try:
-            # DB URL 전달 (site_additional_data 테이블 접근용)
+            # DatabaseManager 전달 (site_additional_data 테이블 접근용)
             agent = AdditionalDataAgent(
                 llm_client=self.llm_client,
-                db_url=self.dw_db_url
+                db_manager=self.dw_db
             )
 
             result = await agent.analyze_from_db(site_ids)

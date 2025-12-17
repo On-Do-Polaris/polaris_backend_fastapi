@@ -59,11 +59,12 @@ class AdditionalDataAgent:
         - AdditionalDataAgent: 분석 (DB 조회만 → LLM → 가이드라인) - Node 0 호출
     """
 
-    def __init__(self, llm_client=None, db_url: Optional[str] = None):
+    def __init__(self, llm_client=None, db_url: Optional[str] = None, db_manager=None):
         """
         초기화
         :param llm_client: LLM 클라이언트 인스턴스 (텍스트 생성용)
-        :param db_url: Datawarehouse DB URL (site_additional_data 테이블 접근용)
+        :param db_url: Datawarehouse DB URL (site_additional_data 테이블 접근용) - DEPRECATED
+        :param db_manager: DatabaseManager 인스턴스 (권장)
         """
         self.logger = logger
         self.llm_client = llm_client
@@ -71,7 +72,7 @@ class AdditionalDataAgent:
         # AdditionalDataLoader 초기화 (DB 조회용)
         if AdditionalDataLoader:
             try:
-                self.data_loader = AdditionalDataLoader(db_url=db_url)
+                self.data_loader = AdditionalDataLoader(db_url=db_url, db_manager=db_manager)
                 self.logger.info("AdditionalDataLoader 초기화 성공")
             except Exception as e:
                 self.logger.error(f"AdditionalDataLoader 초기화 실패: {e}")

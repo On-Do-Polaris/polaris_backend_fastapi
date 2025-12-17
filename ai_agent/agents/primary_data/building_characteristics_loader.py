@@ -109,12 +109,13 @@ class BuildingDataLoader:
         ])
     """
 
-    def __init__(self, db_url: Optional[str] = None):
+    def __init__(self, db_url: Optional[str] = None, db_manager=None):
         """
         초기화
 
         Args:
-            db_url: Datawarehouse DB URL (building_aggregate_cache 테이블 접근용)
+            db_url: Datawarehouse DB URL (building_aggregate_cache 테이블 접근용) - DEPRECATED
+            db_manager: DatabaseManager 인스턴스 (권장)
         """
         self.logger = logger
 
@@ -129,19 +130,18 @@ class BuildingDataLoader:
         else:
             self.fetcher = None
 
-        # DatabaseManager 초기화 (datawarehouse DB)
-        self.db_manager = None
-        if DatabaseManager:
-            try:
-                dw_db_url = db_url or os.getenv('DATAWAREHOUSE_DATABASE_URL') or os.getenv('DATABASE_URL')
-                if dw_db_url:
-                    self.db_manager = DatabaseManager(dw_db_url)
-                    self.logger.info("DatabaseManager 초기화 성공 (building_aggregate_cache)")
-                else:
-                    self.logger.warning("DB URL이 설정되지 않음 - DB 캐시 비활성화")
-            except Exception as e:
-                self.logger.error(f"DatabaseManager 초기화 실패: {e}")
-                self.db_manager = None
+        # DatabaseManager 초기화 또는 전달받은 인스턴스 사용
+        if db_manager:
+            # 전달받은 DatabaseManager 인스턴스 사용 (권장)
+            self.db_manager = db_manager
+            self.logger.info("DatabaseManager 인스턴스 전달받음 (building_aggregate_cache)")
+        elif DatabaseManager and db_url:
+            # DEPRECATED: URL로 초기화 (하위 호환성)
+            self.logger.warning("db_url 사용은 deprecated입니다. db_manager를 전달하세요.")
+            self.db_manager = None
+        else:
+            self.db_manager = None
+            self.logger.warning("DatabaseManager 없음 - DB 캐시 비활성화")
 
     def load_and_cache(
         self,

@@ -163,8 +163,24 @@ def convert_to_frontend_format(report: Dict) -> Dict:
 
     변환 내용:
     1. table 블록의 headers/items 형식 변환
-    2. line_chart → table로 변환 (필요시)
+    2. heatmap_table → table 변환 (data.headers, data.rows 구조 처리)
+    3. line_chart → table로 변환
     """
+    # 리스크 타입 한글-영문 매핑 (value 키용)
+    risk_value_mapping = {
+        "산불": "wildfire",
+        "물부족": "water_stress",
+        "해수면 상승": "sea_level_rise",
+        "태풍": "typhoon",
+        "가뭄": "drought",
+        "극심한 한파": "extreme_cold",
+        "도시 홍수": "urban_flood",
+        "하천 홍수": "river_flood",
+        "극심한 고온": "extreme_heat",
+        "사업장": "site",
+        "Total AAL": "total_aal"
+    }
+
     frontend_report = {
         "report_id": report.get("report_id", f"tcfd_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}"),
         "meta": {
@@ -193,21 +209,91 @@ def convert_to_frontend_format(report: Dict) -> Dict:
                     "content": block.get("content")
                 })
 
-            elif block_type == "table" or block_type == "heatmap_table":
-                # 테이블 형식 변환
-                headers = block.get("headers", [])
-                rows = block.get("rows", []) or block.get("items", [])
+            elif block_type == "heatmap_table":
+                # 히트맵 테이블 변환 (data.headers, data.rows 구조)
+                data = block.get("data", {})
+                raw_headers = data.get("headers", [])
+                raw_rows = data.get("rows", [])
 
-                # headers 변환
-                if headers and isinstance(headers[0], str):
-                    headers = [{"text": h, "value": h.lower().replace(" ", "_")} for h in headers]
+                # headers 변환: 문자열 → {"text": "...", "value": "..."}
+                headers = []
+                for h in raw_headers:
+                    value_key = risk_value_mapping.get(h, h.lower().replace(" ", "_"))
+                    headers.append({"text": h, "value": value_key})
+
+                # rows 변환: {"site_name": "...", "cells": [...]} → {"site": "...", "wildfire": {...}, ...}
+                items = []
+                for row in raw_rows:
+                    item = {"site": row.get("site_name", "")}
+                    cells = row.get("cells", [])
+
+                    # cells를 headers에 맞춰 매핑 (첫 번째 헤더는 "사업장"이므로 건너뜀)
+                    for i, cell in enumerate(cells):
+                        if i + 1 < len(headers):  # +1 because first header is "사업장"
+                            header_value = headers[i + 1]["value"]
+                            if isinstance(cell, dict):
+                                item[header_value] = cell
+                            else:
+                                item[header_value] = {"value": str(cell), "bg_color": "gray"}
+
+                    items.append(item)
+
+                # 기본 범례 생성
+                legend = block.get("legend") or [
+                    {"color": "lightgray", "label": "0-3% (매우 낮음)"},
+                    {"color": "yellow", "label": "3-10% (낮음)"},
+                    {"color": "orange", "label": "10-20% (중간)"},
+                    {"color": "red", "label": "20-30% (높음)"},
+                    {"color": "darkred", "label": "30%+ (매우 높음)"}
+                ]
 
                 frontend_section["blocks"].append({
                     "type": "table",
                     "title": block.get("title"),
-                    "subheading": block.get("subheading"),
+                    "subheading": "2.1 사업장별 AAL 히트맵",
                     "headers": headers,
-                    "items": rows,
+                    "items": items,
+                    "legend": legend
+                })
+
+            elif block_type == "table":
+                # 일반 테이블 형식 변환
+                # data 키 안에 있는 경우와 직접 있는 경우 모두 처리
+                if "data" in block and isinstance(block.get("data"), dict):
+                    data = block.get("data", {})
+                    raw_headers = data.get("headers", [])
+                    raw_rows = data.get("rows", [])
+
+                    # headers 변환: 문자열 → {"text": "...", "value": "..."}
+                    headers = []
+                    for h in raw_headers:
+                        value_key = h.lower().replace(" ", "_").replace("(", "").replace(")", "")
+                        headers.append({"text": h, "value": value_key})
+
+                    # rows 변환: {"cells": [...]} → {"col1": "val1", "col2": "val2", ...}
+                    items = []
+                    for row in raw_rows:
+                        cells = row.get("cells", [])
+                        item = {}
+                        for i, cell in enumerate(cells):
+                            if i < len(headers):
+                                header_value = headers[i]["value"]
+                                item[header_value] = cell
+                        items.append(item)
+                else:
+                    headers = block.get("headers", [])
+                    items = block.get("rows", []) or block.get("items", [])
+
+                    # headers 변환
+                    if headers and isinstance(headers[0], str):
+                        headers = [{"text": h, "value": h.lower().replace(" ", "_")} for h in headers]
+
+                frontend_section["blocks"].append({
+                    "type": "table",
+                    "title": block.get("title"),
+                    "subheading": block.get("subheading") or block.get("title"),
+                    "headers": headers,
+                    "items": items,
                     "legend": block.get("legend")
                 })
 

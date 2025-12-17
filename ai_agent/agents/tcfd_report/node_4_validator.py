@@ -1,7 +1,7 @@
 """
-Node 4: Validator & Refiner v2
-최종 수정일: 2025-12-15
-버전: v2.0
+Node 4: Validator & Refiner v2.1
+최종 수정일: 2025-12-17
+버전: v2.1 - LENGTH VALIDATION ADDED
 
 개요:
     Node 4: TCFD 검증 및 품질 관리 노드
@@ -30,6 +30,7 @@ Node 4: Validator & Refiner v2
 """
 
 import json
+import re
 from typing import Dict, Any, List, Optional
 
 
@@ -68,6 +69,39 @@ class ValidatorNode:
             "Timely"         # 적시성: 최신 정보 반영
         ]
 
+        # 길이 검증 기준 (v2.1 추가)
+        self.length_requirements = {
+            "executive_summary_min_words": 150,
+            "executive_summary_max_words": 300,
+            "total_content_min_words": 1500,
+            "total_content_max_words": 3000,
+            "per_risk_min_words": 200  # 리스크당 최소 단어 수
+        }
+
+    def _count_words(self, text: str) -> int:
+        """
+        텍스트의 단어 수 계산 (한글 + 영어 혼합 지원)
+
+        Args:
+            text: 분석할 텍스트
+
+        Returns:
+            int: 단어 수
+        """
+        if not text:
+            return 0
+
+        # 한글 단어 (연속된 한글 문자)
+        korean_words = re.findall(r'[가-힣]+', text)
+
+        # 영어 단어 (연속된 영문 알파벳)
+        english_words = re.findall(r'[a-zA-Z]+', text)
+
+        # 숫자 (연속된 숫자는 하나의 토큰으로)
+        numbers = re.findall(r'\d+(?:\.\d+)?%?', text)
+
+        return len(korean_words) + len(english_words) + len(numbers)
+
     async def execute(
         self,
         strategy_section: Dict,
@@ -91,13 +125,13 @@ class ValidatorNode:
         print("▶ Node 4: Validator 검증 시작")
         print("="*80)
 
-        # 1. 필수 섹션 체크
-        print("\n[Step 1/4] 필수 요소 완성도 검증...")
+        # 1. 필수 섹션 체크 + 길이 검증 (v2.1)
+        print("\n[Step 1/6] 필수 요소 완성도 및 길이 검증...")
         completeness_issues = self._check_completeness(strategy_section)
-        print(f"  ✅ 완성도 검증 완료 ({len(completeness_issues)}개 이슈)")
+        print(f"  ✅ 완성도/길이 검증 완료 ({len(completeness_issues)}개 이슈)")
 
         # 2. 데이터 일관성 검증
-        print("\n[Step 2/4] 데이터 일관성 검증...")
+        print("\n[Step 2/6] 데이터 일관성 검증...")
         consistency_issues = self._check_data_consistency(
             strategy_section,
             scenario_analysis,
@@ -228,19 +262,32 @@ class ValidatorNode:
                 "message": f"블록 개수 부족: {len(blocks)}개 (최소 5개 권장)"
             })
 
-        # 3. Executive Summary 존재 여부
+        # 3. Executive Summary 존재 여부 및 길이 검증 (v2.1 강화)
         has_exec_summary = False
         for block in blocks:
             if block.get("subheading") == "Executive Summary":
                 has_exec_summary = True
-                # Executive Summary 길이 체크
                 content = block.get("content", "")
-                if len(content) < 200:
+                word_count = self._count_words(content)
+
+                # 단어 수 기반 검증 (150-300 words)
+                min_words = self.length_requirements["executive_summary_min_words"]
+                max_words = self.length_requirements["executive_summary_max_words"]
+
+                if word_count < min_words:
+                    issues.append({
+                        "severity": "critical",
+                        "type": "length",
+                        "field": "executive_summary",
+                        "node": "node_3_strategy_section",
+                        "message": f"Executive Summary가 너무 짧습니다 ({word_count} 단어, 최소 {min_words} 단어 필요)"
+                    })
+                elif word_count > max_words:
                     issues.append({
                         "severity": "warning",
-                        "type": "completeness",
+                        "type": "length",
                         "field": "executive_summary",
-                        "message": f"Executive Summary가 너무 짧습니다 ({len(content)} 글자, 최소 200 글자 권장)"
+                        "message": f"Executive Summary가 너무 깁니다 ({word_count} 단어, 권장 {max_words} 단어 이하)"
                     })
                 break
 
@@ -249,7 +296,25 @@ class ValidatorNode:
                 "severity": "critical",
                 "type": "completeness",
                 "field": "executive_summary",
+                "node": "node_3_strategy_section",
                 "message": "Executive Summary 누락"
+            })
+
+        # 4-1. 전체 콘텐츠 길이 검증 (v2.1 추가)
+        total_content = ""
+        for block in blocks:
+            if block.get("type") == "text":
+                total_content += block.get("content", "") + " "
+        total_word_count = self._count_words(total_content)
+
+        min_total = self.length_requirements["total_content_min_words"]
+        if total_word_count < min_total:
+            issues.append({
+                "severity": "critical",
+                "type": "length",
+                "field": "total_content",
+                "node": "node_3_strategy_section",
+                "message": f"Strategy 섹션 전체 길이가 부족합니다 ({total_word_count} 단어, 최소 {min_total} 단어 필요)"
             })
 
         # 4. HeatmapTableBlock 존재 여부

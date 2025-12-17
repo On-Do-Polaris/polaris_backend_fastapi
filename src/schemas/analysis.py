@@ -47,6 +47,24 @@ class StartAnalysisRequest(BaseModel):
         populate_by_name = True
 
 
+class CancelAnalysisRequest(BaseModel):
+    """분석 작업 취소 요청"""
+    job_id: UUID = Field(..., alias="jobId", description="취소할 작업 ID")
+
+    class Config:
+        populate_by_name = True
+
+
+class CancelAnalysisResponse(BaseModel):
+    """분석 작업 취소 응답"""
+    success: bool = Field(..., description="취소 성공 여부")
+    message: str = Field(..., description="취소 결과 메시지")
+    job_id: UUID = Field(..., alias="jobId", description="취소된 작업 ID")
+
+    class Config:
+        populate_by_name = True
+
+
 # class EnhanceAnalysisRequest(BaseModel):
 #     """추가 데이터를 반영하여 분석 향상"""
 #     site_id: UUID = Field(..., alias="siteId", description="사업장 ID")

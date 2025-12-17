@@ -619,9 +619,9 @@ async def run_full_flow_test(use_mock: bool = True):
     # ========== Step 8: Node 6 - Finalizer (Mock) ==========
     print("\n[Step 8] Node 6: Finalizer 실행 (Mock - DB 저장 생략)...")
 
-    from ai_agent.agents.tcfd_report.node_6_finalizer_v2 import FinalizerNode
+    from ai_agent.agents.tcfd_report.node_6_finalizer import FinalizerNode
 
-    node_6 = FinalizerNode(db_session=None)  # DB 세션 없이 Mock 실행
+    node_6 = FinalizerNode(app_db_url=None)  # DB URL 없이 Mock 실행
 
     result_6 = await node_6.execute(
         report=report,

@@ -18,11 +18,7 @@ from .state import TCFDReportState
 from .schemas import (
     TextBlock,
     TableBlock,
-    HeatmapTableBlock,
-    LineChartBlock,
-    BarChartBlock,
     Section,
-    TableOfContents,
     TCFDReport
 )
 
@@ -32,10 +28,6 @@ __all__ = [
     # Schemas
     "TextBlock",
     "TableBlock",
-    "HeatmapTableBlock",
-    "LineChartBlock",
-    "BarChartBlock",
     "Section",
-    "TableOfContents",
     "TCFDReport",
 ]

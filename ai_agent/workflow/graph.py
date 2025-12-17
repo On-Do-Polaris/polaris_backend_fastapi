@@ -18,18 +18,39 @@
 '''
 from langgraph.graph import StateGraph, END
 from .state import SuperAgentState
-from .nodes import (
-	data_collection_node,
-	risk_assessment_node,
-	report_template_node,
-	impact_analysis_node,
-	strategy_generation_node,
-	report_generation_node,
-	validation_node,
-	refiner_node,
-	finalization_node,
-	building_characteristics_node
-)
+
+# 조건부 import - report_generation 폴더가 없어도 오류 방지
+try:
+	from .nodes import (
+		data_collection_node,
+		risk_assessment_node,
+		report_template_node,
+		impact_analysis_node,
+		strategy_generation_node,
+		report_generation_node,
+		validation_node,
+		refiner_node,
+		finalization_node,
+		building_characteristics_node
+	)
+	WORKFLOW_NODES_AVAILABLE = True
+except ImportError as e:
+	print(f"[WARNING] workflow/nodes.py import 실패: {e}")
+	print("[WARNING] tcfd_report 파이프라인을 사용하세요.")
+	WORKFLOW_NODES_AVAILABLE = False
+	# 더미 함수 정의
+	def _dummy_node(state, config):
+		return {'errors': ['report_generation 모듈이 없습니다. tcfd_report 파이프라인을 사용하세요.']}
+	data_collection_node = _dummy_node
+	risk_assessment_node = _dummy_node
+	report_template_node = _dummy_node
+	impact_analysis_node = _dummy_node
+	strategy_generation_node = _dummy_node
+	report_generation_node = _dummy_node
+	validation_node = _dummy_node
+	refiner_node = _dummy_node
+	finalization_node = _dummy_node
+	building_characteristics_node = _dummy_node
 
 
 def should_retry_validation(state: SuperAgentState) -> str:

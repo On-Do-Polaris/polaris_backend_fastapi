@@ -1,0 +1,46 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	bc_loader(BC Loader<br/>건물 데이터 로드)
+	bc_agent(BC Agent<br/>건물 특성 분석)
+	ad_loader(AD Loader<br/>Excel 데이터 로드)
+	ad_agent(AD Agent<br/>추가 데이터 처리)
+	node0(Node 0: Data Preprocessing<br/>n개 사업장 DB 쿼리 및 통합)
+	node1(Node 1: Template Loading<br/>RAG 엔진으로 TCFD 구조 로딩)
+	node2a(Node 2-A: Scenario Analysis<br/>4개 SSP 시나리오 AAL 계산)
+	node2b(Node 2-B: Impact Analysis<br/>Top 5 리스크 영향 분석)
+	node2c(Node 2-C: Mitigation Strategies<br/>Top 5 리스크 대응 방안)
+	node3(Node 3: Strategy Section<br/>Executive Summary 및 결과 조립)
+	node4(Node 4: Validator<br/>TCFD 7대 원칙 검증 및 재생성 요청)
+	node5(Node 5: Composer<br/>전체 보고서 섹션 조립)
+	node6(Node 6: Finalizer<br/>JSONB DB 저장 및 보고서 ID 생성)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> bc_loader;
+	__start__ -.-> ad_loader;
+	bc_loader --> bc_agent;
+	ad_loader --> ad_agent;
+	bc_agent --> node0;
+	ad_agent -.-> node0;
+	node0 --> node1;
+	node1 --> node2a;
+	node2a --> node4;
+	node4 -.-> node2a;
+	node2a --> node2b;
+	node2b --> node4;
+	node4 -.-> node2b;
+	node2b --> node2c;
+	node2c --> node4;
+	node4 -.-> node2c;
+	node2c --> node3;
+	node3 --> node4;
+	node4 -.-> node3;
+	node4 --> node5;
+	node5 --> node6;
+	node6 --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc

@@ -817,23 +817,34 @@ Risk Scores: {self._format_dict(risk_scores) if risk_scores else 'None'}
 </BUILDING_DATA>
 
 <OUTPUT_FORMAT>
-Generate JSON with 2 sections:
+Generate JSON with 3 sections (Hybrid Structure):
 
 {{
   "data_summary": {{
-    "one_liner": "1-sentence building summary",
-    "key_characteristics": ["Characteristic 1", "Characteristic 2", "Characteristic 3"],
-    "risk_exposure_level": "High/Medium/Low"
+    "one_liner": "Comprehensive 1-2 sentence building summary (100-150 chars). Include age, structure type, key vulnerability factor.",
+    "key_characteristics": ["Provide 4-5 characteristics, each 60-100 chars with SPECIFIC details. Example: '35-year-old reinforced concrete building with no seismic retrofitting, high earthquake vulnerability'", "Include: age/condition, structure type/materials, seismic status, basement facilities, flood exposure"],
+    "risk_exposure_level": "High/Medium/Low with brief justification"
   }},
 
   "report_guidelines": {{
-    "impact_focus": "Key points for impact analysis (financial/operational/asset)",
-    "mitigation_priorities": "Priority adaptation measures (short/mid/long term)",
+    "impact_focus": "4-6 sentences (250-350 chars) on financial impacts (asset damage costs, insurance implications), operational impacts (business interruption, supply chain risks), and strategic risks (long-term value deterioration). Be specific with risk categories.",
+    "mitigation_priorities": "4-6 sentences (250-350 chars) with SPECIFIC actions: Short-term (0-6 months): immediate inspections/repairs. Mid-term (6-24 months): structural reinforcements/equipment upgrades. Long-term (2-5 years): strategic relocation/major renovations. Include cost-benefit considerations.",
     "reporting_tone": "warning/neutral/positive"
-  }}
+  }},
+
+  "detailed_context": "Comprehensive natural narrative (6-10 paragraphs, 1200-1800 chars). MUST cover ALL of the following in detail: (1) Building age and structural integrity assessment, (2) Structure type and material analysis with specific vulnerabilities, (3) Seismic design status and earthquake risk exposure, (4) Basement facilities inventory and critical infrastructure locations (electrical rooms, mechanical systems, server rooms), (5) Flood risk assessment considering river/coast proximity and underground floors, (6) Overall vulnerability synthesis with severity rankings, (7) Resilience factors and existing protective measures. Each paragraph should provide actionable insights for downstream TCFD report generation agents."
 }}
 
-**OUTPUT LANGUAGE: All text MUST be in KOREAN.** Only JSON keys in English.
+**OUTPUT LANGUAGE: English.** All text in English for optimal token efficiency.
+
+**CRITICAL LENGTH REQUIREMENTS:**
+- Total output: 1500-2500 characters MINIMUM
+- detailed_context: 1200-1800 characters (most critical section)
+- key_characteristics: Each item should be 60-100 characters with specific details
+- impact_focus: 250-350 characters with concrete financial/operational impacts
+- mitigation_priorities: 250-350 characters with specific short/mid/long-term actions
+
+⚠️ OUTPUT THAT IS SHORTER THAN 1500 CHARACTERS WILL BE REJECTED. Provide comprehensive, detailed analysis.
 
 Output pure JSON only. No markdown.
 </OUTPUT_FORMAT>

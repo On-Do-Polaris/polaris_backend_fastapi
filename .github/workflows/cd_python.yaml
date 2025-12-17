@@ -81,7 +81,11 @@ jobs:
               -p 8000:8000 \
               -e API_KEY='${{ secrets.API_KEY }}' \
               -e OPENAI_API_KEY='${{ secrets.OPENAI_API_KEY }}' \
-              -e DATABASE_URL='${{ secrets.DATABASE_URL }}' \
+              -e DB_HOST='${{ secrets.DB_HOST }}' \
+              -e DB_PORT='${{ secrets.DB_PORT }}' \
+              -e DB_NAME='${{ secrets.DB_NAME }}' \
+              -e DB_USER='${{ secrets.DB_USER }}' \
+              -e DB_PASSWORD='${{ secrets.DB_PASSWORD }}' \
               -e USE_MOCK_DATA='${{ secrets.USE_MOCK_DATA }}' \
               -e WORKFLOW_MOCK_MODE='${{ secrets.WORKFLOW_MOCK_MODE }}' \
               -e LANGSMITH_ENABLED='${{ secrets.LANGSMITH_ENABLED }}' \

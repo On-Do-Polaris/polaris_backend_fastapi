@@ -244,14 +244,20 @@ class AnalysisService:
                     'longitude': site.longitude
                 }
 
-            # 1-1. calculate API 호출 (동기) - 다중 사업장 병렬 처리
-            self.logger.info(f"  [ModelOps] calculate API 호출: {len(sites_dict)}개 사업장")
-            calculate_result = modelops_client.calculate_site_risk(
-                sites=sites_dict,
-                building_info=building_info,
-                asset_info=asset_info
-            )
-            self.logger.info(f"  [ModelOps] calculate 완료: {calculate_result.get('status')}, {calculate_result.get('calculated_at')}")
+            # 1-1. calculate API 호출 (비동기 트리거)
+            # 몇 시간 걸릴 수 있으므로 트리거만 하고 결과를 기다리지 않음
+            # TCFD Agent가 DB에서 데이터를 체크하면서 대기
+            self.logger.info(f"  [ModelOps] calculate API 트리거: {len(sites_dict)}개 사업장")
+            try:
+                calculate_result = modelops_client.calculate_site_risk(
+                    sites=sites_dict,
+                    building_info=building_info,
+                    asset_info=asset_info
+                )
+                self.logger.info(f"  [ModelOps] calculate 트리거 완료: {calculate_result.get('status')}")
+            except Exception as e:
+                # 트리거 실패해도 Agent는 계속 진행 (DB 체크 로직이 있음)
+                self.logger.warning(f"  [ModelOps] calculate 트리거 실패: {str(e)}")
 
             # 1-2. recommend-locations API 호출 (비동기 트리거) - 다중 사업장 병렬 처리
             # candidate_grids는 None으로 전달하여 ModelOps가 고정 위치 사용하도록 함

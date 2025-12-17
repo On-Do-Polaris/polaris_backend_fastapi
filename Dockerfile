@@ -21,7 +21,15 @@ RUN python3.11 -m pip install uv
 COPY pyproject.toml .
 COPY requirements.txt .
 
-# Install dependencies using uv with explicit target directory
+# Install CPU-only PyTorch first (to avoid GPU version with Triton)
+# Force CPU-only version by using PyTorch's CPU wheel index
+RUN PIP_INDEX_URL=https://download.pytorch.org/whl/cpu \
+    PIP_EXTRA_INDEX_URL=https://pypi.org/simple \
+    uv pip install --python /usr/bin/python3.11 \
+    torch torchvision torchaudio
+
+# Install other dependencies
+# PyTorch CPU version is already installed, dependencies will use it
 RUN uv pip install --python /usr/bin/python3.11 -r requirements.txt
 
 # Clean up build stage caches to reduce layer size

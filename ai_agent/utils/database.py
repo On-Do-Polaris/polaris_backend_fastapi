@@ -21,17 +21,43 @@ class DatabaseManager:
     Connects to skala_datawarehouse (port 5433) by default
     """
 
-    def __init__(self, database_url: Optional[str] = None):
+    def __init__(
+        self,
+        db_host: Optional[str] = None,
+        db_port: Optional[str] = None,
+        db_name: Optional[str] = None,
+        db_user: Optional[str] = None,
+        db_password: Optional[str] = None
+    ):
         """
         Initialize DatabaseManager
 
         Args:
-            database_url: PostgreSQL connection URL (from env if not provided)
-                         Default: Datawarehouse (port 5433)
+            db_host: Database host (from env if not provided)
+            db_port: Database port (from env if not provided)
+            db_name: Database name (from env if not provided)
+            db_user: Database user (from env if not provided)
+            db_password: Database password (from env if not provided)
         """
-        self.database_url = database_url or os.getenv('DATABASE_URL')
-        if not self.database_url:
-            raise ValueError("DATABASE_URL is not set")
+        # Get database connection parameters from environment or arguments
+        self.db_host = db_host or os.getenv('DB_HOST')
+        self.db_port = db_port or os.getenv('DB_PORT', '5433')
+        self.db_name = db_name or os.getenv('DB_NAME')
+        self.db_user = db_user or os.getenv('DB_USER')
+        self.db_password = db_password or os.getenv('DB_PASSWORD')
+
+        # Validate required parameters
+        if not all([self.db_host, self.db_name, self.db_user, self.db_password]):
+            raise ValueError(
+                "Database connection parameters not set. "
+                "Please set DB_HOST, DB_NAME, DB_USER, and DB_PASSWORD environment variables."
+            )
+
+        # Build connection URL
+        self.database_url = (
+            f"postgresql://{self.db_user}:{self.db_password}"
+            f"@{self.db_host}:{self.db_port}/{self.db_name}"
+        )
 
         self.logger = logging.getLogger(__name__)
 

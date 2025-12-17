@@ -62,26 +62,44 @@ jobs:
 
       - name: 디스크 공간 확보
         run: |
+          echo "========================================="
           echo "디스크 사용량 (정리 전):"
           df -h
+          echo "========================================="
 
-          echo "불필요한 소프트웨어 제거 중..."
+          echo "불필요한 대용량 소프트웨어 제거 중..."
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /opt/ghc
           sudo rm -rf /usr/local/share/boost
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /opt/hostedtoolcache
+          sudo rm -rf /usr/share/swift
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /usr/local/graalvm
+          sudo rm -rf /usr/local/sqlpackage
 
           echo "APT 캐시 정리 중..."
           sudo apt-get clean
+          sudo apt-get autoremove -y
           sudo rm -rf /var/lib/apt/lists/*
+          sudo rm -rf /var/cache/apt/archives/*
 
           echo "Docker 시스템 전체 정리 중..."
           docker system prune -af --volumes || true
 
+          echo "불필요한 대용량 패키지 제거..."
+          sudo apt-get purge -y '^llvm-.*' || true
+          sudo apt-get purge -y '^mongodb-.*' || true
+          sudo apt-get purge -y '^mysql-.*' || true
+          sudo apt-get purge -y azure-cli google-cloud-sdk || true
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+
+          echo "========================================="
           echo "디스크 사용량 (정리 후):"
           df -h
+          echo "========================================="
 
       - name: GCP 인증
         uses: google-github-actions/auth@v2

@@ -143,12 +143,11 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64
-          # Temporarily disable cache to ensure CPU-only PyTorch is installed
-          # cache-from: type=registry,ref=${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ARTIFACT_REGISTRY_REPO }}/${{ env.IMAGE_NAME }}:buildcache
+          # Use new CPU-only cache (old cache had GPU PyTorch with Triton)
+          cache-from: type=registry,ref=${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ARTIFACT_REGISTRY_REPO }}/${{ env.IMAGE_NAME }}:buildcache-cpu
           cache-to: type=registry,ref=${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ARTIFACT_REGISTRY_REPO }}/${{ env.IMAGE_NAME }}:buildcache-cpu,mode=max
           build-args: |
             BUILDKIT_INLINE_CACHE=1
-          no-cache: true
 
       - name: 이미지 정보 출력
         run: |

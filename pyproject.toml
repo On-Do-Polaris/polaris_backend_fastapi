@@ -147,7 +147,7 @@ dependencies = [
     "rpds-py==0.28.0",
     "scikit-learn==1.7.2",
     "scipy==1.16.2",
-    "sentence-transformers==2.3.1",
+    # "sentence-transformers==2.3.1",  # Moved to Dockerfile for CPU-only PyTorch
     "shellingham==1.5.4",
     "six==1.17.0",
     "smmap==5.0.2",
@@ -161,7 +161,7 @@ dependencies = [
     "tiktoken==0.10.0",
     "toml==0.10.2",
     "tomlkit==0.13.3",
-    "torch>=2.1.0",
+    # "torch>=2.1.0",  # Moved to Dockerfile for CPU-only version (no Triton)
     "tornado==6.5.2",
     "tqdm==4.67.1",
     "trove-classifiers==2025.5.9.12",

@@ -36,16 +36,24 @@ from ...utils.database import DatabaseManager
 from ..primary_data.additional_data_agent import AdditionalDataAgent
 from ..primary_data.building_characteristics_agent import BuildingCharacteristicsAgent
 from ..primary_data.building_characteristics_loader import BuildingDataLoader
-from ..primary_data.additional_data_loader import AdditionalDataLoader
 
 
 # 유효한 target_year 값들 (보고서에서 사용하는 년도)
-# - 개별 연도: 2025~2030
+# - 개별 연도: 2026~2030 (2025 제외)
 # - 연대별: 2020s, 2030s, 2040s, 2050s
 VALID_TARGET_YEARS: List[str] = [
-    "2025", "2026", "2027", "2028", "2029", "2030",  # 개별 연도
-    "2020s", "2030s", "2040s", "2050s"               # 연대별
+    "2026", "2027", "2028", "2029", "2030",  # 개별 연도 (2025 제외)
+    "2020s", "2030s", "2040s", "2050s"       # 연대별
 ]
+
+# 건축물 특수 시설 감지 키워드
+FACILITY_KEYWORDS = {
+    "저수조": ["저수", "펌프", "수조", "급수", "배수"],
+    "비상발전": ["발전기", "발전실", "전기실", "비상전력", "UPS"],
+    "방재시설": ["방재", "소방", "스프링클러", "소화", "피난"],
+    "기계실": ["기계실", "공조", "냉방", "난방", "보일러"],
+    "전산실": ["전산", "서버", "데이터센터", "IDC", "통신"]
+}
 
 
 class DataPreprocessingNode:
@@ -166,17 +174,17 @@ class DataPreprocessingNode:
         self.logger.info(f"Node 0 실행 완료: {len(site_data)}개 사업장 로딩")
 
         # 5. State 반환
-        return TCFDReportState(
-            site_data=site_data,
-            aal_scaled_results=aal_scaled_results,
-            hazard_results=hazard_results,
-            exposure_results=exposure_results,
-            vulnerability_results=vulnerability_results,
-            probability_results=probability_results,
-            building_data=building_data,
-            additional_data=additional_data,
-            use_additional_data=use_additional_data
-        )
+        return {
+            "sites_data": site_data,  # site_data → sites_data로 변경
+            "aal_scaled_results": aal_scaled_results,
+            "hazard_results": hazard_results,
+            "exposure_results": exposure_results,
+            "vulnerability_results": vulnerability_results,
+            "probability_results": probability_results,
+            "building_data": building_data,
+            "additional_data": additional_data,
+            "use_additional_data": use_additional_data
+        }
 
     # ==================== Site Info 조회 (Application DB) ====================
 
@@ -427,23 +435,25 @@ class DataPreprocessingNode:
                 try:
                     bc_results = await bc_agent.analyze_batch(bc_input)
 
-                    # 결과를 building_data에 저장 + raw_data 추가
+                    # 결과를 building_data에 저장 + 가공된 building_summary 추가
                     for site_id, result in bc_results.items():
-                        # Raw building data 조회 (DB에서 직접)
+                        # Raw building data 조회 후 가공 (DB에서 직접)
                         site_info = next(
                             (s for s in chunk if s["site_id"] == site_id),
                             None
                         )
-                        raw_data = {}
+                        building_summary = {}
                         if site_info:
                             address = site_info.get("site_info", {}).get("address")
                             if address:
                                 raw_data = bc_loader.fetch_from_db_only(road_address=address) or {}
+                                # raw_data를 가공하여 필요한 정보만 추출
+                                building_summary = self._process_building_data(raw_data)
 
-                        # agent_guidelines + raw_data 합침
+                        # agent_guidelines + 가공된 building_summary 합침
                         building_data[site_id] = {
                             **result,
-                            "raw_data": raw_data  # 원본 건축물 데이터
+                            "building_summary": building_summary  # 가공된 건축물 요약 (raw_data 대체)
                         }
 
                 except Exception as chunk_error:
@@ -505,6 +515,131 @@ class DataPreprocessingNode:
 
         return list(risk_map.values())
 
+    def _process_building_data(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        건축물 원본 데이터를 가공하여 필요한 정보만 추출
+
+        가공 내용:
+        1. floor_details → 층 범위 요약 (min/max underground, max ground)
+        2. floor_purpose_types → 특수 시설 유무 판단 (저수조, 비상발전 등)
+        3. 불필요한 대용량 필드 제거
+
+        Args:
+            raw_data: building_aggregate_cache 원본 데이터
+
+        Returns:
+            가공된 건축물 데이터 (compact)
+        """
+        if not raw_data:
+            return {}
+
+        processed = {}
+
+        # 1. 기본 정보 (그대로 유지)
+        basic_fields = [
+            'road_address', 'jibun_address', 'building_count',
+            'structure_types', 'purpose_types',
+            'max_ground_floors', 'max_underground_floors', 'min_underground_floors',
+            'buildings_with_seismic', 'buildings_without_seismic',
+            'oldest_building_age_years', 'total_floor_area_sqm', 'total_building_area_sqm'
+        ]
+        for field in basic_fields:
+            if field in raw_data:
+                processed[field] = raw_data[field]
+
+        # 2. floor_details → 층 범위 문자열 (예: "B3~22F")
+        floor_details = raw_data.get('floor_details', [])
+        if floor_details:
+            processed['floor_range'] = self._format_floor_range(floor_details)
+        else:
+            processed['floor_range'] = None
+
+        # 3. floor_purpose_types → 특수 시설 유무 판단
+        floor_purpose_types = raw_data.get('floor_purpose_types', [])
+        if floor_purpose_types:
+            processed['detected_facilities'] = self._detect_special_facilities(floor_purpose_types)
+        else:
+            processed['detected_facilities'] = {}
+
+        return processed
+
+    def _format_floor_range(self, floor_details: List[Any]) -> str:
+        """
+        층 범위를 간단한 문자열로 포맷팅
+
+        예시:
+            - 지하 3층 ~ 지상 22층 → "B3~22F"
+            - 지상만 5층 → "1~5F"
+            - 지하만 2층 → "B2~B1"
+
+        Args:
+            floor_details: 층별 상세 정보 리스트
+
+        Returns:
+            "B3~22F" 형식의 문자열
+        """
+        if not floor_details:
+            return "N/A"
+
+        floors = []
+        for fd in floor_details:
+            if isinstance(fd, dict):
+                floor_no = fd.get('floor_no')
+                if floor_no is not None:
+                    try:
+                        floors.append(int(floor_no))
+                    except (ValueError, TypeError):
+                        continue
+
+        if not floors:
+            return "N/A"
+
+        min_floor = min(floors)
+        max_floor = max(floors)
+
+        # 형식 결정
+        if min_floor < 0 and max_floor > 0:
+            # 지하 + 지상: "B3~22F"
+            return f"B{abs(min_floor)}~{max_floor}F"
+        elif min_floor < 0:
+            # 지하만: "B3~B1"
+            return f"B{abs(min_floor)}~B{abs(max_floor)}"
+        else:
+            # 지상만: "1~5F"
+            return f"{min_floor}~{max_floor}F"
+
+    def _detect_special_facilities(
+        self,
+        floor_purpose_types: List[str]
+    ) -> Dict[str, bool]:
+        """
+        층별 용도에서 특수 시설 유무 감지
+
+        키워드 매칭:
+        - 저수조: 저수, 펌프, 수조, 급수, 배수
+        - 비상발전: 발전기, 발전실, 전기실, 비상전력, UPS
+        - 방재시설: 방재, 소방, 스프링클러, 소화, 피난
+        - 기계실: 기계실, 공조, 냉방, 난방, 보일러
+        - 전산실: 전산, 서버, 데이터센터, IDC, 통신
+
+        Args:
+            floor_purpose_types: 층별 용도 문자열 리스트
+
+        Returns:
+            {'저수조': True, '비상발전': False, ...}
+        """
+        detected = {}
+
+        # 모든 용도를 하나의 문자열로 합침 (검색 효율)
+        all_purposes = " ".join(str(p) for p in floor_purpose_types if p).lower()
+
+        for facility_name, keywords in FACILITY_KEYWORDS.items():
+            detected[facility_name] = any(
+                kw.lower() in all_purposes for kw in keywords
+            )
+
+        return detected
+
     # ==================== AD Agent 실행 ====================
 
     async def _process_additional_data(
@@ -528,9 +663,6 @@ class DataPreprocessingNode:
                 db_url=self.dw_db_url
             )
 
-            # Raw data 조회용 Loader
-            ad_loader = AdditionalDataLoader(db_url=self.dw_db_url)
-
             result = await agent.analyze_from_db(site_ids)
 
             if result.get("status") == "completed":
@@ -538,16 +670,15 @@ class DataPreprocessingNode:
                     f"AD 분석 완료: {len(result.get('site_specific_guidelines', {}))}개 사업장 가이드라인 생성"
                 )
 
-                # Raw additional data 조회 (DB에서 직접)
-                raw_data_by_site = {}
-                for site_id in site_ids:
-                    raw_data = ad_loader.fetch_all_for_site(site_id)
-                    if raw_data:
-                        raw_data_by_site[site_id] = raw_data
+                # raw_data는 저장하지 않음 (agent_guidelines로 충분)
+                # 이전: raw_data_by_site 조회 및 저장 (불필요한 대용량 데이터)
+                # 변경: site_specific_guidelines만 전달 (가공된 가이드라인)
 
-                # result에 raw_data 추가
-                result["raw_data"] = raw_data_by_site
-                self.logger.info(f"AD raw_data 조회 완료: {len(raw_data_by_site)}개 사업장")
+                # 추가 데이터 요약 정보만 추가
+                result["data_summary"] = {
+                    "site_count": len(result.get('site_specific_guidelines', {})),
+                    "has_data": bool(result.get('site_specific_guidelines'))
+                }
 
                 return result, True  # additional_data, use_additional_data = True
             else:

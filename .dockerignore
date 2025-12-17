@@ -19,6 +19,9 @@ build/
 htmlcov/
 .tox/
 .hypothesis/
+tests/
+test_*.py
+*_test.py
 
 # IDE
 .vscode/
@@ -44,6 +47,9 @@ LICENSE
 .github/
 .gitlab-ci.yml
 Jenkinsfile
+
+# ETL (if not needed in production)
+ETL/
 
 # Docker
 Dockerfile

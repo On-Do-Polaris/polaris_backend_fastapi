@@ -79,6 +79,14 @@ jobs:
           sudo rm -rf /usr/local/graalvm
           sudo rm -rf /usr/local/sqlpackage
 
+          # 추가 대용량 디렉토리 정리
+          sudo rm -rf /imagegeneration
+          sudo rm -rf /opt/az
+          sudo rm -rf /opt/microsoft
+          sudo rm -rf /usr/share/miniconda
+          sudo rm -rf /usr/local/share/chromium
+          sudo rm -rf /usr/local/share/powershell
+
           echo "APT 캐시 정리 중..."
           sudo apt-get clean
           sudo apt-get autoremove -y
@@ -92,7 +100,9 @@ jobs:
           sudo apt-get purge -y '^llvm-.*' || true
           sudo apt-get purge -y '^mongodb-.*' || true
           sudo apt-get purge -y '^mysql-.*' || true
+          sudo apt-get purge -y '^postgresql-.*' || true
           sudo apt-get purge -y azure-cli google-cloud-sdk || true
+          sudo apt-get purge -y '^php.*' || true
           sudo apt-get autoremove -y
           sudo apt-get clean
 
@@ -133,6 +143,11 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64
+          cache-from: type=registry,ref=${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ARTIFACT_REGISTRY_REPO }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ARTIFACT_REGISTRY_REPO }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+          no-cache: false
 
       - name: 이미지 정보 출력
         run: |

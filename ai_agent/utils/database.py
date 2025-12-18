@@ -1562,6 +1562,7 @@ class DatabaseManager:
     ) -> Optional[str]:
         """
         Save TCFD report to reports table (Application DB)
+        Deletes existing reports for the user before saving new one.
 
         Args:
             user_id: User UUID
@@ -1573,15 +1574,27 @@ class DatabaseManager:
         try:
             from psycopg2.extras import Json
 
-            query = """
-                INSERT INTO reports (user_id, report_content)
-                VALUES (%s, %s)
-                RETURNING id
-            """
-
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute(query, (user_id, Json(report_content)))
+
+                # 1. 기존 리포트 삭제
+                delete_query = """
+                    DELETE FROM reports
+                    WHERE user_id = %s
+                """
+                cursor.execute(delete_query, (user_id,))
+                deleted_count = cursor.rowcount
+
+                if deleted_count > 0:
+                    self.logger.info(f"Deleted {deleted_count} existing report(s) for user: {user_id}")
+
+                # 2. 새로운 리포트 삽입
+                insert_query = """
+                    INSERT INTO reports (user_id, report_content)
+                    VALUES (%s, %s)
+                    RETURNING id
+                """
+                cursor.execute(insert_query, (user_id, Json(report_content)))
                 result = cursor.fetchone()
                 cursor.close()
 

@@ -5,6 +5,7 @@ from fastapi import HTTPException
 import logging
 import json
 import asyncio
+import os
 
 from src.core.config import settings
 from src.core.errors import ErrorCode, ErrorSeverity, create_error_detail
@@ -1262,7 +1263,9 @@ class AnalysisService:
         """
         Spring Boot API 호환 - 취약성 분석
 
-        BuildingCharacteristicsAgent의 분석 결과를 workflow state의 building_data에서 조회
+        Application DB의 sites 테이블에서 주소를 가져오고,
+        Datawarehouse DB의 building_aggregate_cache 테이블에서 건물 정보를 가져옴.
+        AI 요약은 workflow state의 building_data에서 조회.
         """
         if settings.USE_MOCK_DATA:
             mock_data = VulnerabilityData(
@@ -1280,77 +1283,150 @@ class AnalysisService:
         self.logger.info(f"[VULNERABILITY] 건물 특성 분석 데이터 조회 시작: site_id={site_id}")
 
         try:
-            # 메모리의 _cached_states와 _analysis_results에서 조회
-            site_id_str = str(site_id)
-            building_analysis = None
-            sites_data = None
+            # 1. Application DB에서 site 정보 조회 (주소 정보)
+            app_db = DatabaseManager(
+                db_host=os.environ.get('APPLICATION_DB_HOST'),
+                db_port=os.environ.get('APPLICATION_DB_PORT', '5432'),
+                db_name=os.environ.get('APPLICATION_DB_NAME'),
+                db_user=os.environ.get('APPLICATION_DB_USER'),
+                db_password=os.environ.get('APPLICATION_DB_PASSWORD')
+            )
 
-            # 1. building_data 찾기
-            for job_id, cached_state in self._cached_states.items():
-                final_state = cached_state.get('final_state', {})
-                building_data = final_state.get('building_data', {})
+            site_query = """
+                SELECT
+                    id,
+                    name,
+                    road_address,
+                    jibun_address,
+                    latitude,
+                    longitude
+                FROM sites
+                WHERE id = %s
+            """
+            site_result = app_db.execute_query(site_query, (str(site_id),))
 
-                if site_id_str in building_data:
-                    building_analysis = building_data[site_id_str]
-                    sites_data = final_state.get('sites_data', [])
-                    self.logger.info(f"[VULNERABILITY] 캐시에서 건물 데이터 발견: job_id={job_id}, site_id={site_id}")
-                    break
-
-            if not building_analysis:
-                for job_id, result in self._analysis_results.items():
-                    final_state = result.get('final_state', {})
-                    building_data = final_state.get('building_data', {})
-
-                    if site_id_str in building_data:
-                        building_analysis = building_data[site_id_str]
-                        sites_data = final_state.get('sites_data', [])
-                        self.logger.info(f"[VULNERABILITY] 분석 결과에서 건물 데이터 발견: job_id={job_id}, site_id={site_id}")
-                        break
-
-            if not building_analysis:
-                self.logger.warning(f"[VULNERABILITY] 캐시된 건물 분석 데이터를 찾을 수 없음: site_id={site_id}")
+            if not site_result:
+                self.logger.warning(f"[VULNERABILITY] site_id={site_id}에 대한 사업장 정보가 없습니다")
                 return None
 
-            # 2. agent_guidelines에서 AI 분석 요약 추출
-            agent_guidelines = building_analysis.get('agent_guidelines', {})
-            if not agent_guidelines:
-                self.logger.warning(f"[VULNERABILITY] agent_guidelines가 없음: site_id={site_id}")
-                return None
+            site_info = site_result[0]
+            latitude = site_info.get('latitude')
+            longitude = site_info.get('longitude')
+            road_address = site_info.get('road_address')
+            jibun_address = site_info.get('jibun_address')
 
-            data_summary = agent_guidelines.get('data_summary', {})
+            self.logger.info(f"[VULNERABILITY] site 정보 조회 완료: road_address={road_address}, jibun_address={jibun_address}")
 
-            # AI 요약: one_liner + key_characteristics 결합
-            one_liner = data_summary.get('one_liner', '')
-            key_chars = data_summary.get('key_characteristics', [])
+            # 2. 주소에서 시군구코드, 법정동코드, 번, 지 추출
+            # jibun_address 또는 road_address를 사용하여 building_aggregate_cache 조회
+            # 주소 파싱은 VWorld Geocoding API 또는 주소 파싱 로직 필요
+            # 여기서는 간단하게 Datawarehouse DB의 api_vworld_geocode 테이블을 활용
 
-            aisummry = one_liner
-            if key_chars:
-                # 주요 특성 3개까지만 추가
-                aisummry += " " + " ".join(key_chars[:3])
+            dw_db = DatabaseManager()  # Datawarehouse DB (기본 설정)
 
-            # 3. building_summary에서 건물 정보 추출
-            building_summary = building_analysis.get('building_summary', {})
+            # VWorld Geocode 캐시에서 주소 정보 조회 (위경도 기반)
+            geocode_query = """
+                SELECT
+                    sigungu_cd,
+                    bjdong_cd,
+                    bun,
+                    ji,
+                    parcel_address,
+                    road_address
+                FROM api_vworld_geocode
+                WHERE latitude = %s AND longitude = %s
+                LIMIT 1
+            """
+            geocode_result = dw_db.execute_query(geocode_query, (latitude, longitude))
 
-            # 4. sites_data에서 위경도 추출
-            site_info = None
-            if sites_data:
-                for site in sites_data:
-                    if str(site.get('site_id')) == site_id_str:
-                        site_info = site.get('site_info', {})
-                        break
+            if not geocode_result:
+                self.logger.warning(f"[VULNERABILITY] 위경도({latitude}, {longitude})에 대한 geocode 정보가 없습니다")
+                # 주소가 없으면 AI 요약만 반환
+                aisummry = self._get_ai_summary_from_state(site_id)
+                return VulnerabilityResponse(
+                    result="success",
+                    data=VulnerabilityData(
+                        siteId=site_id,
+                        latitude=latitude,
+                        longitude=longitude,
+                        area=None,
+                        grndflrCnt=None,
+                        ugrnFlrCnt=None,
+                        rserthqkDsgnApplyYn=None,
+                        aisummry=aisummry
+                    )
+                )
 
-            latitude = site_info.get('latitude') if site_info else None
-            longitude = site_info.get('longitude') if site_info else None
+            geocode_info = geocode_result[0]
+            sigungu_cd = geocode_info.get('sigungu_cd')
+            bjdong_cd = geocode_info.get('bjdong_cd')
+            bun = geocode_info.get('bun')
+            ji = geocode_info.get('ji')
+
+            self.logger.info(f"[VULNERABILITY] geocode 정보 조회 완료: sigungu_cd={sigungu_cd}, bjdong_cd={bjdong_cd}, bun={bun}, ji={ji}")
+
+            # 3. building_aggregate_cache 테이블에서 건물 정보 조회
+            building_query = """
+                SELECT
+                    jibun_address,
+                    road_address,
+                    building_count,
+                    structure_types,
+                    purpose_types,
+                    max_ground_floors,
+                    max_underground_floors,
+                    min_underground_floors,
+                    buildings_with_seismic,
+                    buildings_without_seismic,
+                    oldest_approval_date,
+                    newest_approval_date,
+                    oldest_building_age_years,
+                    total_floor_area_sqm,
+                    total_building_area_sqm
+                FROM building_aggregate_cache
+                WHERE sigungu_cd = %s
+                    AND bjdong_cd = %s
+                    AND bun = %s
+                    AND ji = %s
+            """
+            building_result = dw_db.execute_query(building_query, (sigungu_cd, bjdong_cd, bun, ji))
+
+            if not building_result:
+                self.logger.warning(f"[VULNERABILITY] 건물 정보가 없습니다: sigungu_cd={sigungu_cd}, bjdong_cd={bjdong_cd}, bun={bun}, ji={ji}")
+                # 건물 정보가 없으면 AI 요약만 반환
+                aisummry = self._get_ai_summary_from_state(site_id)
+                return VulnerabilityResponse(
+                    result="success",
+                    data=VulnerabilityData(
+                        siteId=site_id,
+                        latitude=latitude,
+                        longitude=longitude,
+                        area=None,
+                        grndflrCnt=None,
+                        ugrnFlrCnt=None,
+                        rserthqkDsgnApplyYn=None,
+                        aisummry=aisummry
+                    )
+                )
+
+            building_info = building_result[0]
+
+            # 4. AI 요약은 state에서 가져오기 (기존 로직 유지)
+            aisummry = self._get_ai_summary_from_state(site_id)
 
             # 5. VulnerabilityData 생성
+            # 내진설계 여부 판단 (buildings_with_seismic > 0이면 Y)
+            buildings_with_seismic = building_info.get('buildings_with_seismic', 0) or 0
+            rserthqk_dsgn_apply_yn = 'Y' if buildings_with_seismic > 0 else 'N'
+
             vulnerability_data = VulnerabilityData(
                 siteId=site_id,
                 latitude=latitude,
                 longitude=longitude,
-                area=building_summary.get('area'),
-                grndflrCnt=building_summary.get('grndflr_cnt'),
-                ugrnFlrCnt=building_summary.get('ugrn_flr_cnt'),
-                rserthqkDsgnApplyYn=building_summary.get('rserthqk_dsgn_apply_yn', 'N'),
+                area=building_info.get('total_floor_area_sqm'),
+                grndflrCnt=building_info.get('max_ground_floors'),
+                ugrnFlrCnt=building_info.get('max_underground_floors'),
+                rserthqkDsgnApplyYn=rserthqk_dsgn_apply_yn,
                 aisummry=aisummry
             )
 
@@ -1365,6 +1441,62 @@ class AnalysisService:
         except Exception as e:
             self.logger.error(f"[VULNERABILITY] 건물 특성 분석 데이터 조회 실패: {e}", exc_info=True)
             return None
+
+    def _get_ai_summary_from_state(self, site_id: UUID) -> str:
+        """
+        메모리의 state에서 AI 요약 추출
+
+        Args:
+            site_id: 사업장 ID
+
+        Returns:
+            AI 요약 문자열
+        """
+        site_id_str = str(site_id)
+        building_analysis = None
+
+        # 1. building_data 찾기
+        for job_id, cached_state in self._cached_states.items():
+            final_state = cached_state.get('final_state', {})
+            building_data = final_state.get('building_data', {})
+
+            if site_id_str in building_data:
+                building_analysis = building_data[site_id_str]
+                self.logger.info(f"[VULNERABILITY] 캐시에서 AI 요약 발견: job_id={job_id}, site_id={site_id}")
+                break
+
+        if not building_analysis:
+            for job_id, result in self._analysis_results.items():
+                final_state = result.get('final_state', {})
+                building_data = final_state.get('building_data', {})
+
+                if site_id_str in building_data:
+                    building_analysis = building_data[site_id_str]
+                    self.logger.info(f"[VULNERABILITY] 분석 결과에서 AI 요약 발견: job_id={job_id}, site_id={site_id}")
+                    break
+
+        if not building_analysis:
+            self.logger.warning(f"[VULNERABILITY] AI 요약을 찾을 수 없음: site_id={site_id}")
+            return "건물 특성 분석 데이터가 없습니다."
+
+        # 2. agent_guidelines에서 AI 분석 요약 추출
+        agent_guidelines = building_analysis.get('agent_guidelines', {})
+        if not agent_guidelines:
+            self.logger.warning(f"[VULNERABILITY] agent_guidelines가 없음: site_id={site_id}")
+            return "건물 특성 분석 데이터가 없습니다."
+
+        data_summary = agent_guidelines.get('data_summary', {})
+
+        # AI 요약: one_liner + key_characteristics 결합
+        one_liner = data_summary.get('one_liner', '')
+        key_chars = data_summary.get('key_characteristics', [])
+
+        aisummry = one_liner
+        if key_chars:
+            # 주요 특성 3개까지만 추가
+            aisummry += " " + " ".join(key_chars[:3])
+
+        return aisummry
 
     async def get_total_analysis(
         self, site_id: UUID, hazard_type: str

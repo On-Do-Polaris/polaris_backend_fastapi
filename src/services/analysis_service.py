@@ -15,6 +15,7 @@ from src.schemas.analysis import (
     PastEventsResponse,
     FinancialImpactResponse,
     VulnerabilityResponse,
+    VulnerabilityData,
     AnalysisTotalResponse,
     PhysicalRiskBarItem,
     DisasterEvent,
@@ -1226,34 +1227,111 @@ class AnalysisService:
             return None
 
     async def get_vulnerability(self, site_id: UUID) -> Optional[VulnerabilityResponse]:
-        """Spring Boot API 호환 - 취약성 분석 (메모리 캐시 또는 DB 조회)"""
-        # This method is now complex due to multi-site analysis storing results under a job_id
-        # For simplicity, we query the DB directly assuming Phase 1 results are stored per site_id
-        if settings.USE_MOCK_DATA:
-            vulnerabilities = [
-                RiskVulnerability(riskType="폭염", vulnerabilityScore=75),
-                RiskVulnerability(riskType="태풍", vulnerabilityScore=70),
-            ]
-            return VulnerabilityResponse(siteId=site_id, vulnerabilities=vulnerabilities)
+        """
+        Spring Boot API 호환 - 취약성 분석
 
-        self.logger.info(f"[VULNERABILITY] 취약성 데이터 조회 시작: site_id={site_id}")
+        BuildingCharacteristicsAgent의 분석 결과를 workflow state의 building_data에서 조회
+        """
+        if settings.USE_MOCK_DATA:
+            mock_data = VulnerabilityData(
+                siteId=site_id,
+                latitude=37.36633726,
+                longitude=127.10661717,
+                area=1228.5,
+                grndflrCnt=5,
+                ugrnFlrCnt=1,
+                rserthqkDsgnApplyYn="Y",
+                aisummry="해당 건물은 내진 설계가 되어 있어 지진에 대한 리스크가 낮습니다."
+            )
+            return VulnerabilityResponse(result="success", data=mock_data)
+
+        self.logger.info(f"[VULNERABILITY] 건물 특성 분석 데이터 조회 시작: site_id={site_id}")
+
         try:
-            db = DatabaseManager()
-            query = "SELECT risk_type, vulnerability_score FROM vulnerability_results WHERE site_id = %s ORDER BY risk_type"
-            rows = db.execute_query(query, (str(site_id),))
-            if not rows:
-                self.logger.warning(f"[VULNERABILITY] 데이터 없음: site_id={site_id}")
+            # 메모리의 _cached_states와 _analysis_results에서 조회
+            site_id_str = str(site_id)
+            building_analysis = None
+            sites_data = None
+
+            # 1. building_data 찾기
+            for job_id, cached_state in self._cached_states.items():
+                final_state = cached_state.get('final_state', {})
+                building_data = final_state.get('building_data', {})
+
+                if site_id_str in building_data:
+                    building_analysis = building_data[site_id_str]
+                    sites_data = final_state.get('sites_data', [])
+                    self.logger.info(f"[VULNERABILITY] 캐시에서 건물 데이터 발견: job_id={job_id}, site_id={site_id}")
+                    break
+
+            if not building_analysis:
+                for job_id, result in self._analysis_results.items():
+                    final_state = result.get('final_state', {})
+                    building_data = final_state.get('building_data', {})
+
+                    if site_id_str in building_data:
+                        building_analysis = building_data[site_id_str]
+                        sites_data = final_state.get('sites_data', [])
+                        self.logger.info(f"[VULNERABILITY] 분석 결과에서 건물 데이터 발견: job_id={job_id}, site_id={site_id}")
+                        break
+
+            if not building_analysis:
+                self.logger.warning(f"[VULNERABILITY] 캐시된 건물 분석 데이터를 찾을 수 없음: site_id={site_id}")
                 return None
 
-            vulnerabilities = [
-                RiskVulnerability(
-                    riskType=RISK_TYPE_KR_MAPPING.get(row['risk_type'], row['risk_type']),
-                    vulnerabilityScore=int(row.get('vulnerability_score', 0))
-                ) for row in rows
-            ]
-            return VulnerabilityResponse(siteId=site_id, vulnerabilities=vulnerabilities)
+            # 2. agent_guidelines에서 AI 분석 요약 추출
+            agent_guidelines = building_analysis.get('agent_guidelines', {})
+            if not agent_guidelines:
+                self.logger.warning(f"[VULNERABILITY] agent_guidelines가 없음: site_id={site_id}")
+                return None
+
+            data_summary = agent_guidelines.get('data_summary', {})
+
+            # AI 요약: one_liner + key_characteristics 결합
+            one_liner = data_summary.get('one_liner', '')
+            key_chars = data_summary.get('key_characteristics', [])
+
+            aisummry = one_liner
+            if key_chars:
+                # 주요 특성 3개까지만 추가
+                aisummry += " " + " ".join(key_chars[:3])
+
+            # 3. building_summary에서 건물 정보 추출
+            building_summary = building_analysis.get('building_summary', {})
+
+            # 4. sites_data에서 위경도 추출
+            site_info = None
+            if sites_data:
+                for site in sites_data:
+                    if str(site.get('site_id')) == site_id_str:
+                        site_info = site.get('site_info', {})
+                        break
+
+            latitude = site_info.get('latitude') if site_info else None
+            longitude = site_info.get('longitude') if site_info else None
+
+            # 5. VulnerabilityData 생성
+            vulnerability_data = VulnerabilityData(
+                siteId=site_id,
+                latitude=latitude,
+                longitude=longitude,
+                area=building_summary.get('area'),
+                grndflrCnt=building_summary.get('grndflr_cnt'),
+                ugrnFlrCnt=building_summary.get('ugrn_flr_cnt'),
+                rserthqkDsgnApplyYn=building_summary.get('rserthqk_dsgn_apply_yn', 'N'),
+                aisummry=aisummry
+            )
+
+            self.logger.info(f"[VULNERABILITY] 건물 특성 분석 데이터 조회 성공: site_id={site_id}")
+
+            # VulnerabilityResponse 반환
+            return VulnerabilityResponse(
+                result="success",
+                data=vulnerability_data
+            )
+
         except Exception as e:
-            self.logger.error(f"[VULNERABILITY] 취약성 데이터 조회 실패: {e}", exc_info=True)
+            self.logger.error(f"[VULNERABILITY] 건물 특성 분석 데이터 조회 실패: {e}", exc_info=True)
             return None
 
     async def get_total_analysis(

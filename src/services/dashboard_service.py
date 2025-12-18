@@ -114,11 +114,11 @@ class DashboardService:
         for row in rows:
             sid = str(row['site_id'])
             rtype = row['risk_type']
-            
-            h = float(row['hazard'])
-            e = float(row['exposure'])
-            v = float(row['vulnerability'])
-            
+
+            h = float(row['hazard'] or 0)
+            e = float(row['exposure'] or 0)
+            v = float(row['vulnerability'] or 0)
+
             physical_risk_score = (h * e * v) / 10000.0
             
             if sid in site_scores:

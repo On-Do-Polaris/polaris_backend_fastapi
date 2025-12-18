@@ -1471,8 +1471,22 @@ class AnalysisService:
                 from ai_agent.services import get_springboot_client
                 springboot_client = get_springboot_client()
 
-                self.logger.info(f"[SPRINGBOOT] API 호출: job_id={job_id}, user_id={user_id}")
-                springboot_client.notify_analysis_completion(user_id)
+                # agent_result에서 use_additional_data 확인
+                report = False
+                if self.db:
+                    try:
+                        query = "SELECT results FROM batch_jobs WHERE batch_id = %s"
+                        result = self.db.execute_query(query, (str(job_id),))
+                        if result and result[0].get('results'):
+                            agent_results = result[0]['results']
+                            if isinstance(agent_results, dict):
+                                report = agent_results.get('use_additional_data', False)
+                                self.logger.info(f"[SPRINGBOOT] use_additional_data 확인: report={report}")
+                    except Exception as e:
+                        self.logger.warning(f"[SPRINGBOOT] use_additional_data 조회 실패: {e}")
+
+                self.logger.info(f"[SPRINGBOOT] API 호출: job_id={job_id}, user_id={user_id}, report={report}")
+                springboot_client.notify_analysis_completion(user_id, report=report)
                 self.logger.info(f"[SPRINGBOOT] API 호출 성공: job_id={job_id}")
 
                 # 해당 user_id의 모든 batch_jobs를 done으로 업데이트
@@ -1568,15 +1582,15 @@ class AnalysisService:
             hazard_rows = db.execute_query(hazard_query, (str(TARGET_YEAR), RISK_TYPES, latitude, longitude))
             hazard_data = {row['risk_type']: row for row in hazard_rows}
 
-            exposure_query = "SELECT risk_type, exposure_score FROM exposure_results WHERE site_id = %s AND target_year = %s"
+            exposure_query = "SELECT risk_type, COALESCE(exposure_score, 0) as exposure_score FROM exposure_results WHERE site_id = %s AND target_year = %s"
             exposure_rows = db.execute_query(exposure_query, (str(site_id), str(TARGET_YEAR)))
             exposure_data = {row['risk_type']: row for row in exposure_rows}
-            
-            vulnerability_query = "SELECT risk_type, vulnerability_score FROM vulnerability_results WHERE site_id = %s AND target_year = %s"
+
+            vulnerability_query = "SELECT risk_type, COALESCE(vulnerability_score, 0) as vulnerability_score FROM vulnerability_results WHERE site_id = %s AND target_year = %s"
             vulnerability_rows = db.execute_query(vulnerability_query, (str(site_id), str(TARGET_YEAR)))
             vulnerability_data = {row['risk_type']: row for row in vulnerability_rows}
 
-            aal_query = "SELECT risk_type, ssp245_final_aal FROM aal_scaled_results WHERE site_id = %s AND target_year = %s"
+            aal_query = "SELECT risk_type, COALESCE(ssp245_final_aal, 0.0) as ssp245_final_aal FROM aal_scaled_results WHERE site_id = %s AND target_year = %s"
             aal_rows = db.execute_query(aal_query, (str(site_id), str(TARGET_YEAR)))
             aal_data = {row['risk_type']: row for row in aal_rows}
             
@@ -1588,14 +1602,27 @@ class AnalysisService:
             physical_risk_scores_dict = {}
             aal_scores_dict = {}
             for risk_type in RISK_TYPES:
-                # H 값이 None이면 1로 처리
-                H = hazard_data[risk_type]['ssp245_score_100']
-                H = H if H is not None else 1
-                E = exposure_data[risk_type]['exposure_score']
-                V = vulnerability_data[risk_type]['vulnerability_score']
+                # Get raw values for NULL detection logging
+                h_val = hazard_data[risk_type]['ssp245_score_100']
+                e_val = exposure_data[risk_type]['exposure_score']
+                v_val = vulnerability_data[risk_type]['vulnerability_score']
+                aal_val = aal_data[risk_type]['ssp245_final_aal']
+
+                # Log warning if NULL values detected
+                if h_val is None or e_val is None or v_val is None or aal_val is None:
+                    self.logger.warning(
+                        f"[SUMMARY] NULL values detected for {risk_type}: "
+                        f"H={h_val}, E={e_val}, V={v_val}, AAL={aal_val}"
+                    )
+
+                # Apply defaults with NULL safety
+                H = h_val if h_val is not None else 1
+                E = e_val or 0
+                V = v_val or 0
+
                 physical_risk_score = int(round((H * E * V) / 10000))
                 physical_risk_scores_dict[risk_type] = physical_risk_score
-                aal_scores_dict[risk_type] = float(aal_data[risk_type]['ssp245_final_aal'])
+                aal_scores_dict[risk_type] = float(aal_val or 0.0)
 
             main_risk_type = max(physical_risk_scores_dict, key=physical_risk_scores_dict.get)
 

@@ -276,11 +276,10 @@ class SimulationService:
         try:
             db = DatabaseManager()
 
-            # 좌표로 후보지 조회
+            # 좌표로 후보지 조회 (최근접 좌표, 거리 제한 없음)
             candidate = db.fetch_candidate_by_location(
                 request.candidate.latitude,
-                request.candidate.longitude,
-                tolerance=0.001  # 약 111m
+                request.candidate.longitude
             )
 
             if not candidate:

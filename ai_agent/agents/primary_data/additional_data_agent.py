@@ -378,7 +378,7 @@ Generate JSON with 3 sections (Hybrid Structure):
   "detailed_context": "Comprehensive natural narrative (6-10 paragraphs, 1200-1800 chars). MUST include ALL of the following in detail: (1) Data completeness assessment - what categories are available and what's missing, (2) Energy consumption analysis with specific figures (kWh, m³, trends), (3) Insurance coverage analysis with specific values and gaps, (4) Operational patterns that affect climate vulnerability, (5) Key quantitative insights for each TCFD pillar (Governance, Strategy, Risk Management, Metrics), (6) Data-driven recommendations for downstream report generation. Each paragraph should provide actionable, quantitative insights."
 }}
 
-**OUTPUT LANGUAGE: English.** All text in English for optimal token efficiency.
+**OUTPUT LANGUAGE: Korean (한글).** All text must be in Korean (한글) for local stakeholders.
 
 **CRITICAL LENGTH REQUIREMENTS:**
 - Total output: 1500-2500 characters MINIMUM

@@ -12,7 +12,15 @@ from src.core.auth import verify_api_key
 router = APIRouter(prefix="/api/past", tags=["Past Events (Spring Boot Compatibility)"])
 
 
-@router.get("", response_model=DisasterHistoryListResponse)
+@router.get(
+    "",
+    response_model=DisasterHistoryListResponse,
+    responses={
+        200: {"description": "과거 재난 이력 조회 성공"},
+        401: {"description": "API Key 인증 실패"},
+        422: {"description": "입력 데이터 검증 실패"}
+    }
+)
 async def get_past_events(
     year: Optional[int] = Query(None, description="연도로 필터링"),
     disaster_type: Optional[str] = Query(None, alias="disasterType", description="재난 유형 (강풍/풍랑/호우/대설/건조/지진해일/한파/태풍/황사/폭염)"),

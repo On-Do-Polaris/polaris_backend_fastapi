@@ -12,7 +12,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
 
-@router.get("/summary", response_model=DashboardSummaryResponse)
+@router.get(
+    "/summary",
+    response_model=DashboardSummaryResponse,
+    responses={
+        200: {"description": "대시보드 요약 조회 성공"},
+        401: {"description": "API Key 인증 실패"},
+        422: {"description": "입력 데이터 검증 실패"}
+    }
+)
 async def get_dashboard_summary(
     # 1. userId 제거됨
     # 2. siteIds 추가: List[UUID] 타입으로 선언하여 반복 쿼리 파라미터 처리

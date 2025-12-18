@@ -4,7 +4,24 @@ from uuid import UUID
 router = APIRouter(prefix="/api/recommendation", tags=["Site Recommendation (DEPRECATED)"])
 
 
-@router.post("/batch/start", status_code=410)
+@router.post(
+    "/batch/start",
+    status_code=410,
+    responses={
+        410: {
+            "description": "엔드포인트가 영구적으로 제거됨",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "Endpoint Permanently Removed",
+                        "message": "배치 추천 API는 2025-12-10부로 제거되었습니다.",
+                        "deprecated_at": "2025-12-10"
+                    }
+                }
+            }
+        }
+    }
+)
 async def start_batch_recommendation_deprecated():
     """
     배치 추천 API - 영구 제거됨 (2025-12-10)
@@ -35,7 +52,24 @@ async def start_batch_recommendation_deprecated():
     )
 
 
-@router.get("/batch/{batch_id}/progress", status_code=410)
+@router.get(
+    "/batch/{batch_id}/progress",
+    status_code=410,
+    responses={
+        410: {
+            "description": "엔드포인트가 영구적으로 제거됨",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "Endpoint Permanently Removed",
+                        "message": "배치 진행 상태 조회 API는 2025-12-10부로 제거되었습니다.",
+                        "deprecated_at": "2025-12-10"
+                    }
+                }
+            }
+        }
+    }
+)
 async def get_batch_progress_deprecated(batch_id: str):
     """
     배치 진행 상태 조회 - 영구 제거됨 (2025-12-10)
@@ -56,7 +90,24 @@ async def get_batch_progress_deprecated(batch_id: str):
     )
 
 
-@router.get("/batch/{batch_id}/result", status_code=410)
+@router.get(
+    "/batch/{batch_id}/result",
+    status_code=410,
+    responses={
+        410: {
+            "description": "엔드포인트가 영구적으로 제거됨",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "Endpoint Permanently Removed",
+                        "message": "배치 결과 조회 API는 2025-12-10부로 제거되었습니다.",
+                        "deprecated_at": "2025-12-10"
+                    }
+                }
+            }
+        }
+    }
+)
 async def get_batch_result_deprecated(batch_id: str):
     """
     배치 결과 조회 - 영구 제거됨 (2025-12-10)
@@ -76,7 +127,24 @@ async def get_batch_result_deprecated(batch_id: str):
     )
 
 
-@router.delete("/batch/{batch_id}", status_code=410)
+@router.delete(
+    "/batch/{batch_id}",
+    status_code=410,
+    responses={
+        410: {
+            "description": "엔드포인트가 영구적으로 제거됨",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "Endpoint Permanently Removed",
+                        "message": "배치 작업 취소 API는 2025-12-10부로 제거되었습니다.",
+                        "deprecated_at": "2025-12-10"
+                    }
+                }
+            }
+        }
+    }
+)
 async def cancel_batch_job_deprecated(batch_id: str):
     """
     배치 작업 취소 - 영구 제거됨 (2025-12-10)

@@ -30,7 +30,31 @@ def get_analysis_service():
     return analysis_service_instance
 
 
-@router.post("/start", response_model=AnalysisJobStatus, status_code=202) # 사용
+@router.post(
+    "/start",
+    response_model=AnalysisJobStatus,
+    status_code=202,
+    responses={
+        202: {"description": "분석 작업이 성공적으로 시작됨"},
+        400: {
+            "description": "잘못된 요청",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "The 'sites' list cannot be empty."}
+                }
+            }
+        },
+        401: {"description": "API Key 인증 실패"},
+        503: {
+            "description": "서비스 초기화 실패",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "AnalysisService not initialized"}
+                }
+            }
+        }
+    }
+) # 사용
 async def start_analysis(
     request: StartAnalysisRequest,
     background_tasks: BackgroundTasks,
@@ -122,7 +146,30 @@ async def start_analysis(
 #     )
 
 
-@router.get("/status", response_model=AnalysisJobStatus) # 사용
+@router.get(
+    "/status",
+    response_model=AnalysisJobStatus,
+    responses={
+        200: {"description": "분석 작업 상태 조회 성공"},
+        404: {
+            "description": "분석 작업을 찾을 수 없음",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "No analysis job found for userId: {user_id}"}
+                }
+            }
+        },
+        401: {"description": "API Key 인증 실패"},
+        503: {
+            "description": "서비스 초기화 실패",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "AnalysisService not initialized"}
+                }
+            }
+        }
+    }
+) # 사용
 async def get_analysis_status(
     user_id: UUID = Query(..., alias="userId"),
     job_id: Optional[UUID] = Query(None, alias="jobid"),
@@ -155,7 +202,30 @@ async def get_analysis_status(
     return result
 
 
-@router.get("/physical-risk-scores", response_model=PhysicalRiskScoreResponse) # 사용
+@router.get(
+    "/physical-risk-scores",
+    response_model=PhysicalRiskScoreResponse,
+    responses={
+        200: {"description": "물리적 리스크 점수 조회 성공"},
+        404: {
+            "description": "분석 결과를 찾을 수 없음",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Analysis not found"}
+                }
+            }
+        },
+        401: {"description": "API Key 인증 실패"},
+        503: {
+            "description": "서비스 초기화 실패",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "AnalysisService not initialized"}
+                }
+            }
+        }
+    }
+) # 사용
 async def get_physical_risk_scores(
     site_id: UUID = Query(..., alias="siteId"),
     hazard_type: Optional[str] = Query(None, alias="hazardType"),
@@ -190,7 +260,30 @@ async def get_physical_risk_scores(
 #     return result
 
 
-@router.get("/financial-impacts", response_model=FinancialImpactResponse) # 사용
+@router.get(
+    "/financial-impacts",
+    response_model=FinancialImpactResponse,
+    responses={
+        200: {"description": "재무 영향(AAL) 조회 성공"},
+        404: {
+            "description": "분석 결과를 찾을 수 없음",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Analysis not found"}
+                }
+            }
+        },
+        401: {"description": "API Key 인증 실패"},
+        503: {
+            "description": "서비스 초기화 실패",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "AnalysisService not initialized"}
+                }
+            }
+        }
+    }
+) # 사용
 async def get_financial_impacts(
     site_id: UUID = Query(..., alias="siteId"),
     hazard_type: Optional[str] = Query(None, alias="hazardType"),
@@ -212,7 +305,30 @@ async def get_financial_impacts(
     return result
 
 
-@router.get("/vulnerability", response_model=VulnerabilityResponse) # 사용
+@router.get(
+    "/vulnerability",
+    response_model=VulnerabilityResponse,
+    responses={
+        200: {"description": "취약성 분석 조회 성공"},
+        404: {
+            "description": "분석 결과를 찾을 수 없음",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Analysis not found"}
+                }
+            }
+        },
+        401: {"description": "API Key 인증 실패"},
+        503: {
+            "description": "서비스 초기화 실패",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "AnalysisService not initialized"}
+                }
+            }
+        }
+    }
+) # 사용
 async def get_vulnerability(
     site_id: UUID = Query(..., alias="siteId"),
     api_key: str = Depends(verify_api_key),
@@ -239,7 +355,38 @@ async def get_vulnerability(
 #     return result
 
 
-@router.get("/summary", response_model=AnalysisSummaryResponse) # 사용
+@router.get(
+    "/summary",
+    response_model=AnalysisSummaryResponse,
+    responses={
+        200: {"description": "분석 요약 조회 성공"},
+        404: {
+            "description": "분석 결과를 찾을 수 없음",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Analysis not found"}
+                }
+            }
+        },
+        401: {"description": "API Key 인증 실패"},
+        500: {
+            "description": "서버 내부 오류",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Internal server error"}
+                }
+            }
+        },
+        503: {
+            "description": "서비스 초기화 실패",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "AnalysisService not initialized"}
+                }
+            }
+        }
+    }
+) # 사용
 async def get_analysis_summary(
     site_id: UUID = Query(..., alias="siteId"),
     latitude: float = Query(..., description="사업장 위도"),
@@ -285,7 +432,22 @@ async def get_analysis_summary(
 #     return result
 
 
-@router.post("/modelops/recommendation-completed", status_code=200) # ModelOps 전용
+@router.post(
+    "/modelops/recommendation-completed",
+    status_code=200,
+    responses={
+        200: {"description": "후보지 추천 완료 처리 성공"},
+        401: {"description": "API Key 인증 실패"},
+        503: {
+            "description": "서비스 초기화 실패",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "AnalysisService not initialized"}
+                }
+            }
+        }
+    }
+) # ModelOps 전용
 async def mark_recommendation_completed(
     batch_id: UUID = Query(..., alias="batchId"),
     api_key: str = Depends(verify_api_key),

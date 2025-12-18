@@ -14,7 +14,16 @@ from src.core.auth import verify_api_key
 router = APIRouter(prefix="/api/additional-data", tags=["Additional Data"])
 
 
-@router.post("", response_model=AdditionalDataUploadResponse, status_code=201)
+@router.post(
+    "",
+    response_model=AdditionalDataUploadResponse,
+    status_code=201,
+    responses={
+        201: {"description": "추가 데이터가 성공적으로 업로드됨"},
+        401: {"description": "API Key 인증 실패"},
+        422: {"description": "입력 데이터 검증 실패"}
+    }
+)
 async def upload_additional_data(
     request: AdditionalDataUploadRequest,
     api_key: str = Depends(verify_api_key),
@@ -33,7 +42,23 @@ async def upload_additional_data(
     return await service.upload_additional_data(request.site_id, request)
 
 
-@router.get("", response_model=AdditionalDataGetResponse)
+@router.get(
+    "",
+    response_model=AdditionalDataGetResponse,
+    responses={
+        200: {"description": "추가 데이터 조회 성공"},
+        404: {
+            "description": "추가 데이터를 찾을 수 없음",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Additional data not found"}
+                }
+            }
+        },
+        401: {"description": "API Key 인증 실패"},
+        422: {"description": "입력 데이터 검증 실패"}
+    }
+)
 async def get_additional_data(
     site_id: UUID = Query(..., alias="siteId"),
     data_category: Optional[DataCategory] = Query(None, alias="dataCategory"),
@@ -47,7 +72,15 @@ async def get_additional_data(
     return result
 
 
-@router.get("/all", response_model=List[AdditionalDataGetResponse])
+@router.get(
+    "/all",
+    response_model=List[AdditionalDataGetResponse],
+    responses={
+        200: {"description": "모든 추가 데이터 조회 성공"},
+        401: {"description": "API Key 인증 실패"},
+        422: {"description": "입력 데이터 검증 실패"}
+    }
+)
 async def get_all_additional_data(
     site_id: UUID = Query(..., alias="siteId"),
     api_key: str = Depends(verify_api_key),
@@ -58,7 +91,23 @@ async def get_all_additional_data(
     return results
 
 
-@router.delete("", status_code=204)
+@router.delete(
+    "",
+    status_code=204,
+    responses={
+        204: {"description": "추가 데이터가 성공적으로 삭제됨"},
+        404: {
+            "description": "추가 데이터를 찾을 수 없음",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Additional data not found"}
+                }
+            }
+        },
+        401: {"description": "API Key 인증 실패"},
+        422: {"description": "입력 데이터 검증 실패"}
+    }
+)
 async def delete_additional_data(
     site_id: UUID = Query(..., alias="siteId"),
     data_category: Optional[DataCategory] = Query(None, alias="dataCategory"),
@@ -72,7 +121,34 @@ async def delete_additional_data(
     return None
 
 
-@router.post("/file", response_model=AdditionalDataUploadResponse, status_code=201)
+@router.post(
+    "/file",
+    response_model=AdditionalDataUploadResponse,
+    status_code=201,
+    responses={
+        201: {"description": "파일이 성공적으로 업로드됨"},
+        400: {
+            "description": "잘못된 요청",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "unsupported_file": {
+                            "value": {"detail": "Unsupported file type. Allowed: .txt, .md, .csv, .json"}
+                        },
+                        "file_too_large": {
+                            "value": {"detail": "File size exceeds 10MB limit"}
+                        },
+                        "encoding_error": {
+                            "value": {"detail": "Unable to decode file. Please use UTF-8 or CP949 encoding"}
+                        }
+                    }
+                }
+            }
+        },
+        401: {"description": "API Key 인증 실패"},
+        422: {"description": "입력 데이터 검증 실패"}
+    }
+)
 async def upload_additional_data_file(
     site_id: UUID = Query(..., alias="siteId"),
     file: UploadFile = File(...),

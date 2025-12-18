@@ -13,7 +13,15 @@ from src.core.auth import verify_api_key
 router = APIRouter(prefix="/api/simulation", tags=["Simulation"])
 
 
-@router.post("/relocation/compare", response_model=RelocationSimulationResponse)
+@router.post(
+    "/relocation/compare",
+    response_model=RelocationSimulationResponse,
+    responses={
+        200: {"description": "사업장 이전 시뮬레이션 성공"},
+        401: {"description": "API Key 인증 실패"},
+        422: {"description": "입력 데이터 검증 실패"}
+    }
+)
 async def compare_relocation(
     request: RelocationSimulationRequest,
     api_key: str = Depends(verify_api_key),
@@ -28,7 +36,15 @@ async def compare_relocation(
     return await service.compare_relocation_with_db(request)
 
 
-@router.post("/climate", response_model=ClimateSimulationResponse)
+@router.post(
+    "/climate",
+    response_model=ClimateSimulationResponse,
+    responses={
+        200: {"description": "기후 시뮬레이션 성공"},
+        401: {"description": "API Key 인증 실패"},
+        422: {"description": "입력 데이터 검증 실패"}
+    }
+)
 async def run_climate_simulation(
     request: ClimateSimulationRequest,
     api_key: str = Depends(verify_api_key),
@@ -38,7 +54,15 @@ async def run_climate_simulation(
     return await service.run_climate_simulation(request)
 
 
-@router.get("/location/recommendation", response_model=LocationRecommendationResponse)
+@router.get(
+    "/location/recommendation",
+    response_model=LocationRecommendationResponse,
+    responses={
+        200: {"description": "이전 후보지 추천 성공"},
+        401: {"description": "API Key 인증 실패"},
+        422: {"description": "입력 데이터 검증 실패"}
+    }
+)
 async def get_location_recommendation(
     site_id: str = Query(..., alias="siteId"),
     api_key: str = Depends(verify_api_key),

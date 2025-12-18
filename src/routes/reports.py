@@ -26,7 +26,29 @@ def get_report_service():
 #     return await service.create_report(request)
 
 
-@router.get("")
+@router.get(
+    "",
+    responses={
+        200: {"description": "리포트 조회 성공"},
+        404: {
+            "description": "리포트를 찾을 수 없음",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "No reports found for userId: {user_id}"}
+                }
+            }
+        },
+        401: {"description": "API Key 인증 실패"},
+        503: {
+            "description": "서비스 초기화 실패",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "ReportService not initialized"}
+                }
+            }
+        }
+    }
+)
 async def get_reports_by_user(
     user_id: UUID = Query(..., alias="userId"),
     api_key: str = Depends(verify_api_key),
@@ -153,7 +175,30 @@ async def get_reports_by_user(
 #     )
 
 
-@router.post("/data", status_code=200)
+@router.post(
+    "/data",
+    status_code=200,
+    responses={
+        200: {"description": "리포트 데이터 등록 성공"},
+        400: {
+            "description": "잘못된 요청",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Invalid userId or siteId format"}
+                }
+            }
+        },
+        401: {"description": "API Key 인증 실패"},
+        503: {
+            "description": "서비스 초기화 실패",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "ReportService not initialized"}
+                }
+            }
+        }
+    }
+)
 async def register_report_data(
     userId: str = Form(...),
     siteId: str = Form(...),

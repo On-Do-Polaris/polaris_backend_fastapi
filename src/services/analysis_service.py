@@ -69,6 +69,9 @@ RISK_TYPE_KR_MAPPING = {
     'typhoon': '태풍'
 }
 
+# 역매핑: 한글 → 영어 (프론트엔드 요청 처리용)
+RISK_TYPE_EN_MAPPING = {v: k for k, v in RISK_TYPE_KR_MAPPING.items()}
+
 # 분석 기준 연도 및 시나리오
 TARGET_YEAR = 2040
 SSP_SCENARIO = 'ssp245'  # SSP2-4.5
@@ -404,7 +407,20 @@ class AnalysisService:
                 self.logger.info(f"[BACKGROUND] 모든 작업 완료 (Agent + Recommendation): job_id={job_id}")
 
                 # Spring Boot API 호출 (userId 전송)
-                await self._notify_springboot_completion(job_id, request.user_id)
+                # request.user_id가 None일 수 있으므로 DB에서 조회
+                user_id_to_notify = request.user_id
+                if user_id_to_notify is None:
+                    # DB에서 created_by 조회
+                    try:
+                        query = "SELECT created_by FROM batch_jobs WHERE batch_id = %s"
+                        result = self.db.execute_query(query, (str(job_id),))
+                        if result and result[0].get('created_by'):
+                            user_id_to_notify = UUID(result[0]['created_by'])
+                            self.logger.info(f"[BACKGROUND] DB에서 user_id 조회 성공: {user_id_to_notify}")
+                    except Exception as e:
+                        self.logger.warning(f"[BACKGROUND] DB에서 user_id 조회 실패: {e}")
+
+                await self._notify_springboot_completion(job_id, user_id_to_notify)
             else:
                 # Agent만 완료, Recommendation 대기 중
                 self._update_job_in_db(job_id, status='ing', progress=90, results=agent_result, error=error)
@@ -891,6 +907,19 @@ class AnalysisService:
         try:
             db = DatabaseManager()
 
+            # hazard_type이 한글인 경우 영어로 변환 (프론트엔드 호환성)
+            risk_type_en = None
+            if hazard_type:
+                # 한글인지 영어인지 확인
+                if hazard_type in RISK_TYPE_EN_MAPPING:
+                    risk_type_en = RISK_TYPE_EN_MAPPING[hazard_type]
+                    self.logger.info(f"[PHYSICAL_RISK] hazard_type 변환: '{hazard_type}' → '{risk_type_en}'")
+                elif hazard_type in RISK_TYPE_KR_MAPPING:
+                    risk_type_en = hazard_type  # 이미 영어
+                else:
+                    self.logger.warning(f"[PHYSICAL_RISK] 알 수 없는 hazard_type: {hazard_type}")
+                    risk_type_en = hazard_type  # 그대로 사용
+
             # term에 따라 조회할 연도 결정 (DB에는 varchar로 저장)
             # 단기(short): '2026' (1개)
             # 중기(mid): '2026', '2027', '2028', '2029', '2030' (5개)
@@ -932,9 +961,9 @@ class AnalysisService:
             """
             params = [str(site_id), target_years]
 
-            if hazard_type:
+            if risk_type_en:
                 query += " AND h.risk_type = %s"
-                params.append(hazard_type)
+                params.append(risk_type_en)
 
             query += " ORDER BY h.risk_type, h.target_year"
 
@@ -1064,6 +1093,19 @@ class AnalysisService:
         try:
             db = DatabaseManager()
 
+            # hazard_type이 한글인 경우 영어로 변환 (프론트엔드 호환성)
+            risk_type_en = None
+            if hazard_type:
+                # 한글인지 영어인지 확인
+                if hazard_type in RISK_TYPE_EN_MAPPING:
+                    risk_type_en = RISK_TYPE_EN_MAPPING[hazard_type]
+                    self.logger.info(f"[FINANCIAL_IMPACT] hazard_type 변환: '{hazard_type}' → '{risk_type_en}'")
+                elif hazard_type in RISK_TYPE_KR_MAPPING:
+                    risk_type_en = hazard_type  # 이미 영어
+                else:
+                    self.logger.warning(f"[FINANCIAL_IMPACT] 알 수 없는 hazard_type: {hazard_type}")
+                    risk_type_en = hazard_type  # 그대로 사용
+
             # term에 따라 조회할 연도 결정 (DB에는 varchar로 저장)
             # 단기(short): '2026' (1개)
             # 중기(mid): '2026', '2027', '2028', '2029', '2030' (5개)
@@ -1094,9 +1136,9 @@ class AnalysisService:
             """
             params = [str(site_id), target_years]
 
-            if hazard_type:
+            if risk_type_en:
                 query += " AND risk_type = %s"
-                params.append(hazard_type)
+                params.append(risk_type_en)
 
             query += " ORDER BY risk_type, target_year"
 

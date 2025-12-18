@@ -1242,7 +1242,8 @@ class DatabaseManager:
         bjdong_cd: str,
         bun: str,
         ji: str,
-        building_data: Dict[str, Any]
+        building_data: Dict[str, Any],
+        site_id: str = None  # 사업장 UUID (cache_id에 저장)
     ) -> bool:
         """
         Save or update building aggregate data to cache
@@ -1301,9 +1302,14 @@ class DatabaseManager:
                 if usage:
                     floor_purpose_types[usage] = floor_purpose_types.get(usage, 0) + 1
 
+            # cache_id 생성 (site_id가 있으면 사용, 없으면 UUID 생성)
+            import uuid
+            cache_id = site_id if site_id else str(uuid.uuid4())
+
             # UPSERT 쿼리 (존재하면 업데이트, 없으면 삽입)
             query = """
                 INSERT INTO building_aggregate_cache (
+                    cache_id,
                     sigungu_cd, bjdong_cd, bun, ji,
                     jibun_address, road_address,
                     building_count,
@@ -1315,6 +1321,7 @@ class DatabaseManager:
                     floor_details, floor_purpose_types,
                     cached_at, updated_at
                 ) VALUES (
+                    %s,
                     %s, %s, %s, %s,
                     %s, %s,
                     %s,
@@ -1328,6 +1335,7 @@ class DatabaseManager:
                 )
                 ON CONFLICT (sigungu_cd, bjdong_cd, bun, ji)
                 DO UPDATE SET
+                    cache_id = EXCLUDED.cache_id,
                     jibun_address = EXCLUDED.jibun_address,
                     road_address = EXCLUDED.road_address,
                     building_count = EXCLUDED.building_count,
@@ -1348,6 +1356,7 @@ class DatabaseManager:
             """
 
             params = (
+                cache_id,
                 sigungu_cd, bjdong_cd, bun, ji,
                 meta.get('jibun_address', ''),
                 meta.get('road_address', '') or meta.get('address', ''),

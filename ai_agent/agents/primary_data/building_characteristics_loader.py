@@ -147,7 +147,8 @@ class BuildingDataLoader:
         self,
         lat: float,
         lon: float,
-        address: str = None
+        address: str = None,
+        site_id: str = None  # 사업장 UUID (cache_id에 저장)
     ) -> Dict[str, Any]:
         """
         건축물 데이터 로드 및 DB 캐시 저장
@@ -204,9 +205,11 @@ class BuildingDataLoader:
                         bjdong_cd=bjdong_cd,
                         bun=bun,
                         ji=ji,
-                        building_data=data
+                        building_data=data,
+                        site_id=site_id  # site_id를 cache_id로 저장
                     )
-                    self.logger.info(f"✅ DB 캐시 저장 완료: {sigungu_cd}-{bjdong_cd}-{bun}-{ji}")
+                    cache_id_info = f" (cache_id={site_id[:8]}...)" if site_id else ""
+                    self.logger.info(f"✅ DB 캐시 저장 완료: {sigungu_cd}-{bjdong_cd}-{bun}-{ji}{cache_id_info}")
                 except Exception as cache_error:
                     self.logger.warning(f"DB 캐시 저장 실패 (계속 진행): {cache_error}")
 
@@ -292,7 +295,7 @@ class BuildingDataLoader:
             address = site.get("address")
 
             try:
-                data = self.load_and_cache(lat, lon, address)
+                data = self.load_and_cache(lat, lon, address, site_id=str(site_id))  # site_id 전달
                 results[site_id] = data
                 self.logger.info(f"  ✓ 사업장 {site_id} 데이터 로드 완료")
             except Exception as e:

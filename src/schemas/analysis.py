@@ -259,10 +259,25 @@ class RiskVulnerability(BaseModel):
         populate_by_name = True
 
 
-class VulnerabilityResponse(BaseModel):
-    """Spring Boot API 호환 - 취약성 분석"""
+class VulnerabilityData(BaseModel):
+    """취약성 분석 데이터"""
     site_id: UUID = Field(..., alias="siteId", description="사업장 ID")
-    vulnerabilities: list[RiskVulnerability] = Field(..., description="리스크별 취약성 점수")
+    latitude: Optional[float] = Field(None, description="위도")
+    longitude: Optional[float] = Field(None, description="경도")
+    area: Optional[float] = Field(None, description="면적")
+    grndflr_cnt: Optional[int] = Field(None, alias="grndflrCnt", description="지상층수")
+    ugrn_flr_cnt: Optional[int] = Field(None, alias="ugrnFlrCnt", description="지하층수")
+    rserthqk_dsgn_apply_yn: Optional[str] = Field(None, alias="rserthqkDsgnApplyYn", description="내진설계적용여부")
+    aisummry: str = Field(..., description="AI 분석 요약 (BuildingCharacteristicsAgent 결과)")
+
+    class Config:
+        populate_by_name = True
+
+
+class VulnerabilityResponse(BaseModel):
+    """Spring Boot API 호환 - 취약성 분석 응답"""
+    result: str = Field(..., description="결과 상태 (success/failure)")
+    data: VulnerabilityData = Field(..., description="취약성 분석 데이터")
 
     class Config:
         populate_by_name = True

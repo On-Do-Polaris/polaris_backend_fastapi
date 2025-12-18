@@ -281,12 +281,25 @@ class BuildingCharacteristicsAgent:
             risk_scores
         )
 
+        # 5. 원본 건물 데이터에서 주요 정보 추출 (API 응답용)
+        physical_specs = building_data.get('physical_specs', {}) if building_data else {}
+        floors = physical_specs.get('floors', {})
+        seismic = physical_specs.get('seismic', {})
+
+        building_summary = {
+            "area": physical_specs.get('total_area'),  # 면적
+            "grndflr_cnt": floors.get('ground'),  # 지상층수
+            "ugrn_flr_cnt": floors.get('underground'),  # 지하층수
+            "rserthqk_dsgn_apply_yn": seismic.get('applied', 'N')  # 내진설계적용여부
+        }
+
         result = {
             "meta": {
                 "analyzed_at": datetime.now().isoformat(),
                 "data_source": "building_aggregate_cache (DB)" if self.data_loader else "Fallback Data"
             },
-            "agent_guidelines": guidelines  # data_summary + report_guidelines
+            "agent_guidelines": guidelines,  # data_summary + report_guidelines
+            "building_summary": building_summary  # 원본 건물 데이터 요약
         }
 
         self.logger.info("건물 특성 분석 완료")

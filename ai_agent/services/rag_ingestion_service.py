@@ -46,14 +46,12 @@ class RAGIngestionService:
     def __init__(
         self,
         qdrant_url: str = "http://localhost:6333",
-        qdrant_api_key: Optional[str] = None,
         chunk_size: int = 512,
         chunk_overlap: int = 50
     ):
         """
         Args:
-            qdrant_url: Qdrant 서버 URL
-            qdrant_api_key: Qdrant API 키
+            qdrant_url: Qdrant 서버 URL (Docker 컨테이너는 API 키 불필요)
             chunk_size: 청킹 크기 (토큰 단위)
             chunk_overlap: 청크 간 오버랩 크기
         """
@@ -64,18 +62,17 @@ class RAGIngestionService:
         self.parser = DocumentParser()
 
         # Qdrant Vector Stores 초기화 (2개 컬렉션)
+        # Docker 컨테이너로 띄운 Qdrant는 API 키 불필요
         try:
             # 1. 일반 문서 컬렉션
             self.doc_store = QdrantVectorStore(
                 url=qdrant_url,
-                api_key=qdrant_api_key,
                 collection_name="tcfd_documents"
             )
 
             # 2. 테이블 전용 컬렉션
             self.table_store = QdrantVectorStore(
                 url=qdrant_url,
-                api_key=qdrant_api_key,
                 collection_name="tcfd_tables"
             )
 

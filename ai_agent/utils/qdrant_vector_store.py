@@ -29,6 +29,7 @@
 """
 
 import logging
+import os
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
@@ -95,18 +96,30 @@ class QdrantVectorStore:
             from qdrant_client import QdrantClient
             from qdrant_client.models import Distance, VectorParams
 
+            # QDRANT_STORAGE 환경변수를 path로 사용
+            qdrant_storage = os.environ.get('QDRANT_STORAGE')
+
             self.url = url
             self.api_key = api_key
             self.collection_name = collection_name
             self.embedding_model_name = embedding_model
 
             # Qdrant 클라이언트 초기화
-            if api_key:
-                self.client = QdrantClient(url=url, api_key=api_key)
+            if qdrant_storage:
+                # QDRANT_STORAGE가 있으면 path 파라미터로 전달
+                logger.info(f"Using QDRANT_STORAGE path: {qdrant_storage}")
+                if api_key:
+                    self.client = QdrantClient(url=url, api_key=api_key, path=qdrant_storage)
+                else:
+                    self.client = QdrantClient(url=url, path=qdrant_storage)
+                logger.info(f"Qdrant client initialized with storage: {url} (path: {qdrant_storage})")
             else:
-                self.client = QdrantClient(url=url)
-
-            logger.info(f"Qdrant client initialized: {url}")
+                # QDRANT_STORAGE가 없으면 URL만 사용
+                if api_key:
+                    self.client = QdrantClient(url=url, api_key=api_key)
+                else:
+                    self.client = QdrantClient(url=url)
+                logger.info(f"Qdrant client initialized: {url}")
 
             # 임베딩 모델 로드
             self.embedding_model = get_embedding_model(embedding_model)
@@ -463,17 +476,29 @@ class ExistingCollectionSearcher:
         try:
             from qdrant_client import QdrantClient
 
+            # QDRANT_STORAGE 환경변수를 path로 사용
+            qdrant_storage = os.environ.get('QDRANT_STORAGE')
+
             self.url = url
             self.api_key = api_key
             self.embedding_model_name = embedding_model
 
             # Qdrant 클라이언트 초기화
-            if api_key:
-                self.client = QdrantClient(url=url, api_key=api_key)
+            if qdrant_storage:
+                # QDRANT_STORAGE가 있으면 path 파라미터로 전달
+                logger.info(f"Using QDRANT_STORAGE path: {qdrant_storage}")
+                if api_key:
+                    self.client = QdrantClient(url=url, api_key=api_key, path=qdrant_storage)
+                else:
+                    self.client = QdrantClient(url=url, path=qdrant_storage)
+                logger.info(f"ExistingCollectionSearcher initialized with storage: {url} (path: {qdrant_storage})")
             else:
-                self.client = QdrantClient(url=url)
-
-            logger.info(f"ExistingCollectionSearcher initialized: {url}")
+                # QDRANT_STORAGE가 없으면 URL만 사용
+                if api_key:
+                    self.client = QdrantClient(url=url, api_key=api_key)
+                else:
+                    self.client = QdrantClient(url=url)
+                logger.info(f"ExistingCollectionSearcher initialized: {url}")
 
             # 1024 차원 임베딩 모델 로드
             self.embedding_model = get_embedding_model_1024(embedding_model)
@@ -540,7 +565,7 @@ class ExistingCollectionSearcher:
                                      if c in self._available_collections]
 
             if not target_collections:
-                logger.warning("No valid collections to search")
+                logger.info("No valid collections to search (Qdrant may not be configured or collections not uploaded)")
                 return []
 
             all_results = []

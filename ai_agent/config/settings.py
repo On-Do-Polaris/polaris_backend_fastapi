@@ -175,7 +175,7 @@ class Config:
 			'vector_db': 'qdrant',  # 'qdrant', 'chromadb', 'faiss'
 			'embedding_model': 'sentence-transformers/all-MiniLM-L6-v2',
 			'qdrant_url': os.getenv('QDRANT_URL', 'http://localhost:6333'),
-			'qdrant_api_key': os.getenv('QDRANT_API_KEY'),  # Cloud 사용 시
+			'qdrant_storage': os.getenv('QDRANT_STORAGE'),  # Docker 컨테이너용 storage path
 			'qdrant_collection': os.getenv('QDRANT_COLLECTION', 'esg_tcfd_reports'),
 			'top_k': 20,  # 검색할 유사 문서 수
 			'similarity_threshold': 0.7,

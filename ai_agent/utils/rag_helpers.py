@@ -57,7 +57,8 @@ class RAGEngine:
             return None
 
         qdrant_url = os.getenv('QDRANT_URL', 'http://localhost:6333')
-        qdrant_api_key = os.getenv('QDRANT_API_KEY')
+        # Docker 컨테이너로 띄운 Qdrant는 API 키가 필요 없음
+        # qdrant_api_key = os.getenv('QDRANT_API_KEY')  # 제거
 
         try:
             # 기존 컬렉션 검색 모드 (1024 차원, named vector)
@@ -65,10 +66,8 @@ class RAGEngine:
                 from .qdrant_vector_store import ExistingCollectionSearcher
 
                 logger.info(f"[RAGEngine] Initializing ExistingCollectionSearcher: {qdrant_url}")
-                client = ExistingCollectionSearcher(
-                    url=qdrant_url,
-                    api_key=qdrant_api_key
-                )
+                # api_key 파라미터 제거 (Docker 컨테이너는 API 키 불필요)
+                client = ExistingCollectionSearcher(url=qdrant_url)
                 logger.info("[RAGEngine] ExistingCollectionSearcher initialized successfully")
                 return client
 
@@ -79,9 +78,9 @@ class RAGEngine:
                 collection_name = os.getenv('QDRANT_COLLECTION', 'esg_tcfd_reports')
 
                 logger.info(f"[RAGEngine] Initializing QdrantVectorStore: {qdrant_url}")
+                # api_key 파라미터 제거 (Docker 컨테이너는 API 키 불필요)
                 client = QdrantVectorStore(
                     url=qdrant_url,
-                    api_key=qdrant_api_key,
                     collection_name=collection_name
                 )
                 logger.info("[RAGEngine] QdrantVectorStore initialized successfully")

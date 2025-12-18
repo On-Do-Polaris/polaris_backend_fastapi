@@ -149,7 +149,7 @@ class AnalysisService:
                 hazard_types=[],
                 priority=Priority.NORMAL,
                 options=None,
-                status="cancelled",
+                status="done",
                 progress=0,
                 results={"message": "사용자에 의해 취소됨"}
             )
@@ -210,7 +210,7 @@ class AnalysisService:
 
         try:
             # done일 때는 completed_at 설정 (상태는 ing와 done만 있음)
-            if status == 'done' or status == 'failed': # Added 'failed' status for completion
+            if status == 'done':
                 query = """
                     UPDATE batch_jobs
                     SET status = %s, progress = %s, results = %s,
@@ -413,7 +413,7 @@ class AnalysisService:
         except Exception as e:
             self.logger.error(f"[BACKGROUND] 다중 사업장 분석 실패: job_id={job_id}, error={str(e)}", exc_info=True)
             error = {"code": "ANALYSIS_FAILED", "message": str(e)}
-            self._update_job_in_db(job_id, status='failed', progress=100, error=error)
+            self._update_job_in_db(job_id, status='done', progress=100, error=error)
 
     async def _run_agent_multiple_analysis_wrapper(
         self,
@@ -732,7 +732,7 @@ class AnalysisService:
                         actual_status = 'done-a' if use_additional_data else 'done'
                     elif agent_results.get('workflow_status') == 'failed':
                         actual_progress = 100
-                        actual_status = 'failed'
+                        actual_status = 'done'
 
             return AnalysisJobStatus(
                 jobId=job['batch_id'],
@@ -833,7 +833,7 @@ class AnalysisService:
                         actual_status = 'done-a' if use_additional_data else 'done'
                     elif agent_results.get('workflow_status') == 'failed':
                         actual_progress = 100
-                        actual_status = 'failed'
+                        actual_status = 'done'
 
             return AnalysisJobStatus(
                 jobId=job['batch_id'],

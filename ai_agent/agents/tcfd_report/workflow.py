@@ -234,8 +234,16 @@ async def node_1_func(state: TCFDReportState) -> TCFDReportState:
         mode="init"
     )
 
-    print(f"✅ Node 1 완료: templates={len(result.get('templates', {}))}개")
-    return {**state, **result}
+    # Node 1 결과를 templates 키로 매핑
+    templates = result.get('report_template_profile', {})
+    print(f"✅ Node 1 완료: templates={len(templates) if templates else 0}개 필드")
+
+    return {
+        **state,
+        "templates": templates,
+        "rag_references": result.get('style_references', []),
+        "citations": result.get('citations', [])
+    }
 
 
 async def node_2a_func(state: TCFDReportState) -> TCFDReportState:

@@ -392,7 +392,24 @@ async def node_3_func(state: TCFDReportState) -> TCFDReportState:
     )
 
     print(f"✅ Node 3 완료: strategy_section 생성 완료")
-    return {**state, **result}
+
+    # Node 3 결과를 strategy_section 키로 감싸서 반환
+    # (heatmap_table_block과 priority_actions_table은 별도 키로 유지)
+    strategy_section = {
+        "section_id": result.get("section_id"),
+        "title": result.get("title"),
+        "page_start": result.get("page_start"),
+        "page_end": result.get("page_end"),
+        "blocks": result.get("blocks", []),
+        "total_pages": result.get("total_pages")
+    }
+
+    return {
+        **state,
+        "strategy_section": strategy_section,
+        "heatmap_table_block": result.get("heatmap_table_block"),
+        "priority_actions_table": result.get("priority_actions_table")
+    }
 
 
 async def node_4_func(state: TCFDReportState) -> TCFDReportState:

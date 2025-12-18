@@ -241,6 +241,16 @@ class ValidatorNode:
         """
         issues = []
 
+        # 0. None 체크 (방어적 코딩)
+        if strategy_section is None:
+            issues.append({
+                "severity": "critical",
+                "type": "completeness",
+                "field": "strategy_section",
+                "message": "strategy_section이 None입니다 (Node 3 실행 실패 가능성)"
+            })
+            return issues
+
         # 1. 필수 필드 체크
         required_fields = ["section_id", "title", "blocks"]
         for field in required_fields:

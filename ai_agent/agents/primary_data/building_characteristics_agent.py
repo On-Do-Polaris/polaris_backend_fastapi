@@ -849,7 +849,7 @@ Generate JSON with 3 sections (Hybrid Structure):
   "detailed_context": "Comprehensive natural narrative (6-10 paragraphs, 1200-1800 chars). MUST cover ALL of the following in detail: (1) Building age and structural integrity assessment, (2) Structure type and material analysis with specific vulnerabilities, (3) Seismic design status and earthquake risk exposure, (4) Basement facilities inventory and critical infrastructure locations (electrical rooms, mechanical systems, server rooms), (5) Flood risk assessment considering river/coast proximity and underground floors, (6) Overall vulnerability synthesis with severity rankings, (7) Resilience factors and existing protective measures. Each paragraph should provide actionable insights for downstream TCFD report generation agents."
 }}
 
-**OUTPUT LANGUAGE: English.** All text in English for optimal token efficiency.
+**OUTPUT LANGUAGE: Korean (한글).** All text must be in Korean (한글) for local stakeholders.
 
 **CRITICAL LENGTH REQUIREMENTS:**
 - Total output: 1500-2500 characters MINIMUM

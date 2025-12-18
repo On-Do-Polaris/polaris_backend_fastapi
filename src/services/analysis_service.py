@@ -127,6 +127,70 @@ class AnalysisService:
             self._analyzer = SKAXPhysicalRiskAnalyzer(config)
         return self._analyzer
 
+    async def _generate_climate_advice(self, context: dict, advice_type: str = "strategy") -> str:
+        """
+        LLM을 사용하여 기후물리적 조언 생성
+
+        Args:
+            context: 조언 생성에 필요한 컨텍스트 (리스크 타입, SSP 시나리오, 점수 등)
+            advice_type: "strategy" (대응전략) 또는 "reason" (재무영향 분석 이유)
+
+        Returns:
+            생성된 조언 문자열 (1-2문장)
+        """
+        try:
+            from langchain_openai import ChatOpenAI
+
+            # OpenAI LLM 초기화
+            openai_api_key = os.environ.get('OPENAI_API_KEY', '').strip()
+            llm = ChatOpenAI(
+                model="gpt-4.1-mini",  # 간단한 멘트 생성이므로 mini 모델 사용
+                temperature=0.7,
+                api_key=openai_api_key
+            )
+
+            # 프롬프트 생성
+            if advice_type == "strategy":
+                # 물리적 리스크 점수 기반 대응전략
+                prompt = f"""다음 기후 리스크 분석 결과를 바탕으로 간단한 대응전략을 1-2문장으로 작성해주세요.
+
+리스크 타입: {context.get('risk_type', 'N/A')}
+SSP 시나리오: {context.get('ssp_scenario', 'N/A')}
+평균 리스크 점수: {context.get('avg_score', 0):.1f}/100
+
+요구사항:
+- 1-2문장으로 간결하게 작성
+- 해당 리스크에 대한 구체적인 대응방안 제시
+- 전문적이면서도 이해하기 쉽게 작성
+"""
+            else:  # reason
+                # AAL 기반 재무영향 분석 이유
+                prompt = f"""다음 재무영향 분석 결과를 바탕으로 간단한 설명을 1-2문장으로 작성해주세요.
+
+리스크 타입: {context.get('risk_type', 'N/A')}
+SSP 시나리오: {context.get('ssp_scenario', 'N/A')}
+평균 AAL: {context.get('avg_aal', 0):.4f}
+
+요구사항:
+- 1-2문장으로 간결하게 작성
+- 해당 리스크가 재무적으로 미치는 영향 설명
+- 전문적이면서도 이해하기 쉽게 작성
+"""
+
+            response = llm.invoke(prompt)
+            advice = response.content.strip()
+
+            self.logger.info(f"[LLM_ADVICE] 조언 생성 완료: type={advice_type}, length={len(advice)}")
+            return advice
+
+        except Exception as e:
+            self.logger.error(f"[LLM_ADVICE] 조언 생성 실패: {e}", exc_info=True)
+            # LLM 실패 시 기본 메시지 반환
+            if advice_type == "strategy":
+                return "해당 리스크에 대한 모니터링을 강화하고 적절한 대응 계획을 수립하시기 바랍니다."
+            else:
+                return "기후 변화로 인한 재무적 영향을 지속적으로 모니터링하고 리스크 관리 전략을 수립하시기 바랍니다."
+
     def _cleanup_task(self, job_id: UUID):
         """Task 완료 시 자동 정리"""
         if job_id in self._running_tasks:
@@ -1103,7 +1167,33 @@ class AnalysisService:
                         longTerm=LongTermScore(**long_scores),
                     ))
 
-            return PhysicalRiskScoreResponse(scenarios=scenarios)
+            # LLM을 사용하여 대응전략 조언 생성
+            strategy_advice = None
+            if scenarios:
+                # 첫 번째 시나리오의 데이터를 기반으로 평균 점수 계산
+                first_scenario = scenarios[0]
+                avg_score = 0
+                point_count = 0
+
+                # 중기 점수들의 평균 계산
+                for point_key in ['point1', 'point2', 'point3', 'point4', 'point5']:
+                    point_val = getattr(first_scenario.midTerm, point_key, None)
+                    if point_val and hasattr(point_val, 'total'):
+                        avg_score += point_val.total
+                        point_count += 1
+
+                if point_count > 0:
+                    avg_score = avg_score / point_count
+
+                # LLM 조언 생성
+                context = {
+                    'risk_type': first_scenario.riskType,
+                    'ssp_scenario': first_scenario.scenario.value,
+                    'avg_score': avg_score
+                }
+                strategy_advice = await self._generate_climate_advice(context, advice_type="strategy")
+
+            return PhysicalRiskScoreResponse(scenarios=scenarios, Strategy=strategy_advice)
 
         except Exception as e:
             self.logger.error(f"[PHYSICAL_RISK] 데이터 조회 실패: {str(e)}", exc_info=True)
@@ -1262,7 +1352,34 @@ class AnalysisService:
 
             if not scenarios:
                 return None
-            return FinancialImpactResponse(scenarios=scenarios)
+
+            # LLM을 사용하여 재무영향 분석 이유 생성
+            reason_advice = None
+            if scenarios:
+                # 첫 번째 시나리오의 데이터를 기반으로 평균 AAL 계산
+                first_scenario = scenarios[0]
+                avg_aal = 0
+                point_count = 0
+
+                # 중기 AAL들의 평균 계산
+                for point_key in ['point1', 'point2', 'point3', 'point4', 'point5']:
+                    point_val = getattr(first_scenario.midTerm, point_key, None)
+                    if point_val is not None:
+                        avg_aal += point_val
+                        point_count += 1
+
+                if point_count > 0:
+                    avg_aal = avg_aal / point_count
+
+                # LLM 조언 생성
+                context = {
+                    'risk_type': first_scenario.riskType,
+                    'ssp_scenario': first_scenario.scenario.value,
+                    'avg_aal': avg_aal
+                }
+                reason_advice = await self._generate_climate_advice(context, advice_type="reason")
+
+            return FinancialImpactResponse(scenarios=scenarios, reason=reason_advice)
         except Exception as e:
             self.logger.error(f"[FINANCIAL_IMPACT] DB 조회 실패: {e}", exc_info=True)
             return None

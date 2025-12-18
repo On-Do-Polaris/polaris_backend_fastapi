@@ -26,6 +26,34 @@ from utils.region_mapper import REGION_COORD_MAP  # {"11010": {"lat": 37.5, "lng
 
 from ai_agent.utils.database import DatabaseManager
 
+# 한글 → 영어 매핑 (analysis_service.py와 동일)
+RISK_TYPE_ALIAS_MAPPING = {
+    '극심한 고온': 'extreme_heat',
+    '극심한 저온': 'extreme_cold',
+    '극심한 한파': 'extreme_cold',
+    '폭염': 'extreme_heat',
+    '한파': 'extreme_cold',
+    '산불': 'wildfire',
+    '가뭄': 'drought',
+    '물 부족': 'water_stress',
+    '물부족': 'water_stress',
+    '해안 침수': 'sea_level_rise',
+    '해안침수': 'sea_level_rise',
+    '해수면 상승': 'sea_level_rise',
+    '내륙 침수': 'river_flood',
+    '내륙침수': 'river_flood',
+    '도시 침수': 'urban_flood',
+    '도시침수': 'urban_flood',
+    '태풍': 'typhoon',
+    '물 부족': 'water_stress',
+}
+
+# 영문 리스크 타입 (검증용)
+RISK_TYPE_EN = {
+    'extreme_heat', 'extreme_cold', 'wildfire', 'drought', 'water_stress',
+    'sea_level_rise', 'river_flood', 'urban_flood', 'typhoon'
+}
+
 class SimulationService:
     """시뮬레이션 서비스 - ai_agent를 사용하여 시뮬레이션 수행"""
 
@@ -356,14 +384,22 @@ class SimulationService:
 
             try:
                 db = DatabaseManager()
-                
+
+                # 0. hazard_type 한글 → 영어 변환
+                hazard_type_en = request.hazard_type
+                if request.hazard_type in RISK_TYPE_ALIAS_MAPPING:
+                    hazard_type_en = RISK_TYPE_ALIAS_MAPPING[request.hazard_type]
+                    self.logger.info(f"[SIMULATION] hazard_type 변환: '{request.hazard_type}' → '{hazard_type_en}'")
+                elif request.hazard_type not in RISK_TYPE_EN:
+                    self.logger.warning(f"[SIMULATION] 알 수 없는 hazard_type: {request.hazard_type}, 그대로 사용")
+
                 # 1. 시나리오에 따른 동적 컬럼명 결정 (예: ssp585_score_100, ssp585_final_aal)
                 # request.scenario가 Enum인 경우 문자열 처리
                 scenario_str = str(request.scenario.value) if hasattr(request.scenario, "value") else str(request.scenario)
                 # "SSP5-8.5" -> "ssp585" 변환
                 prefix = scenario_str.lower().replace("ssp", "ssp").replace("-", "").replace(".", "").replace("_", "")
                 if "ssp" not in prefix: prefix = "ssp585" # fallback
-                
+
                 score_col = f"{prefix}_score_100"
                 aal_col = f"{prefix}_final_aal"
 
@@ -377,18 +413,18 @@ class SimulationService:
                     site_ids_tuple = tuple(str(sid) for sid in request.site_ids)
                     
                     query_site = f"""
-                        SELECT 
-                            site_id, 
-                            target_year, 
+                        SELECT
+                            site_id,
+                            target_year,
                             {aal_col} as aal_value
                         FROM aal_scaled_results
                         WHERE site_id IN %s
                         AND risk_type = %s
                         AND target_year BETWEEN %s AND %s
                     """
-                    
-                    # DBManager execute_query 사용
-                    site_rows = db.execute_query(query_site, (site_ids_tuple, request.hazard_type, str(request.start_year), str(request.end_year)))
+
+                    # DBManager execute_query 사용 (변환된 영문 hazard_type 사용)
+                    site_rows = db.execute_query(query_site, (site_ids_tuple, hazard_type_en, str(request.start_year), str(request.end_year)))
                     
                     for row in site_rows:
                         s_id = str(row['site_id']) # UUID -> str
@@ -446,7 +482,7 @@ class SimulationService:
                     try:
                         region_rows = db.execute_query(
                             query_region_batch,
-                            (request.hazard_type, str(request.start_year), str(request.end_year))
+                            (hazard_type_en, str(request.start_year), str(request.end_year))
                         )
 
                         # 결과를 region_scores_map에 저장

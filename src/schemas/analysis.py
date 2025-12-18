@@ -170,6 +170,7 @@ class SSPScenarioScore(BaseModel):
 class PhysicalRiskScoreResponse(BaseModel):
     """Spring Boot API 호환 - 시나리오별 물리적 리스크 점수"""
     scenarios: list[SSPScenarioScore] = Field(..., description="SSP 시나리오별 리스크 점수 목록 (4개 시나리오)")
+    Strategy: Optional[str] = Field(None, description="기후물리적 대응전략 조언")
 
     class Config:
         populate_by_name = True
@@ -244,6 +245,7 @@ class SSPScenarioImpact(BaseModel):
 class FinancialImpactResponse(BaseModel):
     """Spring Boot API 호환 - 시나리오별 재무 영향 분석"""
     scenarios: list[SSPScenarioImpact] = Field(..., description="SSP 시나리오별 재무 영향 목록 (4개 시나리오)")
+    reason: Optional[str] = Field(None, description="재무영향 분석 이유 및 설명")
 
     class Config:
         populate_by_name = True

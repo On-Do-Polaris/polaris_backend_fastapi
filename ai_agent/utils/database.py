@@ -761,6 +761,8 @@ class DatabaseManager:
     ) -> List[Dict[str, Any]]:
         """
         Fetch Hazard Score results from ModelOps calculations
+        Uses nearest neighbor search for latitude/longitude matching.
+        H values that are None are treated as 1.
 
         Args:
             latitude: Latitude
@@ -773,6 +775,7 @@ class DatabaseManager:
         Returns:
             List of hazard results with scores and levels
         """
+        # Use nearest neighbor search for latitude/longitude
         query = """
             SELECT
                 latitude,
@@ -784,9 +787,9 @@ class DatabaseManager:
                 ssp370_score_100,
                 ssp585_score_100
             FROM hazard_results
-            WHERE latitude = %s AND longitude = %s
+            WHERE 1=1
         """
-        params: List[Any] = [latitude, longitude]
+        params: List[Any] = []
 
         if target_years:
             placeholders = ', '.join(['%s'] * len(target_years))
@@ -797,9 +800,29 @@ class DatabaseManager:
             query += " AND risk_type = %s"
             params.append(risk_type)
 
-        query += " ORDER BY target_year, risk_type"
+        # Order by distance and limit to closest matches
+        query += f"""
+            ORDER BY (
+                POW(latitude - %s, 2) + POW(longitude - %s, 2)
+            ) ASC
+            LIMIT 100
+        """
+        params.extend([latitude, longitude])
 
-        return self.execute_query(query, tuple(params))
+        results = self.execute_query(query, tuple(params))
+
+        # H 값이 None인 경우 1로 처리
+        for result in results:
+            if result.get('ssp126_score_100') is None:
+                result['ssp126_score_100'] = 1
+            if result.get('ssp245_score_100') is None:
+                result['ssp245_score_100'] = 1
+            if result.get('ssp370_score_100') is None:
+                result['ssp370_score_100'] = 1
+            if result.get('ssp585_score_100') is None:
+                result['ssp585_score_100'] = 1
+
+        return results
 
     def fetch_exposure_results(
         self,
@@ -809,6 +832,7 @@ class DatabaseManager:
     ) -> List[Dict[str, Any]]:
         """
         Fetch Exposure Score results from ModelOps calculations
+        E values that are None are treated as 1.
 
         Args:
             site_id: Site UUID
@@ -842,7 +866,14 @@ class DatabaseManager:
 
         query += " ORDER BY target_year, risk_type"
 
-        return self.execute_query(query, tuple(params))
+        results = self.execute_query(query, tuple(params))
+
+        # E 값이 None인 경우 1로 처리
+        for result in results:
+            if result.get('exposure_score') is None:
+                result['exposure_score'] = 1
+
+        return results
 
     def fetch_vulnerability_results(
         self,
@@ -852,6 +883,7 @@ class DatabaseManager:
     ) -> List[Dict[str, Any]]:
         """
         Fetch Vulnerability Score results from ModelOps calculations
+        V values that are None are treated as 1.
 
         Args:
             site_id: Site UUID
@@ -885,7 +917,14 @@ class DatabaseManager:
 
         query += " ORDER BY target_year, risk_type"
 
-        return self.execute_query(query, tuple(params))
+        results = self.execute_query(query, tuple(params))
+
+        # V 값이 None인 경우 1로 처리
+        for result in results:
+            if result.get('vulnerability_score') is None:
+                result['vulnerability_score'] = 1
+
+        return results
 
     def fetch_probability_results(
         self,
@@ -896,6 +935,8 @@ class DatabaseManager:
     ) -> List[Dict[str, Any]]:
         """
         Fetch Probability P(H) results from ModelOps calculations
+        Uses nearest neighbor search for latitude/longitude matching.
+        P(H) values that are None are treated as 1.
 
         Args:
             latitude: Latitude
@@ -906,6 +947,7 @@ class DatabaseManager:
         Returns:
             List of probability results with bin probabilities and AAL
         """
+        # Use nearest neighbor search for latitude/longitude
         query = """
             SELECT
                 latitude,
@@ -921,9 +963,9 @@ class DatabaseManager:
                 ssp370_bin_probs,
                 ssp585_bin_probs
             FROM probability_results
-            WHERE latitude = %s AND longitude = %s
+            WHERE 1=1
         """
-        params: List[Any] = [latitude, longitude]
+        params: List[Any] = []
 
         if target_years:
             placeholders = ', '.join(['%s'] * len(target_years))
@@ -934,9 +976,30 @@ class DatabaseManager:
             query += " AND risk_type = %s"
             params.append(risk_type)
 
-        query += " ORDER BY target_year, risk_type"
+        # Order by distance and limit to closest matches
+        query += f"""
+            ORDER BY (
+                POW(latitude - %s, 2) + POW(longitude - %s, 2)
+            ) ASC
+            LIMIT 100
+        """
+        params.extend([latitude, longitude])
 
-        return self.execute_query(query, tuple(params))
+        results = self.execute_query(query, tuple(params))
+
+        # P(H) 값이 None인 경우 1로 처리
+        for result in results:
+            # AAL 값들 처리 (probability 개념)
+            if result.get('ssp126_aal') is None:
+                result['ssp126_aal'] = 1.0
+            if result.get('ssp245_aal') is None:
+                result['ssp245_aal'] = 1.0
+            if result.get('ssp370_aal') is None:
+                result['ssp370_aal'] = 1.0
+            if result.get('ssp585_aal') is None:
+                result['ssp585_aal'] = 1.0
+
+        return results
 
     def fetch_aal_scaled_results(
         self,
@@ -946,6 +1009,7 @@ class DatabaseManager:
     ) -> List[Dict[str, Any]]:
         """
         Fetch final AAL results (scaled by vulnerability) from ModelOps
+        AAL values that are None are treated as 1.
 
         Args:
             site_id: Site UUID
@@ -982,7 +1046,20 @@ class DatabaseManager:
 
         query += " ORDER BY target_year, risk_type"
 
-        return self.execute_query(query, tuple(params))
+        results = self.execute_query(query, tuple(params))
+
+        # AAL 값이 None인 경우 1로 처리
+        for result in results:
+            if result.get('ssp126_final_aal') is None:
+                result['ssp126_final_aal'] = 1.0
+            if result.get('ssp245_final_aal') is None:
+                result['ssp245_final_aal'] = 1.0
+            if result.get('ssp370_final_aal') is None:
+                result['ssp370_final_aal'] = 1.0
+            if result.get('ssp585_final_aal') is None:
+                result['ssp585_final_aal'] = 1.0
+
+        return results
 
     def fetch_all_modelops_results(
         self,

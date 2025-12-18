@@ -487,10 +487,20 @@ class AnalysisService:
 
             # Qdrant 클라이언트 (없으면 None으로 전달)
             try:
-                qdrant_client = QdrantClient(
-                    host=os.environ.get('QDRANT_HOST', 'localhost'),
-                    port=int(os.environ.get('QDRANT_PORT', 6333))
-                )
+                # QDRANT_STORAGE 환경변수 확인
+                qdrant_storage = os.environ.get('QDRANT_STORAGE')
+
+                if qdrant_storage:
+                    # QDRANT_STORAGE가 있으면 path 파라미터로 전달
+                    qdrant_url = os.environ.get('QDRANT_HOST', 'http://localhost:6333')
+                    self.logger.info(f"[TCFD] Using QDRANT_STORAGE path: {qdrant_storage}")
+                    qdrant_client = QdrantClient(url=qdrant_url, path=qdrant_storage)
+                else:
+                    # 기존 방식: host와 port 사용
+                    qdrant_client = QdrantClient(
+                        host=os.environ.get('QDRANT_HOST', 'localhost'),
+                        port=int(os.environ.get('QDRANT_PORT', 6333))
+                    )
             except Exception as e:
                 self.logger.warning(f"[TCFD] Qdrant 연결 실패 (RAG 비활성화): {e}")
                 qdrant_client = None
@@ -1003,7 +1013,8 @@ class AnalysisService:
 
                 # 각 시나리오별 H 값 추출 및 Total 계산 함수
                 def calc_score(h_val):
-                    h_val = h_val or 0
+                    # H 값이 None이면 1로 처리
+                    h_val = h_val if h_val is not None else 1
                     return {
                         "total": (h_val * E * V) / 10000,
                         "h": h_val,
@@ -1448,7 +1459,7 @@ class AnalysisService:
                     try:
                         update_query = """
                             UPDATE batch_jobs
-                            SET status = 'done', progress = 100, updated_at = NOW()
+                            SET status = 'done', progress = 100
                             WHERE created_by = %s AND status != 'done'
                         """
                         self.db.execute_update(update_query, (str(user_id),))
@@ -1551,7 +1562,9 @@ class AnalysisService:
             physical_risk_scores_dict = {}
             aal_scores_dict = {}
             for risk_type in RISK_TYPES:
+                # H 값이 None이면 1로 처리
                 H = hazard_data[risk_type]['ssp245_score_100']
+                H = H if H is not None else 1
                 E = exposure_data[risk_type]['exposure_score']
                 V = vulnerability_data[risk_type]['vulnerability_score']
                 physical_risk_score = int(round((H * E * V) / 10000))

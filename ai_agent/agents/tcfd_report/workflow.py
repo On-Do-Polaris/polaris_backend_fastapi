@@ -464,12 +464,28 @@ async def node_5_func(state: TCFDReportState) -> TCFDReportState:
 
     from .node_5_composer import ComposerNode
 
+    # validated_sections에서 strategy_section 추출
+    validated_sections = state.get("validated_sections", {})
+    strategy_section = validated_sections.get("strategy") if validated_sections else None
+
+    # strategy_section이 None이면 빈 섹션으로 대체
+    if strategy_section is None:
+        print("⚠️ Warning: strategy_section is None, using empty section")
+        strategy_section = {
+            "section_id": "strategy",
+            "title": "Strategy",
+            "page_start": 7,
+            "page_end": 12,
+            "blocks": []
+        }
+
     node = ComposerNode(_llm)
     result = await node.execute(
-        state.get("validated_sections"),
-        state.get("scenarios"),
-        state.get("mitigation_strategies"),
-        state.get("heatmap_table_block")
+        strategy_section=strategy_section,
+        scenarios=state.get("scenarios"),
+        mitigation_strategies=state.get("mitigation_strategies"),
+        sites_data=state.get("sites_data", []),
+        impact_analyses=state.get("impact_analyses")
     )
 
     print(f"✅ Node 5 완료: 최종 보고서 JSON 생성 완료")

@@ -230,10 +230,14 @@ class AdditionalDataLoader:
             "total_files": total_files,
             "success_count": success_count,
             "failed_count": failed_count,
+            "deleted_files": sum(1 for r in results if r.get("file_deleted")),
             "results": results
         }
 
-        self.logger.info(f"scratch 폴더 적재 완료: {success_count}/{total_files} 성공")
+        self.logger.info(
+            f"scratch 폴더 적재 완료: {success_count}/{total_files} 성공, "
+            f"{summary['deleted_files']}개 파일 삭제"
+        )
         return summary
 
     def _extract_site_id_from_folder(self, folder_name: str) -> Optional[str]:
@@ -262,7 +266,8 @@ class AdditionalDataLoader:
         self,
         file_path: str,
         site_id: str,
-        category: str = None  # 호환성 유지 (metadata로 저장)
+        category: str = None,  # 호환성 유지 (metadata로 저장)
+        auto_cleanup: bool = True  # 자동 삭제 플래그 (성공 시 파일 삭제)
     ) -> Dict[str, Any]:
         """
         Excel 파일을 읽어서 site_additional_data 테이블에 적재
@@ -313,6 +318,16 @@ class AdditionalDataLoader:
             )
 
             self.logger.info(f"✅ DB 적재 완료: {file_name} → site_id={site_id[:8]}..., parsing={data.get('parsing_method')}")
+
+            # 5. Auto cleanup (성공 시 파일 삭제)
+            cleanup_status = None
+            if auto_cleanup:
+                cleanup_status = self.cleanup_file(file_path)
+                if cleanup_status:
+                    self.logger.info(f"🗑️ 파일 자동 삭제 완료: {file_path}")
+                else:
+                    self.logger.warning(f"⚠️ 파일 삭제 실패: {file_path}")
+
             return {
                 "success": True,
                 "site_id": site_id,
@@ -320,7 +335,8 @@ class AdditionalDataLoader:
                 "parsing_method": data.get('parsing_method'),
                 "file_name": file_name,
                 "sheet_count": len(data.get('sheets', [])),
-                "total_rows": metadata['total_rows']
+                "total_rows": metadata['total_rows'],
+                "file_deleted": cleanup_status  # 삭제 여부
             }
 
         except Exception as e:

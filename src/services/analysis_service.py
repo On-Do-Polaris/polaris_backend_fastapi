@@ -72,6 +72,19 @@ RISK_TYPE_KR_MAPPING = {
 # 역매핑: 한글 → 영어 (프론트엔드 요청 처리용)
 RISK_TYPE_EN_MAPPING = {v: k for k, v in RISK_TYPE_KR_MAPPING.items()}
 
+# 추가 한글 별칭 매핑 (프론트엔드 호환성)
+RISK_TYPE_ALIAS_MAPPING = {
+    '극심한 고온': 'extreme_heat',
+    '극심한 저온': 'extreme_cold',
+    '극한 고온': 'extreme_heat',
+    '극한 저온': 'extreme_cold',
+    '고온': 'extreme_heat',
+    '저온': 'extreme_cold',
+}
+
+# RISK_TYPE_EN_MAPPING에 별칭 추가
+RISK_TYPE_EN_MAPPING.update(RISK_TYPE_ALIAS_MAPPING)
+
 # 분석 기준 연도 및 시나리오
 TARGET_YEAR = 2040
 SSP_SCENARIO = 'ssp245'  # SSP2-4.5
@@ -1427,8 +1440,17 @@ class AnalysisService:
             db = DatabaseManager()
 
             # Queries for H, E, V, AAL from respective tables
-            hazard_query = "SELECT risk_type, ssp245_score_100 FROM hazard_results WHERE latitude = %s AND longitude = %s AND target_year = %s"
-            hazard_rows = db.execute_query(hazard_query, (latitude, longitude, str(TARGET_YEAR)))
+            # Use nearest neighbor search for latitude/longitude (handles floating point precision issues)
+            hazard_query = """
+                SELECT risk_type, ssp245_score_100
+                FROM hazard_results
+                WHERE target_year = %s
+                ORDER BY (
+                    POW(latitude - %s, 2) + POW(longitude - %s, 2)
+                ) ASC
+                LIMIT 9
+            """
+            hazard_rows = db.execute_query(hazard_query, (str(TARGET_YEAR), latitude, longitude))
             hazard_data = {row['risk_type']: row for row in hazard_rows}
 
             exposure_query = "SELECT risk_type, exposure_score FROM exposure_results WHERE site_id = %s AND target_year = %s"

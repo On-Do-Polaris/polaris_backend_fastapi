@@ -78,8 +78,10 @@ RISK_TYPE_EN_MAPPING = {v: k for k, v in RISK_TYPE_KR_MAPPING.items()}
 RISK_TYPE_ALIAS_MAPPING = {
     '극심한 고온': 'extreme_heat',
     '극심한 저온': 'extreme_cold',
+    '극심한 한파': 'extreme_cold',
     '극한 고온': 'extreme_heat',
     '극한 저온': 'extreme_cold',
+    '극한 한파': 'extreme_cold',
     '고온': 'extreme_heat',
     '저온': 'extreme_cold',
     '하천 홍수': 'river_flood',

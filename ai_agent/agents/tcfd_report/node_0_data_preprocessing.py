@@ -511,17 +511,66 @@ class DataPreprocessingNode:
 
                     # 결과를 building_data에 저장 + 가공된 building_summary 추가
                     for site_id, result in bc_results.items():
-                        # Raw building data 조회 후 가공 (DB에서 직접)
+                        # Raw building data 조회 후 가공
+                        # 1. site_info 찾기 (Application DB에서 가져온 정보)
                         site_info = next(
                             (s for s in chunk if s["site_id"] == site_id),
                             None
                         )
                         building_summary = {}
                         if site_info:
-                            address = site_info.get("site_info", {}).get("address")
-                            if address:
-                                raw_data = bc_loader.fetch_from_db_only(road_address=address) or {}
-                                # raw_data를 가공하여 필요한 정보만 추출
+                            # 2. Application DB의 주소/위경도 정보 추출
+                            site_info_detail = site_info.get("site_info", {})
+                            latitude = site_info_detail.get("latitude")
+                            longitude = site_info_detail.get("longitude")
+
+                            # 3. 먼저 DB 캐시에서 조회 시도 (cache_id = site_id)
+                            raw_data = bc_loader.fetch_from_db_only(cache_id=str(site_id))
+
+                            # 4. 캐시에 없으면 API 호출 → DB 저장 (도로명 주소, 지번 주소 모두 시도)
+                            if not raw_data and latitude and longitude:
+                                # 4-1. 도로명 주소로 시도
+                                road_address = None
+                                # Application DB sites 테이블 조회 (road_address)
+                                try:
+                                    site_query = "SELECT road_address, jibun_address FROM sites WHERE id = %s"
+                                    site_results = self.app_db.execute_query(site_query, (str(site_id),))
+                                    if site_results:
+                                        road_address = site_results[0].get('road_address')
+                                        jibun_address = site_results[0].get('jibun_address')
+                                except Exception as e:
+                                    self.logger.warning(f"사업장 {site_id} 주소 조회 실패: {e}")
+                                    road_address = None
+                                    jibun_address = None
+
+                                # 4-2. 도로명 주소로 API 호출 시도
+                                if road_address:
+                                    self.logger.info(
+                                        f"사업장 {site_id} 건물 데이터 캐시 미존재, API 호출 시작 (도로명): "
+                                        f"lat={latitude}, lon={longitude}, road_address={road_address}"
+                                    )
+                                    raw_data = bc_loader.load_and_cache(
+                                        lat=latitude,
+                                        lon=longitude,
+                                        address=road_address,
+                                        site_id=str(site_id)
+                                    )
+
+                                # 4-3. 도로명 주소로 실패하면 지번 주소로 재시도
+                                if not raw_data and jibun_address:
+                                    self.logger.info(
+                                        f"사업장 {site_id} 도로명 주소로 실패, 지번 주소로 재시도: "
+                                        f"lat={latitude}, lon={longitude}, jibun_address={jibun_address}"
+                                    )
+                                    raw_data = bc_loader.load_and_cache(
+                                        lat=latitude,
+                                        lon=longitude,
+                                        address=jibun_address,
+                                        site_id=str(site_id)
+                                    )
+
+                            # 5. raw_data를 가공하여 필요한 정보만 추출
+                            if raw_data:
                                 building_summary = self._process_building_data(raw_data)
 
                         # agent_guidelines + 가공된 building_summary 합침

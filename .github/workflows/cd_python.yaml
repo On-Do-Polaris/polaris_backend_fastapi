@@ -76,6 +76,7 @@ jobs:
             echo "4. 새 컨테이너 실행 중... (이름: ${CONTAINER_NAME})"
             docker run -d \
               --name ${CONTAINER_NAME} \
+              --network web \
               --network polaris-network \
               --restart unless-stopped \
               -p 8000:8000 \

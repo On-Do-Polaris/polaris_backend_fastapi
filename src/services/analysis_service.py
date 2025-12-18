@@ -1325,56 +1325,13 @@ class AnalysisService:
 
             self.logger.info(f"[VULNERABILITY] site 정보 조회 완료: road_address={road_address}, jibun_address={jibun_address}")
 
-            # 2. 주소에서 시군구코드, 법정동코드, 번, 지 추출
-            # jibun_address 또는 road_address를 사용하여 building_aggregate_cache 조회
-            # 주소 파싱은 VWorld Geocoding API 또는 주소 파싱 로직 필요
-            # 여기서는 간단하게 Datawarehouse DB의 api_vworld_geocode 테이블을 활용
-
             dw_db = DatabaseManager()  # Datawarehouse DB (기본 설정)
 
-            # VWorld Geocode 캐시에서 주소 정보 조회 (위경도 기반)
-            geocode_query = """
-                SELECT
-                    sigungu_cd,
-                    bjdong_cd,
-                    bun,
-                    ji,
-                    parcel_address,
-                    road_address
-                FROM api_vworld_geocode
-                WHERE latitude = %s AND longitude = %s
-                LIMIT 1
-            """
-            geocode_result = dw_db.execute_query(geocode_query, (latitude, longitude))
+            # 2. building_aggregate_cache 조회 (우선순위: cache_id → 주소 코드)
+            building_result = None
 
-            if not geocode_result:
-                self.logger.warning(f"[VULNERABILITY] 위경도({latitude}, {longitude})에 대한 geocode 정보가 없습니다")
-                # 주소가 없으면 AI 요약만 반환
-                aisummry = self._get_ai_summary_from_state(site_id)
-                return VulnerabilityResponse(
-                    result="success",
-                    data=VulnerabilityData(
-                        siteId=site_id,
-                        latitude=latitude,
-                        longitude=longitude,
-                        area=None,
-                        grndflrCnt=None,
-                        ugrnFlrCnt=None,
-                        rserthqkDsgnApplyYn=None,
-                        aisummry=aisummry
-                    )
-                )
-
-            geocode_info = geocode_result[0]
-            sigungu_cd = geocode_info.get('sigungu_cd')
-            bjdong_cd = geocode_info.get('bjdong_cd')
-            bun = geocode_info.get('bun')
-            ji = geocode_info.get('ji')
-
-            self.logger.info(f"[VULNERABILITY] geocode 정보 조회 완료: sigungu_cd={sigungu_cd}, bjdong_cd={bjdong_cd}, bun={bun}, ji={ji}")
-
-            # 3. building_aggregate_cache 테이블에서 건물 정보 조회
-            building_query = """
+            # 2-1. cache_id = site_id로 직접 조회 시도 (최우선)
+            cache_id_query = """
                 SELECT
                     jibun_address,
                     road_address,
@@ -1392,32 +1349,104 @@ class AnalysisService:
                     total_floor_area_sqm,
                     total_building_area_sqm
                 FROM building_aggregate_cache
-                WHERE sigungu_cd = %s
-                    AND bjdong_cd = %s
-                    AND bun = %s
-                    AND ji = %s
+                WHERE cache_id = %s
             """
-            building_result = dw_db.execute_query(building_query, (sigungu_cd, bjdong_cd, bun, ji))
+            building_result = dw_db.execute_query(cache_id_query, (str(site_id),))
 
-            if not building_result:
-                self.logger.warning(f"[VULNERABILITY] 건물 정보가 없습니다: sigungu_cd={sigungu_cd}, bjdong_cd={bjdong_cd}, bun={bun}, ji={ji}")
-                # 건물 정보가 없으면 AI 요약만 반환
-                aisummry = self._get_ai_summary_from_state(site_id)
-                return VulnerabilityResponse(
-                    result="success",
-                    data=VulnerabilityData(
-                        siteId=site_id,
-                        latitude=latitude,
-                        longitude=longitude,
-                        area=None,
-                        grndflrCnt=None,
-                        ugrnFlrCnt=None,
-                        rserthqkDsgnApplyYn=None,
-                        aisummry=aisummry
+            if building_result:
+                self.logger.info(f"[VULNERABILITY] cache_id로 건물 정보 조회 성공: site_id={site_id}")
+                building_info = building_result[0]
+            else:
+                # 2-2. Fallback: 주소 코드 기반 조회 (기존 방식)
+                self.logger.info(f"[VULNERABILITY] cache_id 조회 실패, 주소 기반 조회로 fallback")
+
+                # VWorld Geocode 캐시에서 주소 정보 조회 (위경도 기반)
+                geocode_query = """
+                    SELECT
+                        sigungu_cd,
+                        bjdong_cd,
+                        bun,
+                        ji,
+                        parcel_address,
+                        road_address
+                    FROM api_vworld_geocode
+                    WHERE latitude = %s AND longitude = %s
+                    LIMIT 1
+                """
+                geocode_result = dw_db.execute_query(geocode_query, (latitude, longitude))
+
+                if not geocode_result:
+                    self.logger.warning(f"[VULNERABILITY] 위경도({latitude}, {longitude})에 대한 geocode 정보가 없습니다")
+                    # 주소가 없으면 AI 요약만 반환
+                    aisummry = self._get_ai_summary_from_state(site_id)
+                    return VulnerabilityResponse(
+                        result="success",
+                        data=VulnerabilityData(
+                            siteId=site_id,
+                            latitude=latitude,
+                            longitude=longitude,
+                            area=None,
+                            grndflrCnt=None,
+                            ugrnFlrCnt=None,
+                            rserthqkDsgnApplyYn=None,
+                            aisummry=aisummry
+                        )
                     )
-                )
 
-            building_info = building_result[0]
+                geocode_info = geocode_result[0]
+                sigungu_cd = geocode_info.get('sigungu_cd')
+                bjdong_cd = geocode_info.get('bjdong_cd')
+                bun = geocode_info.get('bun')
+                ji = geocode_info.get('ji')
+
+                self.logger.info(f"[VULNERABILITY] geocode 정보 조회 완료: sigungu_cd={sigungu_cd}, bjdong_cd={bjdong_cd}, bun={bun}, ji={ji}")
+
+                # 3. building_aggregate_cache 테이블에서 건물 정보 조회 (주소 코드 기반)
+                building_query = """
+                    SELECT
+                        jibun_address,
+                        road_address,
+                        building_count,
+                        structure_types,
+                        purpose_types,
+                        max_ground_floors,
+                        max_underground_floors,
+                        min_underground_floors,
+                        buildings_with_seismic,
+                        buildings_without_seismic,
+                        oldest_approval_date,
+                        newest_approval_date,
+                        oldest_building_age_years,
+                        total_floor_area_sqm,
+                        total_building_area_sqm
+                    FROM building_aggregate_cache
+                    WHERE sigungu_cd = %s
+                        AND bjdong_cd = %s
+                        AND bun = %s
+                        AND ji = %s
+                """
+                building_result = dw_db.execute_query(building_query, (sigungu_cd, bjdong_cd, bun, ji))
+
+                if not building_result:
+                    self.logger.warning(f"[VULNERABILITY] 건물 정보가 없습니다: sigungu_cd={sigungu_cd}, bjdong_cd={bjdong_cd}, bun={bun}, ji={ji}")
+                    # 건물 정보가 없으면 AI 요약만 반환
+                    aisummry = self._get_ai_summary_from_state(site_id)
+                    return VulnerabilityResponse(
+                        result="success",
+                        data=VulnerabilityData(
+                            siteId=site_id,
+                            latitude=latitude,
+                            longitude=longitude,
+                            area=None,
+                            grndflrCnt=None,
+                            ugrnFlrCnt=None,
+                            rserthqkDsgnApplyYn=None,
+                            aisummry=aisummry
+                        )
+                    )
+
+                building_info = building_result[0]
+                self.logger.info(f"[VULNERABILITY] 주소 코드로 건물 정보 조회 성공")
 
             # 4. AI 요약은 state에서 가져오기 (기존 로직 유지)
             aisummry = self._get_ai_summary_from_state(site_id)

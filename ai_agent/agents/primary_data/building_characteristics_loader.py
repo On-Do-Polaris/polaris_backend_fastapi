@@ -357,7 +357,8 @@ class BuildingDataLoader:
         bjdong_cd: str = None,
         bun: str = None,
         ji: str = None,
-        road_address: str = None
+        road_address: str = None,
+        cache_id: str = None
     ) -> Optional[Dict[str, Any]]:
         """
         DB 캐시에서만 건축물 데이터 조회 (API 호출 X)
@@ -369,6 +370,7 @@ class BuildingDataLoader:
             bun: 번 (선택)
             ji: 지 (선택)
             road_address: 도로명 주소 (선택, 주소 코드 없을 때 사용)
+            cache_id: cache_id (= site_id, 선택, 가장 우선순위 높음)
 
         Returns:
             BuildingDataFetcher 형식의 데이터 또는 None
@@ -377,15 +379,19 @@ class BuildingDataLoader:
             self.logger.warning("DB 연결 없음 - 조회 불가")
             return None
 
-        # 1. 주소 코드가 있으면 직접 조회
+        # 1. cache_id로 조회 (최우선)
+        if cache_id:
+            return self._fetch_by_cache_id(cache_id)
+
+        # 2. 주소 코드가 있으면 직접 조회
         if sigungu_cd and bjdong_cd and bun and ji:
             return self.fetch_from_cache(sigungu_cd, bjdong_cd, bun, ji)
 
-        # 2. 주소 코드 없으면 road_address로 조회
+        # 3. 주소 코드 없으면 road_address로 조회
         if road_address:
             return self._fetch_by_road_address(road_address)
 
-        self.logger.warning("주소 코드 또는 도로명 주소가 필요합니다")
+        self.logger.warning("cache_id, 주소 코드 또는 도로명 주소가 필요합니다")
         return None
 
     def _fetch_by_road_address(self, road_address: str) -> Optional[Dict[str, Any]]:
@@ -485,6 +491,34 @@ class BuildingDataLoader:
 
         # 패턴 매칭 실패시 공백 제거한 전체 주소 반환
         return addr_no_space
+
+    def _fetch_by_cache_id(self, cache_id: str) -> Optional[Dict[str, Any]]:
+        """
+        cache_id로 building_aggregate_cache 조회 (= site_id 직접 매칭)
+
+        Args:
+            cache_id: cache_id (= site_id)
+
+        Returns:
+            BuildingDataFetcher 형식의 데이터 또는 None
+        """
+        if not self.db_manager:
+            return None
+
+        try:
+            # DB에서 cache_id로 직접 조회
+            cache_data = self.db_manager.fetch_building_aggregate_cache_by_cache_id(cache_id)
+
+            if cache_data:
+                self.logger.info(f"DB 캐시에서 cache_id로 데이터 로드: {cache_id}")
+                return self.db_manager.convert_cache_to_building_data(cache_data)
+
+            self.logger.warning(f"DB 캐시에 데이터 없음 (cache_id={cache_id})")
+            return None
+
+        except Exception as e:
+            self.logger.error(f"cache_id로 DB 캐시 조회 실패: {e}")
+            return None
 
     def fetch_by_site_id(self, site_id: str) -> Optional[Dict[str, Any]]:
         """

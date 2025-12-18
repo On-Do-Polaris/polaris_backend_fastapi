@@ -1454,17 +1454,40 @@ class AnalysisService:
             # 5. VulnerabilityData 생성
             # 내진설계 여부 판단 (buildings_with_seismic > 0이면 Y)
             buildings_with_seismic = building_info.get('buildings_with_seismic', 0) or 0
-            rserthqk_dsgn_apply_yn = 'Y' if buildings_with_seismic > 0 else 'N'
+            buildings_without_seismic = building_info.get('buildings_without_seismic', 0) or 0
+
+            # 내진설계 여부 로직 개선: 내진 건물이 있으면 Y, 없으면 N, 둘 다 0이면 None
+            if buildings_with_seismic > 0:
+                rserthqk_dsgn_apply_yn = 'Y'
+            elif buildings_without_seismic > 0:
+                rserthqk_dsgn_apply_yn = 'N'
+            else:
+                rserthqk_dsgn_apply_yn = None
+
+            # 응답 필드명에 맞게 매핑 (DB 컬럼명과 다름)
+            # area: 면적 (total_floor_area_sqm 또는 total_building_area_sqm 사용)
+            # grndflrCnt: 지상층수 (max_ground_floors)
+            # ugrnFlrCnt: 지하층수 (max_underground_floors)
+            area_value = building_info.get('total_floor_area_sqm')
+            if area_value is None:
+                area_value = building_info.get('total_building_area_sqm')
 
             vulnerability_data = VulnerabilityData(
                 siteId=site_id,
                 latitude=latitude,
                 longitude=longitude,
-                area=building_info.get('total_floor_area_sqm'),
+                area=area_value,
                 grndflrCnt=building_info.get('max_ground_floors'),
                 ugrnFlrCnt=building_info.get('max_underground_floors'),
                 rserthqkDsgnApplyYn=rserthqk_dsgn_apply_yn,
                 aisummry=aisummry
+            )
+
+            self.logger.info(
+                f"[VULNERABILITY] 건물 데이터 매핑 완료: "
+                f"area={area_value}, grndflrCnt={building_info.get('max_ground_floors')}, "
+                f"ugrnFlrCnt={building_info.get('max_underground_floors')}, "
+                f"rserthqk={rserthqk_dsgn_apply_yn}"
             )
 
             self.logger.info(f"[VULNERABILITY] 건물 특성 분석 데이터 조회 성공: site_id={site_id}")

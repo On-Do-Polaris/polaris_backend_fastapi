@@ -400,60 +400,71 @@ class SimulationService:
                         site_aals_map[s_id][year] = val
 
                 # =========================================================
-                # Step B. 행정구역(Region) 점수 조회 (좌표 기반)
+                # Step B. 행정구역(Region) 점수 조회 (좌표 기반) - OPTIMIZED
                 # =========================================================
                 region_scores_map = {}
-                
-                # 1. 매퍼에서 좌표 리스트 추출
-                # (lat, lng) -> region_code 역매핑
-                coord_to_code = {}
-                coords_list = []
-                
-                for code, coord in REGION_COORD_MAP.items():
-                    lat, lng = coord["lat"], coord["lng"]
-                    coord_to_code[(lat, lng)] = code
-                    coords_list.append(f"({lat}, {lng})")
-                
-                if coords_list:
-                    # 각 지역(좌표)에 대해 최근접 hazard 값을 조회
-                    # UNION ALL을 사용하여 각 좌표별로 최근접 값을 찾음
-                    for code, coord in REGION_COORD_MAP.items():
-                        target_lat = coord["lat"]
-                        target_lng = coord["lng"]
 
-                        # 각 연도별로 최근접 hazard 값 조회
-                        query_region = f"""
-                            SELECT DISTINCT ON (target_year)
-                                target_year,
-                                {score_col} as score,
-                                latitude,
-                                longitude
+                if REGION_COORD_MAP:
+                    # 모든 지역의 좌표와 연도를 단일 쿼리로 조회
+                    # LATERAL JOIN을 사용하여 각 좌표별 최근접 값을 효율적으로 찾음
+
+                    # 1. 좌표 값들을 VALUES 절로 변환
+                    coords_values = []
+                    code_to_index = {}  # 인덱스로 code를 역참조하기 위한 맵
+
+                    for idx, (code, coord) in enumerate(REGION_COORD_MAP.items()):
+                        coords_values.append(f"('{code}', {coord['lat']}, {coord['lng']})")
+                        code_to_index[idx] = code
+
+                    coords_clause = ', '.join(coords_values)
+
+                    # 2. 단일 쿼리로 모든 지역의 모든 연도 데이터 조회
+                    query_region_batch = f"""
+                        WITH target_coords AS (
+                            SELECT * FROM (VALUES {coords_clause})
+                            AS t(region_code, target_lat, target_lng)
+                        )
+                        SELECT DISTINCT ON (tc.region_code, hr.target_year)
+                            tc.region_code,
+                            hr.target_year,
+                            hr.{score_col} as score
+                        FROM target_coords tc
+                        CROSS JOIN LATERAL (
+                            SELECT target_year, {score_col}
                             FROM hazard_results
                             WHERE risk_type = %s
                             AND target_year BETWEEN %s AND %s
-                            ORDER BY target_year, (
-                                POW(latitude - %s, 2) + POW(longitude - %s, 2)
+                            ORDER BY (
+                                POW(latitude - tc.target_lat::numeric, 2) +
+                                POW(longitude - tc.target_lng::numeric, 2)
                             ) ASC
-                        """
+                            LIMIT 1
+                        ) hr
+                        ORDER BY tc.region_code, hr.target_year
+                    """
 
-                        try:
-                            region_rows = db.execute_query(
-                                query_region,
-                                (request.hazard_type, str(request.start_year), str(request.end_year), target_lat, target_lng)
-                            )
+                    try:
+                        region_rows = db.execute_query(
+                            query_region_batch,
+                            (request.hazard_type, str(request.start_year), str(request.end_year))
+                        )
 
-                            # 결과를 region_scores_map에 저장
+                        # 결과를 region_scores_map에 저장
+                        for row in region_rows:
+                            code = row['region_code']
+                            year = str(row['target_year'])
+                            score = float(row['score'] or 0.0)
+
                             if code not in region_scores_map:
                                 region_scores_map[code] = {}
+                            region_scores_map[code][year] = score
 
-                            for row in region_rows:
-                                year = str(row['target_year'])
-                                score = float(row['score'] or 0.0)
-                                region_scores_map[code][year] = score
+                        self.logger.info(f"[SIMULATION] 배치 조회 완료: {len(region_scores_map)}개 지역, {len(region_rows)}개 데이터")
 
-                        except Exception as e:
-                            self.logger.warning(f"[SIMULATION] 지역 {code} 조회 실패: {e}")
-                            continue
+                    except Exception as e:
+                        self.logger.error(f"[SIMULATION] 배치 조회 실패: {e}", exc_info=True)
+                        # 폴백: 빈 결과 반환
+                        region_scores_map = {}
 
                 # =========================================================
                 # Step C. 응답 반환

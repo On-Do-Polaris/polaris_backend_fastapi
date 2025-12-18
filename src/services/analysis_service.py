@@ -447,10 +447,12 @@ class AnalysisService:
             site_ids = [loc['id'] for loc in target_locations]
 
             # 의존성 초기화
+            # API 키에서 개행 문자 제거 (환경변수 파일에서 개행이 포함될 수 있음)
+            openai_api_key = os.environ.get('OPENAI_API_KEY', '').strip()
             llm = ChatOpenAI(
                 model="gpt-4o",
                 temperature=0.7,
-                api_key=os.environ.get('OPENAI_API_KEY')
+                api_key=openai_api_key
             )
 
             # Qdrant 클라이언트 (없으면 None으로 전달)

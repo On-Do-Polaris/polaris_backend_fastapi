@@ -82,6 +82,12 @@ RISK_TYPE_ALIAS_MAPPING = {
     '극한 저온': 'extreme_cold',
     '고온': 'extreme_heat',
     '저온': 'extreme_cold',
+    '하천 홍수': 'river_flood',
+    '내륙 홍수': 'river_flood',
+    '도시 홍수': 'urban_flood',
+    '해수면 상승': 'sea_level_rise',
+    '해안 침수': 'sea_level_rise',
+    '물 부족': 'water_stress',
 }
 
 # RISK_TYPE_EN_MAPPING에 별칭 추가

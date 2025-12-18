@@ -27,7 +27,6 @@ Node 6: Finalizer v3
     - meta: Dict (보고서 메타데이터)
 """
 
-import os
 import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime
@@ -48,19 +47,14 @@ class FinalizerNode:
         - Application DB 연결 필요
     """
 
-    def __init__(self, app_db_url: Optional[str] = None):
+    def __init__(self, app_db: Optional[DatabaseManager] = None):
         """
         Node 초기화
 
         Args:
-            app_db_url: Application DB URL (reports 테이블이 있는 DB)
+            app_db: DatabaseManager 인스턴스 (reports 테이블이 있는 Application DB)
         """
-        self.app_db_url = app_db_url or os.getenv('APPLICATION_DATABASE_URL')
-        self.app_db: Optional[DatabaseManager] = None
-
-        if self.app_db_url:
-            self.app_db = DatabaseManager(self.app_db_url)
-
+        self.app_db = app_db
         self.logger = logging.getLogger(__name__)
 
     async def execute(

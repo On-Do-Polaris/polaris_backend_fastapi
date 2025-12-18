@@ -1684,15 +1684,17 @@ class DatabaseManager:
         tolerance: float = 0.0001
     ) -> Optional[Dict[str, Any]]:
         """
-        Fetch candidate site by coordinates (within tolerance)
+        Fetch candidate site by coordinates (nearest neighbor search with no distance limit)
 
         Args:
             latitude: Latitude
             longitude: Longitude
             tolerance: Coordinate matching tolerance (default: 0.0001 degrees ~11m)
+                      This parameter is deprecated but kept for backward compatibility.
+                      The method now returns the nearest candidate regardless of distance.
 
         Returns:
-            Candidate site data or None if not found
+            Nearest candidate site data or None if no active candidates exist
         """
         query = """
             SELECT
@@ -1711,13 +1713,13 @@ class DatabaseManager:
                 disadvantages
             FROM candidate_sites
             WHERE is_active = true
-                AND latitude BETWEEN %s AND %s
-                AND longitude BETWEEN %s AND %s
+            ORDER BY (
+                POW(latitude - %s, 2) + POW(longitude - %s, 2)
+            ) ASC
             LIMIT 1
         """
         results = self.execute_query(
             query,
-            (latitude - tolerance, latitude + tolerance,
-             longitude - tolerance, longitude + tolerance)
+            (latitude, longitude)
         )
         return results[0] if results else None

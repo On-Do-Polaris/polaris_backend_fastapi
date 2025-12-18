@@ -97,6 +97,7 @@ jobs:
               -e QDRANT_HOST='${{ secrets.QDRANT_HOST }}' \
               -e QDRANT_PORT='${{ secrets.QDRANT_PORT }}' \
               -e QDRANT_STORAGE_PATH='${{ secrets.QDRANT_STORAGE_PATH }}' \
+              -e QDRANT_URL='${{ secrets.QDRANT_URL }}' \
               -e APPLICATION_DB_HOST='${{ secrets.APPLICATION_DB_HOST }}' \
               -e APPLICATION_DB_PORT='${{ secrets.APPLICATION_DB_PORT }}' \
               -e APPLICATION_DB_NAME='${{ secrets.APPLICATION_DB_NAME }}' \

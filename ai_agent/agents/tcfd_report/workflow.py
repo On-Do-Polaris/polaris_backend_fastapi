@@ -218,7 +218,21 @@ async def node_1_func(state: TCFDReportState) -> TCFDReportState:
     from .node_1_template_loading import TemplateLoadingNode
 
     node = TemplateLoadingNode(_llm)
-    result = await node.execute(state["sites_data"])
+
+    # sites_data에서 회사명 추출 (첫 번째 사업장 이름 사용)
+    sites_data = state.get("sites_data", [])
+    company_name = "Unknown Company"
+    if sites_data and len(sites_data) > 0:
+        company_name = sites_data[0].get("site_info", {}).get("name", "Unknown Company")
+
+    # past_reports는 빈 리스트로 전달 (현재 과거 보고서 데이터 없음)
+    past_reports = []
+
+    result = await node.execute(
+        company_name=company_name,
+        past_reports=past_reports,
+        mode="init"
+    )
 
     print(f"✅ Node 1 완료: templates={len(result.get('templates', {}))}개")
     return {**state, **result}

@@ -960,8 +960,26 @@ class AnalysisService:
                 target_years = ['2026', '2027', '2028', '2029', '2030', '2020s', '2030s', '2040s', '2050s']
 
             # H × E × V / 10000 계산을 위해 3개 테이블 JOIN
+            # exposure_results에서 위경도를 가져와서 hazard_results에서 최근접 검색
+            # 먼저 exposure_results에서 site_id의 위경도를 조회
+            location_query = """
+                SELECT DISTINCT latitude, longitude
+                FROM exposure_results
+                WHERE site_id = %s
+                LIMIT 1
+            """
+            location_result = db.execute_query(location_query, (str(site_id),))
+
+            if not location_result:
+                self.logger.warning(f"[PHYSICAL_RISK] site_id={site_id}에 대한 위경도 정보가 없습니다")
+                return None
+
+            site_latitude = location_result[0]['latitude']
+            site_longitude = location_result[0]['longitude']
+
+            # DISTINCT ON을 사용하여 각 (risk_type, target_year) 조합에서 최근접 hazard 값을 찾음
             query = """
-                SELECT
+                SELECT DISTINCT ON (h.risk_type, h.target_year)
                     h.risk_type,
                     h.target_year,
                     h.ssp126_score_100 as h_ssp126,
@@ -972,16 +990,14 @@ class AnalysisService:
                     v.vulnerability_score
                 FROM hazard_results h
                 JOIN exposure_results e ON
-                    h.latitude = e.latitude AND
-                    h.longitude = e.longitude AND
+                    e.site_id = %s AND
                     h.risk_type = e.risk_type AND
                     h.target_year = e.target_year
                 JOIN vulnerability_results v ON
                     e.site_id = v.site_id AND
                     e.risk_type = v.risk_type AND
                     e.target_year = v.target_year
-                WHERE e.site_id = %s
-                    AND h.target_year = ANY(%s)
+                WHERE h.target_year = ANY(%s)
             """
             params = [str(site_id), target_years]
 
@@ -989,7 +1005,12 @@ class AnalysisService:
                 query += " AND h.risk_type = %s"
                 params.append(risk_type_en)
 
-            query += " ORDER BY h.risk_type, h.target_year"
+            query += """
+                ORDER BY h.risk_type, h.target_year, (
+                    POW(h.latitude - %s, 2) + POW(h.longitude - %s, 2)
+                ) ASC
+            """
+            params.extend([site_latitude, site_longitude])
 
             rows = db.execute_query(query, tuple(params))
             self.logger.info(f"[PHYSICAL_RISK] 쿼리 실행 완료: {len(rows)}개 행 조회됨")
@@ -1530,16 +1551,21 @@ class AnalysisService:
 
             # Queries for H, E, V, AAL from respective tables
             # Use nearest neighbor search for latitude/longitude (handles floating point precision issues)
+            # 각 리스크 타입별로 최근접 위경도 값을 찾음 (거리 제한 없이 가장 가까운 값)
             hazard_query = """
-                SELECT risk_type, ssp245_score_100
+                SELECT DISTINCT ON (risk_type)
+                    risk_type,
+                    ssp245_score_100,
+                    latitude,
+                    longitude
                 FROM hazard_results
                 WHERE target_year = %s
-                ORDER BY (
+                    AND risk_type = ANY(%s)
+                ORDER BY risk_type, (
                     POW(latitude - %s, 2) + POW(longitude - %s, 2)
                 ) ASC
-                LIMIT 9
             """
-            hazard_rows = db.execute_query(hazard_query, (str(TARGET_YEAR), latitude, longitude))
+            hazard_rows = db.execute_query(hazard_query, (str(TARGET_YEAR), RISK_TYPES, latitude, longitude))
             hazard_data = {row['risk_type']: row for row in hazard_rows}
 
             exposure_query = "SELECT risk_type, exposure_score FROM exposure_results WHERE site_id = %s AND target_year = %s"

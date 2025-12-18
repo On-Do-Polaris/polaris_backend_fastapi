@@ -416,42 +416,45 @@ class SimulationService:
                     coords_list.append(f"({lat}, {lng})")
                 
                 if coords_list:
-                    # 좌표가 많으므로 IN 절 문자열 생성
-                    coords_in_sql = ", ".join(coords_list)
-                    
-                    query_region = f"""
-                        SELECT 
-                            latitude, 
-                            longitude, 
-                            target_year, 
-                            {score_col} as score
-                        FROM hazard_results
-                        WHERE risk_type = %s
-                        AND target_year BETWEEN %s AND %s
-                        AND (latitude, longitude) IN ({coords_in_sql})
-                    """
-                    
-                    region_rows = db.execute_query(query_region, (request.hazard_type, str(request.start_year), str(request.end_year)))
-                    
-                    for row in region_rows:
-                        r_lat = float(row['latitude'])
-                        r_lon = float(row['longitude'])
-                        year = str(row['target_year'])
-                        score = float(row['score'] or 0.0)
-                        
-                        # 좌표로 지역 코드 찾기 (정확한 일치 가정)
-                        # 부동소수점 오차 방지를 위해 Decimal을 쓰거나, 
-                        # 조회된 값을 그대로 매퍼의 키와 비교해야 할 수도 있음.
-                        # 여기서는 간단히 tuple 매칭 시도
-                        r_code = coord_to_code.get((r_lat, r_lon))
-                        
-                        # 만약 직접 매칭이 안되면 근사치 검색 로직이 필요할 수 있음
-                        # (여기선 생략하고, 정확히 일치하는 데이터만 매핑)
-                        
-                        if r_code:
-                            if r_code not in region_scores_map:
-                                region_scores_map[r_code] = {}
-                            region_scores_map[r_code][year] = score
+                    # 각 지역(좌표)에 대해 최근접 hazard 값을 조회
+                    # UNION ALL을 사용하여 각 좌표별로 최근접 값을 찾음
+                    for code, coord in REGION_COORD_MAP.items():
+                        target_lat = coord["lat"]
+                        target_lng = coord["lng"]
+
+                        # 각 연도별로 최근접 hazard 값 조회
+                        query_region = f"""
+                            SELECT DISTINCT ON (target_year)
+                                target_year,
+                                {score_col} as score,
+                                latitude,
+                                longitude
+                            FROM hazard_results
+                            WHERE risk_type = %s
+                            AND target_year BETWEEN %s AND %s
+                            ORDER BY target_year, (
+                                POW(latitude - %s, 2) + POW(longitude - %s, 2)
+                            ) ASC
+                        """
+
+                        try:
+                            region_rows = db.execute_query(
+                                query_region,
+                                (request.hazard_type, str(request.start_year), str(request.end_year), target_lat, target_lng)
+                            )
+
+                            # 결과를 region_scores_map에 저장
+                            if code not in region_scores_map:
+                                region_scores_map[code] = {}
+
+                            for row in region_rows:
+                                year = str(row['target_year'])
+                                score = float(row['score'] or 0.0)
+                                region_scores_map[code][year] = score
+
+                        except Exception as e:
+                            self.logger.warning(f"[SIMULATION] 지역 {code} 조회 실패: {e}")
+                            continue
 
                 # =========================================================
                 # Step C. 응답 반환

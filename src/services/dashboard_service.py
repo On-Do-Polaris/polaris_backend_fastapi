@@ -69,26 +69,33 @@ class DashboardService:
         risk_types_tuple = tuple(RISK_TYPES)
         
         # 3. 최적화된 단일 쿼리 작성 (exposure_results를 기준)
+        # 각 (site_id, risk_type, target_year) 조합에 대해 최근접 hazard 값을 찾음
         query = """
-            SELECT 
+            SELECT DISTINCT ON (e.site_id, e.risk_type)
                 e.site_id,
                 e.risk_type,
                 COALESCE(h.ssp245_score_100, 0) as hazard,
                 COALESCE(e.exposure_score, 0) as exposure,
                 COALESCE(v.vulnerability_score, 0) as vulnerability
             FROM exposure_results e
-            LEFT JOIN hazard_results h 
-                ON e.latitude = h.latitude 
-                AND e.longitude = h.longitude 
-                AND e.risk_type = h.risk_type
-                AND e.target_year = h.target_year
-            LEFT JOIN vulnerability_results v 
-                ON e.site_id = v.site_id 
-                AND e.risk_type = v.risk_type 
+            LEFT JOIN LATERAL (
+                SELECT ssp245_score_100
+                FROM hazard_results h
+                WHERE h.risk_type = e.risk_type
+                  AND h.target_year = e.target_year
+                ORDER BY (
+                    POW(h.latitude - e.latitude, 2) + POW(h.longitude - e.longitude, 2)
+                ) ASC
+                LIMIT 1
+            ) h ON true
+            LEFT JOIN vulnerability_results v
+                ON e.site_id = v.site_id
+                AND e.risk_type = v.risk_type
                 AND e.target_year = v.target_year
             WHERE e.site_id IN %s
               AND e.risk_type IN %s
               AND e.target_year = %s
+            ORDER BY e.site_id, e.risk_type
         """
 
         try:

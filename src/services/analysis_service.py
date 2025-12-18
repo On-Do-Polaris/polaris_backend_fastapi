@@ -1351,6 +1351,19 @@ class AnalysisService:
                 self.logger.info(f"[SPRINGBOOT] API 호출: job_id={job_id}, user_id={user_id}")
                 springboot_client.notify_analysis_completion(user_id)
                 self.logger.info(f"[SPRINGBOOT] API 호출 성공: job_id={job_id}")
+
+                # 해당 user_id의 모든 batch_jobs를 done으로 업데이트
+                if self.db:
+                    try:
+                        update_query = """
+                            UPDATE batch_jobs
+                            SET status = 'done', progress = 100, updated_at = NOW()
+                            WHERE created_by = %s AND status != 'done'
+                        """
+                        self.db.execute_update(update_query, (str(user_id),))
+                        self.logger.info(f"[SPRINGBOOT] user_id={user_id}의 모든 batch_jobs를 done으로 업데이트 완료")
+                    except Exception as db_error:
+                        self.logger.error(f"[SPRINGBOOT] batch_jobs 업데이트 실패: {db_error}", exc_info=True)
             else:
                 self.logger.warning(f"[SPRINGBOOT] user_id가 없습니다: job_id={job_id}")
         except Exception as e:

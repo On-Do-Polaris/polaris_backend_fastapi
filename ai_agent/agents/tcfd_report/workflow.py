@@ -36,7 +36,7 @@ def route_after_validation(state: TCFDReportState) -> str:
         - "retry_node_2b": Node 2-B부터 재실행
         - "retry_node_2c": Node 2-C부터 재실행
         - "retry_node_3": Node 3부터 재실행
-        - "fail": 재시도 횟수 초과 → Node 6 (Finalizer) 실패 처리
+        - "fail": 재시도 횟수 초과 → Node 5 (Composer)로 이동하여 보고서 생성
     """
     validation = state.get("validation_result", {})
 
@@ -48,7 +48,7 @@ def route_after_validation(state: TCFDReportState) -> str:
     # 2. 재시도 횟수 확인
     retry_count = state.get("retry_count", 0)
     if retry_count >= 1:
-        print(f"\n❌ 재시도 횟수 초과 ({retry_count}/1) → Node 6 (Finalizer) 실패 처리")
+        print(f"\n❌ 재시도 횟수 초과 ({retry_count}/1) → Node 5 (Composer)로 이동하여 보고서 생성")
         return "fail"
 
     # 3. 실패한 노드 확인 및 우선순위 기반 재실행
@@ -78,8 +78,8 @@ def route_after_validation(state: TCFDReportState) -> str:
             route_name = f"retry_{node.split('_')[1]}"
             return route_name
 
-    # 4. Failed nodes 없거나 매칭 안됨 → 실패 처리
-    print(f"\n⚠️ 재실행 대상 노드 없음 (failed_nodes={failed_nodes}) → 실패 처리")
+    # 4. Failed nodes 없거나 매칭 안됨 → Node 5로 이동하여 보고서 생성
+    print(f"\n⚠️ 재실행 대상 노드 없음 (failed_nodes={failed_nodes}) → Node 5 (Composer)로 이동")
     return "fail"
 
 
@@ -134,7 +134,7 @@ def create_tcfd_workflow(
             "retry_2b": "node_2b_impact_analysis",
             "retry_2c": "node_2c_mitigation_strategies",
             "retry_3": "node_3_strategy_section",
-            "fail": "node_6_finalizer"
+            "fail": "node_5_composer"  # Validation 실패 시에도 Node 5에서 보고서 생성
         }
     )
 

@@ -500,7 +500,8 @@ async def node_6_func(state: TCFDReportState) -> TCFDReportState:
     node = FinalizerNode(_db_session)
     result = await node.execute(
         state.get("report"),
-        state["user_id"]
+        state["user_id"],
+        state["site_ids"]
     )
 
     # Validation 실패 시 success=False로 덮어쓰기

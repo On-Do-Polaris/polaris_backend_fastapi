@@ -315,15 +315,15 @@ class BuildingCharacteristicsAgent:
         """
         BuildingDataLoader를 통한 건축물 데이터 조회 (DB만 - API 호출 X)
 
-        ⚠️ 주의: site_id로 sites 테이블 조회하지 않음!
-        - sites 정보는 Node 0에서 이미 조회해서 address로 전달됨
-        - 여기서는 전달받은 address로 building_aggregate_cache만 조회
+        조회 우선순위:
+            1. cache_id (= site_id) 직접 매칭 (가장 정확함)
+            2. 도로명 주소 매칭 (Fallback)
 
         Args:
             lat: 위도 (미사용, 호환성 유지)
             lon: 경도 (미사용, 호환성 유지)
-            address: 도로명 주소 (Node 0에서 전달받음 → building_aggregate_cache 조회용)
-            site_id: 사업장 UUID (로깅용, DB 조회에는 미사용)
+            address: 도로명 주소 (Fallback용)
+            site_id: 사업장 UUID (cache_id로 사용)
 
         Returns:
             BuildingDataFetcher 형식의 건축물 데이터
@@ -333,12 +333,20 @@ class BuildingCharacteristicsAgent:
             return {}
 
         try:
-            # 주소로 building_aggregate_cache 테이블 조회
-            # (sites 테이블 조회 X - Node 0에서 이미 조회해서 address 전달함)
+            # 1. cache_id (= site_id)로 직접 조회 (최우선)
+            if site_id:
+                data = self.data_loader.fetch_from_db_only(cache_id=site_id)
+                if data:
+                    self.logger.info(f"building_aggregate_cache에서 cache_id로 데이터 조회 완료: {site_id}")
+                    return data
+                else:
+                    self.logger.warning(f"building_aggregate_cache에 cache_id={site_id} 데이터 없음, 주소로 재시도")
+
+            # 2. Fallback: 주소로 building_aggregate_cache 조회
             if address:
                 data = self.data_loader.fetch_from_db_only(road_address=address)
                 if data:
-                    self.logger.info(f"building_aggregate_cache에서 데이터 조회 완료: {address}")
+                    self.logger.info(f"building_aggregate_cache에서 주소로 데이터 조회 완료: {address}")
                     return data
 
             # DB에 데이터 없으면 빈 데이터 반환 (API 호출 X)

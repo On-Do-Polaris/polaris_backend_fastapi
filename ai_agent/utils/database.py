@@ -1179,6 +1179,49 @@ class DatabaseManager:
 
     # ==================== Building Aggregate Cache Queries ====================
 
+    def fetch_building_aggregate_cache_by_cache_id(
+        self,
+        cache_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Fetch cached building aggregate data by cache_id (= site_id)
+
+        Args:
+            cache_id: cache_id (UUID, same as site_id)
+
+        Returns:
+            Building aggregate data or None if not found
+        """
+        query = """
+            SELECT
+                cache_id,
+                sigungu_cd,
+                bjdong_cd,
+                bun,
+                ji,
+                jibun_address,
+                road_address,
+                building_count,
+                structure_types,
+                purpose_types,
+                max_ground_floors,
+                max_underground_floors,
+                min_underground_floors,
+                buildings_with_seismic,
+                buildings_without_seismic,
+                oldest_approval_date,
+                newest_approval_date,
+                oldest_building_age_years,
+                total_floor_area_sqm,
+                total_building_area_sqm,
+                floor_purpose_types
+            FROM building_aggregate_cache
+            WHERE cache_id = %s
+            LIMIT 1
+        """
+        results = self.execute_query(query, (cache_id,))
+        return results[0] if results else None
+
     def fetch_building_aggregate_cache(
         self,
         sigungu_cd: str,

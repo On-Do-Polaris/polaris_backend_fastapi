@@ -61,12 +61,13 @@ class SpringBootClient:
 		if hasattr(self, 'client'):
 			self.client.close()
 
-	def notify_analysis_completion(self, user_id: UUID) -> Dict[str, Any]:
+	def notify_analysis_completion(self, user_id: UUID, report: bool = False) -> Dict[str, Any]:
 		"""
 		분석 완료 콜백 호출
 
 		Args:
 			user_id: 사용자 ID
+			report: additional_data 사용 여부 (True: 사용함, False: 사용하지 않음)
 
 		Returns:
 			Spring Boot 응답
@@ -79,12 +80,12 @@ class SpringBootClient:
 			httpx.HTTPStatusError: HTTP 에러 발생 시
 			Exception: 기타 에러 발생 시
 		"""
-		logger.info(f"Spring Boot 분석 완료 알림: user_id={user_id}")
+		logger.info(f"Spring Boot 분석 완료 알림: user_id={user_id}, report={report}")
 
 		try:
 			response = self.client.post(
 				"/api/analysis/complete",
-				json={"userId": str(user_id)}
+				json={"userId": str(user_id), "report": report}
 			)
 			response.raise_for_status()
 

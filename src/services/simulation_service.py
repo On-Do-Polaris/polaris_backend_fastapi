@@ -426,7 +426,7 @@ class SimulationService:
                         FROM aal_scaled_results
                         WHERE site_id IN %s
                         AND risk_type = %s
-                        AND target_year IN ({','.join(str(y) for y in fixed_years)})
+                        AND target_year IN ({','.join("'" + str(y) + "'" for y in fixed_years)})
                     """
 
                     # DBManager execute_query 사용 (변환된 영문 hazard_type 사용)
@@ -475,7 +475,7 @@ class SimulationService:
                             SELECT target_year, {score_col}
                             FROM hazard_results
                             WHERE risk_type = %s
-                            AND target_year IN ({','.join(str(y) for y in fixed_years)})
+                            AND target_year IN ({','.join("'" + str(y) + "'" for y in fixed_years)})
                             ORDER BY (
                                 POW(latitude - tc.target_lat::numeric, 2) +
                                 POW(longitude - tc.target_lng::numeric, 2)

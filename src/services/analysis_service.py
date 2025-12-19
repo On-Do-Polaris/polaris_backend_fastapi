@@ -1175,9 +1175,20 @@ SSP 시나리오: {context.get('ssp_scenario', 'N/A')}
                 avg_score = 0
                 point_count = 0
 
-                # 중기 점수들의 평균 계산
-                for point_key in ['point1', 'point2', 'point3', 'point4', 'point5']:
-                    point_val = getattr(first_scenario.midTerm, point_key, None)
+                # term에 따라 접근할 필드 결정
+                if term == 'short':
+                    term_data = first_scenario.shortTerm
+                    point_keys = ['point1']
+                elif term == 'long':
+                    term_data = first_scenario.longTerm
+                    point_keys = ['point1', 'point2', 'point3', 'point4']
+                else:  # mid 또는 기본값
+                    term_data = first_scenario.midTerm
+                    point_keys = ['point1', 'point2', 'point3', 'point4', 'point5']
+
+                # 점수들의 평균 계산
+                for point_key in point_keys:
+                    point_val = getattr(term_data, point_key, None)
                     if point_val and hasattr(point_val, 'total'):
                         avg_score += point_val.total
                         point_count += 1
@@ -1361,9 +1372,20 @@ SSP 시나리오: {context.get('ssp_scenario', 'N/A')}
                 avg_aal = 0
                 point_count = 0
 
-                # 중기 AAL들의 평균 계산
-                for point_key in ['point1', 'point2', 'point3', 'point4', 'point5']:
-                    point_val = getattr(first_scenario.midTerm, point_key, None)
+                # term에 따라 접근할 필드 결정
+                if term == 'short':
+                    term_data = first_scenario.shortTerm
+                    point_keys = ['point1']
+                elif term == 'long':
+                    term_data = first_scenario.longTerm
+                    point_keys = ['point1', 'point2', 'point3', 'point4']
+                else:  # mid 또는 기본값
+                    term_data = first_scenario.midTerm
+                    point_keys = ['point1', 'point2', 'point3', 'point4', 'point5']
+
+                # AAL들의 평균 계산
+                for point_key in point_keys:
+                    point_val = getattr(term_data, point_key, None)
                     if point_val is not None:
                         avg_aal += point_val
                         point_count += 1

@@ -1175,15 +1175,15 @@ SSP 시나리오: {context.get('ssp_scenario', 'N/A')}
                 avg_score = 0
                 point_count = 0
 
-                # term에 따라 접근할 필드 결정
+                # term에 따라 접근할 필드 결정 (다양한 형태 지원: short/shortTerm/short_term)
                 if term == 'short':
-                    term_data = first_scenario.shortTerm
+                    term_data = getattr(first_scenario, 'short_term', None) or getattr(first_scenario, 'shortTerm', None)
                     point_keys = ['point1']
                 elif term == 'long':
-                    term_data = first_scenario.longTerm
+                    term_data = getattr(first_scenario, 'long_term', None) or getattr(first_scenario, 'longTerm', None)
                     point_keys = ['point1', 'point2', 'point3', 'point4']
                 else:  # mid 또는 기본값
-                    term_data = first_scenario.midTerm
+                    term_data = getattr(first_scenario, 'mid_term', None) or getattr(first_scenario, 'midTerm', None)
                     point_keys = ['point1', 'point2', 'point3', 'point4', 'point5']
 
                 # 점수들의 평균 계산
@@ -1198,7 +1198,7 @@ SSP 시나리오: {context.get('ssp_scenario', 'N/A')}
 
                 # LLM 조언 생성
                 context = {
-                    'risk_type': first_scenario.riskType,
+                    'risk_type': getattr(first_scenario, 'risk_type', None) or getattr(first_scenario, 'riskType', None),
                     'ssp_scenario': first_scenario.scenario.value,
                     'avg_score': avg_score
                 }
@@ -1372,15 +1372,15 @@ SSP 시나리오: {context.get('ssp_scenario', 'N/A')}
                 avg_aal = 0
                 point_count = 0
 
-                # term에 따라 접근할 필드 결정
+                # term에 따라 접근할 필드 결정 (다양한 형태 지원: short/shortTerm/short_term)
                 if term == 'short':
-                    term_data = first_scenario.shortTerm
+                    term_data = getattr(first_scenario, 'short_term', None) or getattr(first_scenario, 'shortTerm', None)
                     point_keys = ['point1']
                 elif term == 'long':
-                    term_data = first_scenario.longTerm
+                    term_data = getattr(first_scenario, 'long_term', None) or getattr(first_scenario, 'longTerm', None)
                     point_keys = ['point1', 'point2', 'point3', 'point4']
                 else:  # mid 또는 기본값
-                    term_data = first_scenario.midTerm
+                    term_data = getattr(first_scenario, 'mid_term', None) or getattr(first_scenario, 'midTerm', None)
                     point_keys = ['point1', 'point2', 'point3', 'point4', 'point5']
 
                 # AAL들의 평균 계산
@@ -1395,7 +1395,7 @@ SSP 시나리오: {context.get('ssp_scenario', 'N/A')}
 
                 # LLM 조언 생성
                 context = {
-                    'risk_type': first_scenario.riskType,
+                    'risk_type': getattr(first_scenario, 'risk_type', None) or getattr(first_scenario, 'riskType', None),
                     'ssp_scenario': first_scenario.scenario.value,
                     'avg_aal': avg_aal
                 }

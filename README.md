@@ -1,13 +1,11 @@
-# Polaris Physical Risk Analysis Backend
+# SKAX Physical Risk Analysis System
 
 **AI Agent 기반 사업장 기후 물리적 리스크 분석 시스템**
 
-[![Python](https://img.shields.io/badge/Python-3.11.9-blue.svg)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.116.1-009688.svg)](https://fastapi.tiangolo.com/)
 [![LangChain](https://img.shields.io/badge/LangChain-1.1.0-00A67E.svg)](https://langchain.com/)
 [![LangGraph](https://img.shields.io/badge/LangGraph-1.0.3-FF6F00.svg)](https://langchain-ai.github.io/langgraph/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16+-336791.svg)](https://www.postgresql.org/)
-[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://www.docker.com/)
 
 ## 📋 목차
 
@@ -25,18 +23,16 @@
 
 ## 개요
 
-Polaris Physical Risk Analysis Backend는 **기후 변화로 인한 물리적 리스크를 AI Agent 기반으로 분석**하는 FastAPI 백엔드 시스템입니다. LangGraph를 활용한 워크플로우 오케스트레이션으로 9가지 재해 유형에 대한 리스크 점수, 재무 영향(AAL), TCFD 대응 전략을 자동 생성합니다.
+SKAX Physical Risk Analysis System은 **기후 변화로 인한 물리적 리스크를 AI Agent 기반으로 분석**하는 FastAPI 백엔드 시스템이다. LangGraph를 활용한 워크플로우 오케스트레이션으로 9가지 재해 유형에 대한 리스크 점수, 재무 영향(AAL), TCFD 대응 전략을 자동 생성한다.
 
 ### 핵심 특징
 
-- **AI Agent 기반 분석**: LangGraph로 구현된 11개 노드, 26개 Sub-Agent 협업
+- **AI Agent 기반 분석**: LangGraph로 구현된 11개 노드, 26개 Sub-Agent (ModelOps 연동)
 - **Fork-Join 병렬 처리**: Physical Risk Score, AAL 분석, Building Characteristics 동시 실행
 - **자동 보고서 생성**: LLM 기반 TCFD/ESG 보고서 자동 작성 (정량/정성 통합)
-- **ModelOps API 연동**: 외부 ML 모델 서버에서 H, E, V, AAL 계산 수행
-- **PostgreSQL Datawarehouse**: ERD v03 기반 45개 테이블 (Wide Format, 약 4.5억 행)
+- **ModelOps API 연동**: 외부 서버에서 H, E, V, AAL 계산 수행
 - **추가 데이터 반영**: 사용자 제공 데이터로 Node 5 이후 재실행 (캐시 활용)
-- **Spring Boot Gateway 연동**: RESTful API 프록시 패턴
-- **GCP Cloud Run 배포**: Docker 컨테이너 기반 자동 배포 파이프라인
+- **Spring Boot 연동**: RESTful API로 Spring Boot 서버와 통신
 
 ---
 

@@ -379,13 +379,19 @@ class SimulationService:
             [DB 연동] 기후 시뮬레이션 실행
             1. 행정구역별(주요 지점) Hazard 점수 조회 (hazard_results)
             2. 사업장별(Site ID) AAL 조회 (aal_scaled_results)
+
+            NOTE: start_year, end_year 파라미터와 무관하게 2025~2100년까지 5년 간격 데이터 반환
             """
             self.logger.info(f"[SIMULATION] 시뮬레이션 시작: scenario={request.scenario}, hazard={request.hazard_type}")
 
             try:
                 db = DatabaseManager()
 
-                # 0. hazard_type 한글 → 영어 변환
+                # 0. 고정된 연도 범위 설정 (2025~2100, 5년 간격)
+                fixed_years = list(range(2025, 2101, 5))  # [2025, 2030, 2035, ..., 2095, 2100]
+                self.logger.info(f"[SIMULATION] 고정 연도 범위 사용: {fixed_years[0]}~{fixed_years[-1]} ({len(fixed_years)}개 연도)")
+
+                # 1. hazard_type 한글 → 영어 변환
                 hazard_type_en = request.hazard_type
                 if request.hazard_type in RISK_TYPE_ALIAS_MAPPING:
                     hazard_type_en = RISK_TYPE_ALIAS_MAPPING[request.hazard_type]
@@ -393,7 +399,7 @@ class SimulationService:
                 elif request.hazard_type not in RISK_TYPE_EN:
                     self.logger.warning(f"[SIMULATION] 알 수 없는 hazard_type: {request.hazard_type}, 그대로 사용")
 
-                # 1. 시나리오에 따른 동적 컬럼명 결정 (예: ssp585_score_100, ssp585_final_aal)
+                # 2. 시나리오에 따른 동적 컬럼명 결정 (예: ssp585_score_100, ssp585_final_aal)
                 # request.scenario가 Enum인 경우 문자열 처리
                 scenario_str = str(request.scenario.value) if hasattr(request.scenario, "value") else str(request.scenario)
                 # "SSP5-8.5" -> "ssp585" 변환
@@ -404,14 +410,14 @@ class SimulationService:
                 aal_col = f"{prefix}_final_aal"
 
                 # =========================================================
-                # Step A. 사업장(Site) AAL 조회
+                # Step A. 사업장(Site) AAL 조회 - 2025~2100년 5년 간격
                 # =========================================================
                 site_aals_map = {}
-                
+
                 if request.site_ids:
                     # UUID 리스트를 문자열 튜플로 변환
                     site_ids_tuple = tuple(str(sid) for sid in request.site_ids)
-                    
+
                     query_site = f"""
                         SELECT
                             site_id,
@@ -420,11 +426,11 @@ class SimulationService:
                         FROM aal_scaled_results
                         WHERE site_id IN %s
                         AND risk_type = %s
-                        AND target_year BETWEEN %s AND %s
+                        AND target_year IN ({','.join(str(y) for y in fixed_years)})
                     """
 
                     # DBManager execute_query 사용 (변환된 영문 hazard_type 사용)
-                    site_rows = db.execute_query(query_site, (site_ids_tuple, hazard_type_en, str(request.start_year), str(request.end_year)))
+                    site_rows = db.execute_query(query_site, (site_ids_tuple, hazard_type_en))
                     
                     for row in site_rows:
                         s_id = str(row['site_id']) # UUID -> str
@@ -436,7 +442,7 @@ class SimulationService:
                         site_aals_map[s_id][year] = val
 
                 # =========================================================
-                # Step B. 행정구역(Region) 점수 조회 (좌표 기반) - OPTIMIZED
+                # Step B. 행정구역(Region) 점수 조회 (좌표 기반) - 2025~2100년 5년 간격
                 # =========================================================
                 region_scores_map = {}
 
@@ -454,7 +460,7 @@ class SimulationService:
 
                     coords_clause = ', '.join(coords_values)
 
-                    # 2. 단일 쿼리로 모든 지역의 모든 연도 데이터 조회
+                    # 2. 단일 쿼리로 모든 지역의 모든 연도 데이터 조회 (고정 연도 범위)
                     query_region_batch = f"""
                         WITH target_coords AS (
                             SELECT * FROM (VALUES {coords_clause})
@@ -469,7 +475,7 @@ class SimulationService:
                             SELECT target_year, {score_col}
                             FROM hazard_results
                             WHERE risk_type = %s
-                            AND target_year BETWEEN %s AND %s
+                            AND target_year IN ({','.join(str(y) for y in fixed_years)})
                             ORDER BY (
                                 POW(latitude - tc.target_lat::numeric, 2) +
                                 POW(longitude - tc.target_lng::numeric, 2)
@@ -482,7 +488,7 @@ class SimulationService:
                     try:
                         region_rows = db.execute_query(
                             query_region_batch,
-                            (hazard_type_en, str(request.start_year), str(request.end_year))
+                            (hazard_type_en,)
                         )
 
                         # 결과를 region_scores_map에 저장

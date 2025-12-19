@@ -110,7 +110,7 @@ workflow_graph_*.png
 
 # Data files (if any)
 data/
-*.csv
+
 *.xlsx
 *.json
 !config/*.json

@@ -461,28 +461,34 @@ class SimulationService:
                     coords_clause = ', '.join(coords_values)
 
                     # 2. 단일 쿼리로 모든 지역의 모든 연도 데이터 조회 (고정 연도 범위)
+                    # 각 지역/연도 조합마다 가장 가까운 좌표의 데이터를 가져옴
                     query_region_batch = f"""
                         WITH target_coords AS (
                             SELECT * FROM (VALUES {coords_clause})
                             AS t(region_code, target_lat, target_lng)
+                        ),
+                        target_years AS (
+                            SELECT * FROM (VALUES {','.join("('" + str(y) + "')" for y in fixed_years)})
+                            AS y(year)
                         )
-                        SELECT DISTINCT ON (tc.region_code, hr.target_year)
+                        SELECT DISTINCT ON (tc.region_code, ty.year)
                             tc.region_code,
-                            hr.target_year,
+                            ty.year as target_year,
                             hr.{score_col} as score
                         FROM target_coords tc
+                        CROSS JOIN target_years ty
                         CROSS JOIN LATERAL (
-                            SELECT target_year, {score_col}
+                            SELECT {score_col}
                             FROM hazard_results
                             WHERE risk_type = %s
-                            AND target_year IN ({','.join("'" + str(y) + "'" for y in fixed_years)})
+                            AND target_year = ty.year
                             ORDER BY (
                                 POW(latitude - tc.target_lat::numeric, 2) +
                                 POW(longitude - tc.target_lng::numeric, 2)
                             ) ASC
                             LIMIT 1
                         ) hr
-                        ORDER BY tc.region_code, hr.target_year
+                        ORDER BY tc.region_code, ty.year
                     """
 
                     try:
